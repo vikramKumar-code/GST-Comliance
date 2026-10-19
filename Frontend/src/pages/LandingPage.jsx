@@ -42,7 +42,7 @@ export default function LandingPage() {
       <header className="landing-navbar">
         <div className="container d-flex justify-content-between align-items-center">
           <Link to="/" className="landing-brand">
-            <span className="badge bg-primary fs-6 px-3 py-2">CandiTech</span>
+            <span className="badge bg-primary fs-6 px-3 py-2">CandidTech</span>
             <span>GST</span>
           </Link>
           <nav className="landing-nav-links">
