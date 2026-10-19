@@ -1,0 +1,127 @@
+const Joi = require('joi');
+const ApiError = require('../utils/apiError');
+const { GSTIN_REGEX, OTP_REGEX, isValidPeriod } = require('../utils/gstin');
+
+// Custom Joi validator for non-future MMYYYY period
+const periodValidator = (value, helpers) => {
+  if (!isValidPeriod(value)) {
+    return helpers.error('period.invalid');
+  }
+  return value;
+};
+
+// 1. GSTIN Search Schema
+const searchGstinSchema = Joi.object({
+  gstin: Joi.string()
+    .trim()
+    .uppercase()
+    .pattern(GSTIN_REGEX)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid GSTIN format. Must be 15 alphanumeric characters.',
+      'string.empty': 'GSTIN is required.',
+      'any.required': 'GSTIN is required.'
+    })
+});
+
+// 2. OTP Request Schema
+const requestOtpSchema = Joi.object({
+  gstin: Joi.string()
+    .trim()
+    .uppercase()
+    .pattern(GSTIN_REGEX)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid GSTIN format.',
+      'any.required': 'GSTIN is required.'
+    }),
+  username: Joi.string()
+    .trim()
+    .min(1)
+    .required()
+    .messages({
+      'string.empty': 'Username is required.',
+      'any.required': 'Username is required.'
+    }),
+  consent: Joi.boolean()
+    .valid(true)
+    .required()
+    .messages({
+      'any.only': 'Taxpayer consent is mandatory to request OTP.',
+      'any.required': 'Taxpayer consent is mandatory.'
+    })
+});
+
+// 3. OTP Verify Schema
+const verifyOtpSchema = Joi.object({
+  gstin: Joi.string()
+    .trim()
+    .uppercase()
+    .pattern(GSTIN_REGEX)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid GSTIN format.',
+      'any.required': 'GSTIN is required.'
+    }),
+  username: Joi.string()
+    .trim()
+    .min(1)
+    .required()
+    .messages({
+      'string.empty': 'Username is required.',
+      'any.required': 'Username is required.'
+    }),
+  otp: Joi.string()
+    .trim()
+    .pattern(OTP_REGEX)
+    .required()
+    .messages({
+      'string.pattern.base': 'OTP must be 4 to 8 digits.',
+      'any.required': 'OTP is required.'
+    })
+});
+
+// 4. Period Query Schema for returns & dashboard
+const periodQuerySchema = Joi.object({
+  period: Joi.string()
+    .trim()
+    .custom(periodValidator, 'Period validation')
+    .required()
+    .messages({
+      'period.invalid': 'Invalid period. Must be MMYYYY, month 01-12, and cannot be in the future.',
+      'any.required': 'Tax period (MMYYYY) is required.'
+    })
+});
+
+/**
+ * Generic Joi validation middleware generator
+ * @param {Joi.ObjectSchema} schema - The Joi schema to validate against
+ * @param {'body'|'query'|'params'} property - Request property to inspect
+ */
+const validate = (schema, property = 'body') => (req, res, next) => {
+  const { error, value } = schema.validate(req[property], {
+    abortEarly: false,
+    stripUnknown: true
+  });
+
+  if (error) {
+    const errorDetails = error.details.map((d) => d.message).join('; ');
+    const isGstinError = error.details.some((d) => d.path.includes('gstin'));
+
+    if (isGstinError) {
+      return next(ApiError.invalidGstin(errorDetails));
+    }
+    return next(ApiError.validationError(errorDetails));
+  }
+
+  req[property] = value;
+  next();
+};
+
+module.exports = {
+  validate,
+  searchGstinSchema,
+  requestOtpSchema,
+  verifyOtpSchema,
+  periodQuerySchema
+};
