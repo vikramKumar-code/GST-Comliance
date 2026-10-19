@@ -1,0 +1,78 @@
+import client from './client';
+
+/**
+ * Fetch summary of filed returns and available periods
+ * @param {string} [period] - Period in MMYYYY format (e.g. "092026")
+ * @returns {Promise<{ filedReturns: Array<Object>, availablePeriods: Array<string> }>}
+ */
+export const getReturnsSummary = async (period) => {
+  return client.get('/returns/summary', {
+    params: period ? { period } : undefined,
+  });
+};
+
+/**
+ * Fetch GSTR-1 sales data for a specific period
+ * @param {string} period - Period in MMYYYY format
+ * @returns {Promise<import('./types').ReturnData>}
+ */
+export const getGstr1 = async (period) => {
+  return client.get('/returns/gstr1', {
+    params: { period },
+  });
+};
+
+/**
+ * Fetch GSTR-2B inward supplies / eligible ITC data for a specific period
+ * @param {string} period - Period in MMYYYY format
+ * @returns {Promise<import('./types').ReturnData>}
+ */
+export const getGstr2b = async (period) => {
+  return client.get('/returns/gstr2b', {
+    params: { period },
+  });
+};
+
+/**
+ * Fetch GSTR-3B monthly tax summary & liability data for a specific period
+ * @param {string} period - Period in MMYYYY format
+ * @returns {Promise<import('./types').ReturnData>}
+ */
+export const getGstr3b = async (period) => {
+  return client.get('/returns/gstr3b', {
+    params: { period },
+  });
+};
+
+/**
+ * Fetch aggregate dashboard metrics for a period
+ * @param {string} period - Period in MMYYYY format
+ * @returns {Promise<import('./types').Dashboard>}
+ */
+export const getDashboard = async (period) => {
+  return client.get('/dashboard', {
+    params: { period },
+  });
+};
+
+/**
+ * Convenience helper to fetch return by return type (gstr1, gstr2b, gstr3b)
+ * @param {'gstr1'|'gstr2b'|'gstr3b'|'GSTR1'|'GSTR2B'|'GSTR3B'} type
+ * @param {string} period
+ */
+export const getReturnByType = async (type, period) => {
+  const normalizedType = String(type).toLowerCase();
+  switch (normalizedType) {
+    case 'gstr1':
+      return getGstr1(period);
+    case 'gstr2b':
+      return getGstr2b(period);
+    case 'gstr3b':
+      return getGstr3b(period);
+    default:
+      throw {
+        code: 'VALIDATION_ERROR',
+        message: `Unknown return type: ${type}. Expected gstr1, gstr2b, or gstr3b.`,
+      };
+  }
+};

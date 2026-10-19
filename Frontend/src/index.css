@@ -1,0 +1,144 @@
+/* ==========================================================================
+   GST Compliance Platform - Simple & Attractive Modern Fintech Theme
+   ========================================================================== */
+
+:root {
+  --bs-body-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --bs-body-bg: #f8fafc;
+  --bs-body-color: #1e293b;
+  --bs-card-bg: #ffffff;
+  --bs-card-border-color: #e2e8f0;
+  --bs-primary: #2563eb;
+  --bs-primary-rgb: 37, 99, 235;
+}
+
+body {
+  background-color: #f8fafc !important;
+  color: #1e293b !important;
+  font-family: var(--bs-body-font-family);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Clean Cards */
+.card {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #1e293b !important;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+}
+
+/* Clean Form Controls */
+.form-control, .form-select {
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  padding: 0.65rem 0.9rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-control:focus, .form-select:focus {
+  background-color: #ffffff !important;
+  border-color: #2563eb !important;
+  color: #0f172a !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+}
+
+.form-control::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Checkbox */
+.form-check-input {
+  background-color: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 4px;
+}
+
+.form-check-input:checked {
+  background-color: #2563eb;
+  border-color: #2563eb;
+}
+
+/* Primary Button */
+.btn-primary {
+  background-color: #2563eb !important;
+  border: 1px solid #1d4ed8 !important;
+  color: #ffffff !important;
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #1d4ed8 !important;
+  border-color: #1e40af !important;
+  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+  transform: translateY(-1px);
+}
+
+.btn-outline-secondary {
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+  background-color: #ffffff !important;
+  border-radius: 8px;
+}
+
+.btn-outline-secondary:hover:not(:disabled) {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
+/* Table Clean Styling */
+.table {
+  --bs-table-bg: #ffffff;
+  --bs-table-color: #1e293b;
+  --bs-table-border-color: #e2e8f0;
+}
+
+.table thead th {
+  background-color: #f8fafc !important;
+  color: #475569 !important;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.table-striped > tbody > tr:nth-of-type(odd) > * {
+  background-color: #fafbfc !important;
+  color: #1e293b !important;
+}
+
+.table-hover > tbody > tr:hover > * {
+  background-color: #f1f5f9 !important;
+}
+
+/* Return cards hover */
+.return-hover-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 12px;
+}
+
+.return-hover-card:hover {
+  transform: translateY(-2px);
+  border-color: #2563eb !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+}
+
+/* Helper Utilities */
+.letter-spacing-lg {
+  letter-spacing: 0.3em;
+}
+
+.font-monospace {
+  font-family: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+}
