@@ -8,6 +8,7 @@ A secure taxpayer portal to verify identity via GSTN OTP and inspect GSTR-1 (sal
 
 | Component | Task | Description | Status |
 |-----------|------|-------------|--------|
+| **Setup** | S0 - Folder setup | S0 - Folder setup: Done | Done |
 | **Backend** | Task 1: Foundation & Utils | Config loader, MongoDB connection, AES-256-GCM crypto, redacted logger, ApiError, GSTIN/period validation | ✅ Complete |
 | **Backend** | Task 2: MongoDB Models | Mongoose models with TTL indexes (`Session`, `OtpState`, `GstinCache`, `Return`, `Consent`, `AuditLog`, `User`) | ✅ Complete |
 | **Backend** | Task 3: Validation & Middleware | Joi validation schemas, in-memory rate limiting, cookie-based JWT session auth, centralized error handler | ✅ Complete |

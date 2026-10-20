@@ -1,0 +1,7 @@
+{
+    "status_cd": "0",
+    "error": {
+        "error_cd": "RET2B1023",
+        "message": "GSTN Error: GSTR-2B is being generated and should be available by 14/02/2022. Either you do not have any records in GSTR-2B or the generation is still in progress. If you are still not able to access it, please raise a ticket with GST support team."
+    }
+}
