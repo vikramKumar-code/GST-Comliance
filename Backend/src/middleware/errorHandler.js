@@ -10,10 +10,7 @@ const { isProduction } = require('../config/env');
 const errorHandler = (err, req, res, next) => {
   // 1. Handled Operational Errors (ApiError)
   if (err instanceof ApiError) {
-    logger.warn(`ApiError [${err.code}] (${err.statusCode}): ${err.message}`, {
-      path: req.originalUrl,
-      method: req.method
-    });
+    logger.warn(`ApiError [${err.code}] (${err.statusCode}): ${err.message}`);
 
     return res.status(err.statusCode).json({
       success: false,
@@ -32,12 +29,8 @@ const errorHandler = (err, req, res, next) => {
   }
 
   // 3. Unhandled Server Errors (Status 500)
-  // Per Section 11: Errors with status 500 return a generic message; internal details are withheld.
-  logger.error(`Unhandled Server Error: ${err.message}`, {
-    stack: err.stack,
-    path: req.originalUrl,
-    method: req.method
-  });
+  // Per Section 11 & TAXPRO_ADDENDUM: Errors with status 500 return a generic message; internal details and URLs are not logged.
+  logger.error(`Unhandled Server Error: ${err.message}`);
 
   return res.status(500).json({
     success: false,

@@ -1,11 +1,19 @@
 require('dotenv').config();
 
+if (!process.env.NODE_ENV) {
+  console.warn('[WARN] NODE_ENV is not set explicitly: cookies will not be Secure and test hooks are off.');
+}
+
 const config = {
   PORT: parseInt(process.env.PORT, 10) || 4000,
   NODE_ENV: process.env.NODE_ENV || 'development',
   MONGO_URI: process.env.MONGO_URI || 'mongodb://localhost:27017/gstapp',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
   USE_MOCK: process.env.USE_MOCK !== 'false', // Default to true per specs
+  PROVIDER: process.env.PROVIDER || 'mock',
+  TAXPRO_BASE_URL: process.env.TAXPRO_BASE_URL || 'https://gstsandbox.charteredinfo.com',
+  TAXPRO_ASPID: process.env.TAXPRO_ASPID || '',
+  TAXPRO_PASSWORD: process.env.TAXPRO_PASSWORD || '',
   FINAGG_BASE_URL: process.env.FINAGG_BASE_URL || '',
   FINAGG_API_KEY: process.env.FINAGG_API_KEY || '',
   DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY || '',

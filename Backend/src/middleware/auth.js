@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../config/env');
 const Session = require('../models/Session');
 const ApiError = require('../utils/apiError');
+const { decrypt } = require('../utils/crypto');
 
 /**
  * Authentication middleware
@@ -42,6 +43,13 @@ const auth = async (req, res, next) => {
     req.session = session;
     req.gstin = session.gstin;
     req.username = session.username;
+    if (session.gstTokenEnc) {
+      try {
+        req.gstToken = decrypt(session.gstTokenEnc);
+      } catch {
+        req.gstToken = null;
+      }
+    }
 
     next();
   } catch (error) {

@@ -6,10 +6,10 @@ const ApiError = require('../utils/apiError');
  */
 class FinaggMock {
   /**
-   * Check for simulated provider downtime (GSTIN starting with '99')
+   * Check for simulated provider downtime (GSTIN starting with '99' or test switch)
    */
-  static _checkProviderDown(gstin) {
-    if (gstin && gstin.startsWith('99')) {
+  static _checkProviderDown(gstin, options = {}) {
+    if (options.simulateDown || (gstin && gstin.startsWith('99'))) {
       throw ApiError.providerDown('FinAGG mock: GST system or provider temporarily unavailable.');
     }
   }
@@ -33,28 +33,27 @@ class FinaggMock {
       status: 'Active',
       taxpayerType: 'Regular',
       state: 'Maharashtra',
-      registrationDate: '2018-07-01'
+      registrationDate: '2018-07-01',
+      verified: true
     };
   }
 
   /**
    * Request OTP from GST System
    * - GSTIN starting with '99' simulates PROVIDER_DOWN
-   * - Valid requests always succeed. Mock OTP is '123456'
+   * - OTPREQUEST returns { status_cd: "1" } per real sample
    */
   static async requestOtp(gstin, username) {
     FinaggMock._checkProviderDown(gstin);
 
     return {
-      message: 'OTP has been dispatched successfully to the registered mobile/email on GST portal.',
-      // Intentionally omitting real OTP from the return payload per Section 3 Rule 5
-      deliveryChannel: 'SMS/Email'
+      status_cd: '1'
     };
   }
 
   /**
    * Verify OTP with GST System
-   * - OTP '123456' succeeds and issues a mock GST session token
+   * - OTP '123456' succeeds and returns { status_cd: "1", auth_token: <fake>, expiry: "", sek: "" }
    * - Any other OTP throws OTP_INVALID
    */
   static async verifyOtp(gstin, username, otp) {
@@ -67,17 +66,19 @@ class FinaggMock {
     const mockGstToken = `mock_gst_token_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
 
     return {
-      gstin,
-      token: mockGstToken,
-      expiresIn: 21600 // 6 hours in seconds
+      status_cd: '1',
+      auth_token: mockGstToken,
+      expiry: '',
+      sek: '',
+      token: mockGstToken
     };
   }
 
   /**
    * Fetch returns summary (available periods and filing status)
    */
-  static async getReturnsSummary(gstin, requestedPeriod) {
-    FinaggMock._checkProviderDown(gstin);
+  static async getReturnsSummary(gstin, requestedPeriod, options = {}) {
+    FinaggMock._checkProviderDown(gstin, options);
 
     return {
       gstin,
@@ -93,11 +94,17 @@ class FinaggMock {
   /**
    * Fetch raw provider-like return data for GSTR1, GSTR2B, or GSTR3B
    */
-  static async getReturn(type, gstin, period) {
-    FinaggMock._checkProviderDown(gstin);
+  static async getReturn(type, gstin, period, options = {}) {
+    FinaggMock._checkProviderDown(gstin, options);
+
+    // GSTR-2B for period 012022 simulates RET2B1023 (DATA_NOT_AVAILABLE) per doc/gstr2b-error-RET2B1023.json
+    if (type.toUpperCase() === 'GSTR2B' && period === '012022') {
+      throw ApiError.dataNotAvailable('Data for this period is not available yet. Try another month.');
+    }
 
     switch (type.toUpperCase()) {
       case 'GSTR1':
+        // mock shape, not verified
         return {
           gstin,
           period,
@@ -139,6 +146,7 @@ class FinaggMock {
         };
 
       case 'GSTR2B':
+        // mock shape, not verified
         return {
           gstin,
           period,
@@ -176,6 +184,7 @@ class FinaggMock {
         };
 
       case 'GSTR3B':
+        // mock shape, not verified
         return {
           gstin,
           period,

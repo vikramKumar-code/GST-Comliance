@@ -35,8 +35,12 @@ class ApiError extends Error {
     return new ApiError('PROVIDER_DOWN', message, 503);
   }
 
-  static providerError(message = 'Request rejected by GST provider') {
-    return new ApiError('PROVIDER_ERROR', message, 400);
+  static providerError(message = 'Could not complete the request. Please try again.', statusCode = 502) {
+    return new ApiError('PROVIDER_ERROR', message, statusCode);
+  }
+
+  static dataNotAvailable(message = 'Data for this period is not available yet. Try another month.') {
+    return new ApiError('DATA_NOT_AVAILABLE', message, 404);
   }
 
   static serverError(message = 'Internal server error') {
