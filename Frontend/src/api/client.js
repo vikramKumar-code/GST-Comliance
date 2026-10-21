@@ -11,6 +11,21 @@ const client = axios.create({
   timeout: 30000,
 });
 
+const FRIENDLY_ERROR_MESSAGES = {
+  INVALID_GSTIN: 'Taxpayer GSTIN not found or invalid format.',
+  VALIDATION_ERROR: 'Invalid input parameters. Please check your entries.',
+  OTP_INVALID: 'Invalid or expired OTP. Please check and try again.',
+  SESSION_EXPIRED: 'Please verify OTP again.',
+  DATA_NOT_AVAILABLE: 'Data for this period is not available yet. Try another month.',
+  RATE_LIMITED: 'Too many requests. Please wait and try again.',
+  PROVIDER_AUTH: 'Could not complete the request. Please try again.',
+  PROVIDER_DOWN: 'GST service is unavailable. Please try again later.',
+  PROVIDER_ERROR: 'Could not complete the request. Please try again.',
+  SERVER_ERROR: 'Internal server error. Please try again later.',
+  TIMEOUT: 'Request timed out. Please try again.',
+  NETWORK_ERROR: 'Network connection failed. Please try again.',
+};
+
 // Response interceptor
 client.interceptors.response.use(
   (response) => {
@@ -27,33 +42,33 @@ client.interceptors.response.use(
     if (!code) {
       if (status === 401) {
         code = 'SESSION_EXPIRED';
-        message = message || 'Session expired or invalid. Please log in again.';
+      } else if (status === 404) {
+        code = 'DATA_NOT_AVAILABLE';
       } else if (status === 429) {
         code = 'RATE_LIMITED';
-        message = message || 'Too many requests. Please try again after a few minutes.';
       } else if (status === 502) {
         code = 'PROVIDER_AUTH';
-        message = message || 'GST Provider authentication error.';
       } else if (status === 503) {
         code = 'PROVIDER_DOWN';
-        message = message || 'GST Service or provider is temporarily down. Please try later.';
       } else if (status >= 500) {
         code = 'SERVER_ERROR';
-        message = message || 'Internal server error occurred.';
-      } else if (status === 400) {
+      } else if (status >= 400) {
         code = 'VALIDATION_ERROR';
-        message = message || 'Invalid request.';
       } else if (error.code === 'ECONNABORTED') {
         code = 'TIMEOUT';
-        message = message || 'Request timed out. Please try again.';
       } else {
         code = 'NETWORK_ERROR';
-        message = message || error.message || 'Network connection failed.';
       }
     }
 
-    if (!message) {
-      message = error.message || 'An unexpected error occurred.';
+    // Per rules: Never show raw backend or provider messages for PROVIDER_*
+    if (code === 'PROVIDER_AUTH' || code === 'PROVIDER_ERROR') {
+      message = 'Could not complete the request. Please try again.';
+    } else if (code === 'PROVIDER_DOWN') {
+      message = 'GST service is unavailable. Please try again later.';
+    } else if (!message || FRIENDLY_ERROR_MESSAGES[code]) {
+      // Use friendly short message if errorData.message is generic or missing
+      message = FRIENDLY_ERROR_MESSAGES[code] || error.message || 'An unexpected error occurred.';
     }
 
     // Redirect to /login on SESSION_EXPIRED unless already on a public page
@@ -64,10 +79,11 @@ client.interceptors.response.use(
       }
     }
 
-    // Normalise error object to { code, message }
+    // Normalise error object to { code, message, status }
     return Promise.reject({
       code,
       message,
+      status,
     });
   }
 );

@@ -79,8 +79,8 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     try {
       await logoutApi();
-    } catch (err) {
-      console.warn('Logout API error:', err);
+    } catch {
+      // Ignore network/session logout errors during client state cleanup
     } finally {
       setUser(null);
       setError(null);

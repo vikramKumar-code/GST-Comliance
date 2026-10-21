@@ -1,3 +1,5 @@
+import { formatCurrency } from '../utils/format';
+
 export default function ReturnTable({ rows = [], totals }) {
   return (
     <div className="card shadow-sm border bg-white rounded-3">
@@ -24,11 +26,11 @@ export default function ReturnTable({ rows = [], totals }) {
               rows.map((row, idx) => (
                 <tr key={idx}>
                   <td className="fw-medium px-3 text-dark">{row.label}</td>
-                  <td className="text-end font-monospace px-3">{row.taxable?.toLocaleString('en-IN') || 0}</td>
-                  <td className="text-end font-monospace px-3">{row.igst?.toLocaleString('en-IN') || 0}</td>
-                  <td className="text-end font-monospace px-3">{row.cgst?.toLocaleString('en-IN') || 0}</td>
-                  <td className="text-end font-monospace px-3">{row.sgst?.toLocaleString('en-IN') || 0}</td>
-                  <td className="text-end font-monospace px-3">{row.cess?.toLocaleString('en-IN') || 0}</td>
+                  <td className="text-end font-monospace px-3">{formatCurrency(row.taxable || 0)}</td>
+                  <td className="text-end font-monospace px-3">{formatCurrency(row.igst || 0)}</td>
+                  <td className="text-end font-monospace px-3">{formatCurrency(row.cgst || 0)}</td>
+                  <td className="text-end font-monospace px-3">{formatCurrency(row.sgst || 0)}</td>
+                  <td className="text-end font-monospace px-3">{formatCurrency(row.cess || 0)}</td>
                 </tr>
               ))
             )}
@@ -37,11 +39,11 @@ export default function ReturnTable({ rows = [], totals }) {
             <tfoot className="table-light fw-bold border-top">
               <tr>
                 <td className="px-3 text-dark">Total</td>
-                <td className="text-end font-monospace px-3">{totals.taxable?.toLocaleString('en-IN') || 0}</td>
-                <td className="text-end font-monospace px-3">{totals.igst?.toLocaleString('en-IN') || 0}</td>
-                <td className="text-end font-monospace px-3">{totals.cgst?.toLocaleString('en-IN') || 0}</td>
-                <td className="text-end font-monospace px-3">{totals.sgst?.toLocaleString('en-IN') || 0}</td>
-                <td className="text-end font-monospace px-3">{totals.cess?.toLocaleString('en-IN') || 0}</td>
+                <td className="text-end font-monospace px-3">{formatCurrency(totals.taxable || 0)}</td>
+                <td className="text-end font-monospace px-3">{formatCurrency(totals.igst || 0)}</td>
+                <td className="text-end font-monospace px-3">{formatCurrency(totals.cgst || 0)}</td>
+                <td className="text-end font-monospace px-3">{formatCurrency(totals.sgst || 0)}</td>
+                <td className="text-end font-monospace px-3">{formatCurrency(totals.cess || 0)}</td>
               </tr>
             </tfoot>
           )}

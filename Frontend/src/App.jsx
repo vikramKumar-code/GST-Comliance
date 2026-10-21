@@ -30,15 +30,14 @@ export default function App() {
             path="/dashboard"
             element={
               <ProtectedRoute>
-                <Layout />
+                <Layout>
+                  <DashboardPage />
+                </Layout>
               </ProtectedRoute>
             }
-          >
-            <Route index element={<DashboardPage />} />
-            <Route path="returns/:type" element={<ReturnDetailPage />} />
-          </Route>
+          />
 
-          {/* Also support /returns/:type with Protected Layout */}
+          {/* Returns Detail Route */}
           <Route
             path="/returns/:type"
             element={
