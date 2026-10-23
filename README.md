@@ -23,6 +23,7 @@ A secure taxpayer portal to verify identity via GSTN OTP and inspect GSTR-1 (sal
 | **Backend** | Roadmap Step 1: TaxPro API inventory | Pasted API list grouped into an implementation matrix with current code status, version conflicts, and confirmation needed | ✅ Complete |
 | **Backend** | Roadmap Step 2: Repeatable mock E2E | Isolated child server, unique guarded test database, health wait, API suite, and cleanup; passed twice consecutively | ✅ Complete |
 | **Backend** | Roadmap Step 3: SaaS tenant foundation | One workspace per verified GSTIN, owner/member membership, active-membership checks, tenant-scoped return cache and workspace audit/consent metadata | Implemented; full E2E awaits local MongoDB |
+| **Backend** | Task 17: Secret & transport guards | Strict explicit NODE_ENV enforcement, dev fallback scoping, hardened production secret validation, repeated-char/zero key refusal, and fail-closed TAXPRO_DEC_PRODUCTION_APPROVED check | ✅ Complete |
 | **Frontend** | Task 1: Pages & Components | Landing page, LoginPage, OtpPage, DashboardPage, ReturnDetailPage, AuthContext, Axios client | ✅ Complete |
 | **Frontend** | Task 2 (F2): Mock Mode End-to-End | Full frontend-backend mock flow (login, OTP 123456, GstinForm, ProtectedRoute, dashboard summary, return tables, calm EmptyState for DATA_NOT_AVAILABLE, stale notice, dark mode & a11y) | ✅ Complete |
 
@@ -89,6 +90,7 @@ npm run dev
 - `TAXPRO_APP_VERSION` - Optional app identifier sent to TaxPro GSP
 - `TAXPRO_API_PROFILE` - `legacy` for comparing the provider email sandbox examples, or `current` for the latest official routes; production requires `current`
 - `TAXPRO_GSTR1_ACTION_REQUIRED` - Current profile only; set to TaxPro-confirmed `Y` or `N`
+- `TAXPRO_DEC_PRODUCTION_APPROVED` - Explicit human operator approval flag required in production because encrypted transport is not implemented and the adapter hardcodes `/dec/`
 - `DATA_ENCRYPTION_KEY` - 64 hex characters (32 bytes) for AES-256-GCM data encryption
 - `JWT_SECRET` - Secret key used for signing session cookies
 - `TENANT_IDENTITY_SECRET` - Stable secret (at least 32 characters in production) used to derive local user identity hashes; keep it stable across JWT secret rotations
@@ -213,7 +215,9 @@ Last checked on 2026-10-22: npm reported no known advisories in production depen
 8. **Closed Test Gaps (Mock Mode)**:
    - All mock mode test gaps have been verified in `Backend/scripts/test-api.js`: 4th OTP attempt lockout (max 3 attempts), invalid OTP formats ("12ab", "12"), invalid/future period formats ("132026", future year), Set-Cookie `HttpOnly` and `SameSite=Lax` headers, and stale cache fallback returning saved data with `stale: true` and `fetchedAt` (HTTP 200).
 9. **Server Deployment Rule (`NODE_ENV=production`)**:
-   - Production-mode startup now requires `PROVIDER=taxpro`, `USE_MOCK=false`, `TAXPRO_API_PROFILE=current`, HTTPS frontend URL, the exact TaxPro production origin `https://gstapi.charteredinfo.com`, TaxPro credentials, the registered ASP GSTIN/RSA PEM and allowlisted deployment IP, a 32-character JWT secret, a 64-character hex encryption key, and `SESSION_HOURS=1`. Current profile requires the TaxPro-confirmed GSTR-1 action flag. Test hooks are disabled in production. The adapter still calls decrypted `/dec/` taxpayer endpoints; TaxPro strongly recommends encrypted end-to-end API access for production, so this transport must be confirmed with TaxPro or replaced before production approval. Real credentials and sandbox E2E are also still required.
+   - Production-mode startup strictly requires `NODE_ENV=production` (fails if unset or unrecognized; dev fallback secrets are restricted strictly to `development` and `test`), `PROVIDER=taxpro`, `USE_MOCK=false`, `TAXPRO_API_PROFILE=current`, HTTPS frontend URL, the exact TaxPro production origin `https://gstapi.charteredinfo.com`, TaxPro credentials, the registered ASP GSTIN/RSA PEM and allowlisted deployment IP, and `SESSION_HOURS=1`. Current profile requires the TaxPro-confirmed GSTR-1 action flag.
+   - Secrets validation refuses unset, shorter than 32 characters, dev default values, placeholder tokens (`dev_secret`, `do_not_use`, `change_me`, `changeme`, `your_`, `example`, `password`), identical `JWT_SECRET` and `TENANT_IDENTITY_SECRET`, and `DATA_ENCRYPTION_KEY` consisting of a single repeated character or all zeros.
+   - Transport guard: Encrypted transport is not implemented in the codebase; the adapter currently hardcodes the decrypted `/dec/` transport. Production startup strictly refuses unless `TAXPRO_DEC_PRODUCTION_APPROVED=true` is explicitly set in the deployment environment by the operator after written provider approval. Test hooks are disabled in production. Real credentials and sandbox E2E are also still required.
 10. **Contact Message Handling**:
    - Contact submissions are retained in MongoDB for 180 days, but there is no staff inbox or configured email provider. Add and review a message delivery/handling workflow before enabling the public form in production.
 11. **Deployment and Live Verification**:

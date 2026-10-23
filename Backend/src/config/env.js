@@ -1,13 +1,17 @@
 require('dotenv').config();
 const net = require('node:net');
 
-if (!process.env.NODE_ENV) {
-  console.warn('[WARN] NODE_ENV is not set explicitly: cookies will not be Secure and test hooks are off.');
+const rawNodeEnv = process.env.NODE_ENV;
+if (!rawNodeEnv || !['development', 'test', 'production'].includes(rawNodeEnv)) {
+  throw new Error('NODE_ENV must be explicitly set to "development", "test", or "production"');
 }
+
+const isDevOrTest = rawNodeEnv === 'development' || rawNodeEnv === 'test';
+const isProduction = rawNodeEnv === 'production';
 
 const config = {
   PORT: parseInt(process.env.PORT, 10) || 4000,
-  NODE_ENV: process.env.NODE_ENV || 'development',
+  NODE_ENV: rawNodeEnv,
   MONGO_URI: process.env.MONGO_URI || 'mongodb://localhost:27017/gstapp',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
   USE_MOCK: process.env.USE_MOCK !== 'false', // Default to true per specs
@@ -22,17 +26,18 @@ const config = {
   TAXPRO_APP_VERSION: process.env.TAXPRO_APP_VERSION || 'CandidTax/1.0',
   TAXPRO_API_PROFILE: (process.env.TAXPRO_API_PROFILE || '').trim().toLowerCase(),
   TAXPRO_GSTR1_ACTION_REQUIRED: (process.env.TAXPRO_GSTR1_ACTION_REQUIRED || '').trim().toUpperCase(),
+  TAXPRO_DEC_PRODUCTION_APPROVED: (process.env.TAXPRO_DEC_PRODUCTION_APPROVED || '').trim(),
   FINAGG_BASE_URL: process.env.FINAGG_BASE_URL || '',
   FINAGG_API_KEY: process.env.FINAGG_API_KEY || '',
   DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY || '',
-  JWT_SECRET: process.env.JWT_SECRET || 'dev_secret_jwt_key_do_not_use_in_prod',
-  TENANT_IDENTITY_SECRET: process.env.TENANT_IDENTITY_SECRET || process.env.JWT_SECRET || 'dev_secret_jwt_key_do_not_use_in_prod',
+  JWT_SECRET: process.env.JWT_SECRET || (isDevOrTest ? 'dev_secret_jwt_key_do_not_use_in_prod' : ''),
+  TENANT_IDENTITY_SECRET: process.env.TENANT_IDENTITY_SECRET || (isDevOrTest ? (process.env.JWT_SECRET || 'dev_secret_jwt_key_do_not_use_in_prod') : ''),
   SESSION_HOURS: parseInt(process.env.SESSION_HOURS, 10) || 1,
   TRUST_PROXY_HOPS: Math.max(0, parseInt(process.env.TRUST_PROXY_HOPS, 10) || 0),
   CONTACT_INTAKE_ENABLED: process.env.CONTACT_INTAKE_ENABLED === undefined
-    ? process.env.NODE_ENV !== 'production'
+    ? !isProduction
     : process.env.CONTACT_INTAKE_ENABLED === 'true',
-  isProduction: process.env.NODE_ENV === 'production'
+  isProduction
 };
 
 if (config.isProduction) {
@@ -63,14 +68,48 @@ if (config.isProduction) {
     issues.push('Production must explicitly enable PROVIDER=taxpro and USE_MOCK=false');
   }
 
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
-    issues.push('JWT_SECRET must be set to at least 32 characters');
+  const DISALLOWED_SECRET_SUBSTRINGS = [
+    'dev_secret',
+    'do_not_use',
+    'change_me',
+    'changeme',
+    'your_',
+    'example',
+    'password'
+  ];
+
+  const validateProductionSecret = (varName, val) => {
+    if (!val) {
+      issues.push(`${varName} must be explicitly configured`);
+      return;
+    }
+    if (val.length < 32) {
+      issues.push(`${varName} must be set to at least 32 characters`);
+      return;
+    }
+    if (val === 'dev_secret_jwt_key_do_not_use_in_prod') {
+      issues.push(`${varName} must not use the development default secret`);
+      return;
+    }
+    const lower = val.toLowerCase();
+    if (DISALLOWED_SECRET_SUBSTRINGS.some((sub) => lower.includes(sub))) {
+      issues.push(`${varName} must not contain insecure placeholder tokens`);
+    }
+  };
+
+  validateProductionSecret('JWT_SECRET', process.env.JWT_SECRET);
+  validateProductionSecret('TENANT_IDENTITY_SECRET', process.env.TENANT_IDENTITY_SECRET);
+
+  if (process.env.JWT_SECRET && process.env.TENANT_IDENTITY_SECRET && process.env.JWT_SECRET === process.env.TENANT_IDENTITY_SECRET) {
+    issues.push('JWT_SECRET and TENANT_IDENTITY_SECRET must not be identical');
   }
-  if (!process.env.TENANT_IDENTITY_SECRET || process.env.TENANT_IDENTITY_SECRET.length < 32) {
-    issues.push('TENANT_IDENTITY_SECRET must be set to at least 32 characters and kept stable across JWT secret rotations');
-  }
+
   if (!/^[a-fA-F0-9]{64}$/.test(config.DATA_ENCRYPTION_KEY)) {
     issues.push('DATA_ENCRYPTION_KEY must be 64 hexadecimal characters');
+  } else if (/^0{64}$/.test(config.DATA_ENCRYPTION_KEY)) {
+    issues.push('DATA_ENCRYPTION_KEY must not be all zeros');
+  } else if (new Set(config.DATA_ENCRYPTION_KEY).size === 1) {
+    issues.push('DATA_ENCRYPTION_KEY must not be a single repeated character');
   }
   if (!isHttpsUrl(config.FRONTEND_URL) || new URL(config.FRONTEND_URL).origin !== config.FRONTEND_URL) {
     issues.push('FRONTEND_URL must use HTTPS');
@@ -94,6 +133,9 @@ if (config.isProduction) {
     }
   }
   if (liveTaxPro) {
+    if (process.env.TAXPRO_DEC_PRODUCTION_APPROVED !== 'true') {
+      issues.push('Production requires TAXPRO_DEC_PRODUCTION_APPROVED=true because only the unapproved /dec/ transport is implemented');
+    }
     if (!config.TAXPRO_ASPID || !config.TAXPRO_PASSWORD) {
       issues.push('TAXPRO_ASPID and TAXPRO_PASSWORD are required for live TaxPro mode');
     }

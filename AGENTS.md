@@ -41,7 +41,7 @@ Auth and session, cookies, rate limiting, encryption (AES-GCM), the TaxPro trans
 
 - Never guess endpoints, methods, bodies or response fields. Use `TAXPRO_API_LIST.md` and real samples. Unknown = `// [CONFIRM] from TaxPro docs` plus a TODO.
 - Production accepts only the production host and rejects the sandbox host. Do not weaken this guard.
-- The `/dec/` endpoints in production are **not approved**. Do not enable them for production. The encrypted integration stays behind the transport setting.
+- The `/dec/` endpoints in production are **not approved** by TaxPro. Encrypted transport is not implemented in the codebase; the adapter currently hardcodes the decrypted `/dec/` transport. Therefore, production startup strictly refuses unless the human operator explicitly sets `TAXPRO_DEC_PRODUCTION_APPROVED=true` in the environment after written provider approval. Never set this flag in any repository file or script.
 - Write APIs (save, submit, file, offset, EVCOTP, gstrptf, SAVEPREF, DOCUPLD) are always disabled and dry-run. Never set `FEATURE_FILING` or `FILING_PROD_APPROVED` in any env file or script. No refund calls.
 
 ## 6. Process for every task

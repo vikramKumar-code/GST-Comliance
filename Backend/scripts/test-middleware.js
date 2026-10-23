@@ -1,3 +1,4 @@
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 const assert = require('node:assert/strict');
 const express = require('express');
 const cookieParser = require('cookie-parser');
@@ -211,6 +212,7 @@ async function main() {
     // Group 2: Rate Limit Middleware
     // ------------------------------------------------------------------------
     await runAsyncCheck('rateLimit: the 6th OTP request from one IP returns 429 RATE_LIMITED', async () => {
+      await mongoose.connection.db.collection('rate_limit_counters').deleteMany({}).catch(() => {});
       // First 5 requests should succeed
       for (let i = 1; i <= 5; i++) {
         const res = await request(baseUrl, '/test/ratelimit/otp', { method: 'POST' });
