@@ -13,6 +13,16 @@ const sessionSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    workspaceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      default: null
+    },
+    memberId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'WorkspaceMember',
+      default: null
+    },
     gstTokenEnc: {
       type: String,
       required: true

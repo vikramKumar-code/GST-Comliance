@@ -28,9 +28,17 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  if (err.status === 413 || err.type === 'entity.too.large') {
+    return res.status(413).json({
+      success: false,
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'Request body exceeds the allowed size.'
+    });
+  }
+
   // 3. Unhandled Server Errors (Status 500)
   // Per Section 11 & TAXPRO_ADDENDUM: Errors with status 500 return a generic message; internal details and URLs are not logged.
-  logger.error(`Unhandled Server Error: ${err.message}`);
+  logger.error('Unhandled Server Error', { name: err.name });
 
   return res.status(500).json({
     success: false,

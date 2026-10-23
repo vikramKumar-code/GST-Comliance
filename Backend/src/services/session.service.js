@@ -8,22 +8,22 @@ class SessionService {
   /**
    * Create an authenticated session, encrypt GST token, and generate JWT cookie payload
    */
-  static async createSession(gstin, username, gstToken) {
+  static async createSession(gstin, username, gstToken, tenant = {}) {
     const gstTokenEnc = encrypt(gstToken);
     const expiresAt = new Date(Date.now() + SESSION_HOURS * 3600 * 1000);
 
     const session = await Session.create({
       gstin: gstin.toUpperCase(),
       username,
+      workspaceId: tenant.workspaceId || null,
+      memberId: tenant.memberId || null,
       gstTokenEnc,
       expiresAt
     });
 
     const token = jwt.sign(
       {
-        sessionId: session._id,
-        gstin: session.gstin,
-        username: session.username
+        sessionId: session._id
       },
       JWT_SECRET,
       { expiresIn: `${SESSION_HOURS}h` }
@@ -53,7 +53,7 @@ class SessionService {
    */
   static async destroySession(sessionId) {
     if (!sessionId) return;
-    await Session.findByIdAndDelete(sessionId).catch(() => {});
+    await Session.findByIdAndDelete(sessionId);
   }
 }
 

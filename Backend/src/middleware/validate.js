@@ -93,6 +93,13 @@ const periodQuerySchema = Joi.object({
     })
 });
 
+const contactSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(120).required(),
+  email: Joi.string().trim().email().max(254).required(),
+  subject: Joi.string().trim().min(1).max(200).required(),
+  message: Joi.string().trim().min(1).max(5000).required()
+});
+
 /**
  * Generic Joi validation middleware generator
  * @param {Joi.ObjectSchema} schema - The Joi schema to validate against
@@ -123,5 +130,6 @@ module.exports = {
   searchGstinSchema,
   requestOtpSchema,
   verifyOtpSchema,
-  periodQuerySchema
+  periodQuerySchema,
+  contactSchema
 };

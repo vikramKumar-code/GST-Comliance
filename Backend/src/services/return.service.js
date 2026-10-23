@@ -3,6 +3,7 @@ const Return = require('../models/Return');
 const { encrypt, decrypt } = require('../utils/crypto');
 const ApiError = require('../utils/apiError');
 const logger = require('../utils/logger');
+const SessionService = require('./session.service');
 
 class ReturnService {
   /**
@@ -141,9 +142,14 @@ class ReturnService {
   static async getReturn(type, gstin, period, gstToken, options = {}) {
     const normType = type.toUpperCase();
     const normGstin = gstin.toUpperCase();
+    // Each workspace owns exactly one GSTIN. Missing workspaceId matches legacy
+    // rows for that same GSTIN so rollout does not orphan encrypted cache data.
+    const scope = options.workspaceId
+      ? { gstin: normGstin, $or: [{ workspaceId: options.workspaceId }, { workspaceId: null }] }
+      : { gstin: normGstin };
 
     try {
-      const raw = await FinaggService.getReturn(normType, normGstin, period, gstToken, options);
+      const raw = await FinaggService.getReturn(normType, normGstin, period, gstToken, options.username, options);
 
       let mapped;
       if (normType === 'GSTR1') mapped = ReturnService.mapGstr1(raw, period);
@@ -154,16 +160,25 @@ class ReturnService {
       // Encrypt and persist to MongoDB
       const dataEnc = encrypt(mapped);
       await Return.findOneAndUpdate(
-        { gstin: normGstin, type: normType, period },
-        { dataEnc, fetchedAt: new Date() },
-        { upsert: true, new: true }
+        { ...scope, type: normType, period },
+        {
+          $set: {
+            dataEnc,
+            fetchedAt: new Date(),
+            ...(options.workspaceId ? { workspaceId: options.workspaceId } : {})
+          }
+        },
+        { upsert: true }
       );
 
       return mapped;
     } catch (error) {
+      if (error.code === 'SESSION_EXPIRED' && options.sessionId) {
+        await SessionService.destroySession(options.sessionId);
+      }
       // If provider is down, check for cached copy in MongoDB
       if (error.code === 'PROVIDER_DOWN' || error.statusCode === 503) {
-        const cached = await Return.findOne({ gstin: normGstin, type: normType, period });
+        const cached = await Return.findOne({ ...scope, type: normType, period });
         if (cached && cached.dataEnc) {
           try {
             const data = decrypt(cached.dataEnc, true);
@@ -186,13 +201,19 @@ class ReturnService {
    */
   static async getReturnsSummary(gstin, period, gstToken, options = {}) {
     const normGstin = gstin.toUpperCase();
+    const scope = options.workspaceId
+      ? { gstin: normGstin, $or: [{ workspaceId: options.workspaceId }, { workspaceId: null }] }
+      : { gstin: normGstin };
 
     try {
-      const summary = await FinaggService.getReturnsSummary(normGstin, period, gstToken, options);
+      const summary = await FinaggService.getReturnsSummary(normGstin, period, gstToken, options.username, options);
       return summary;
     } catch (error) {
+      if (error.code === 'SESSION_EXPIRED' && options.sessionId) {
+        await SessionService.destroySession(options.sessionId);
+      }
       if (error.code === 'PROVIDER_DOWN' || error.statusCode === 503) {
-        const cachedReturns = await Return.find({ gstin: normGstin }).sort({ period: -1 });
+        const cachedReturns = await Return.find(scope).sort({ period: -1 });
         if (cachedReturns && cachedReturns.length > 0) {
           const periodsSet = new Set(cachedReturns.map((r) => r.period));
           const availablePeriods = Array.from(periodsSet).map((p) => ({

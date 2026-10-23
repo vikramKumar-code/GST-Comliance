@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import client from '../api/client';
 import './landing.css';
 
 export default function LandingPage() {
@@ -12,6 +13,7 @@ export default function LandingPage() {
     message: '',
   });
   const [contactStatus, setContactStatus] = useState(null);
+  const [contactSubmitting, setContactSubmitting] = useState(false);
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
 
@@ -27,12 +29,17 @@ export default function LandingPage() {
 
   const handleContactSubmit = async (e) => {
     e.preventDefault();
-    // TODO: Submit to POST /api/contact once backend route is implemented
-    setContactStatus({
-      success: true,
-      message: 'Thank you! Your message has been received. (TODO: POST /api/contact)',
-    });
-    setContactForm({ name: '', email: '', subject: '', message: '' });
+    setContactSubmitting(true);
+    setContactStatus(null);
+    try {
+      const result = await client.post('/contact', contactForm);
+      setContactStatus({ success: true, message: result.message });
+      setContactForm({ name: '', email: '', subject: '', message: '' });
+    } catch (error) {
+      setContactStatus({ success: false, message: error.message || 'Could not send your message. Please try again.' });
+    } finally {
+      setContactSubmitting(false);
+    }
   };
 
   return (
@@ -41,8 +48,8 @@ export default function LandingPage() {
       <header className="landing-navbar">
         <div className="container d-flex justify-content-between align-items-center">
           <Link to="/" className="landing-brand">
-            <span className="badge bg-primary fs-6 px-3 py-2">CandidTech</span>
-            <span>GST</span>
+            <span className="brand-mark">GST</span>
+            <span className="brand-copy">CandidTax <small>GST COMPLIANCE</small></span>
           </Link>
           <nav className="landing-nav-links">
             <a href="#features" className="landing-nav-link d-none d-md-inline">Features</a>
@@ -336,8 +343,8 @@ export default function LandingPage() {
                 </div>
 
                 {contactStatus && (
-                  <div className="alert alert-success d-flex align-items-center mb-4 py-2 px-3 small rounded-3" role="status" aria-live="polite">
-                    <span className="me-2 fs-5">✓</span>
+                  <div className={`alert ${contactStatus.success ? 'alert-success' : 'alert-danger'} d-flex align-items-center mb-4 py-2 px-3 small rounded-3`} role="status" aria-live="polite">
+                    <span className="me-2 fs-5">{contactStatus.success ? '✓' : '!'}</span>
                     <div>{contactStatus.message}</div>
                   </div>
                 )}
@@ -351,6 +358,7 @@ export default function LandingPage() {
                       <input
                         id="contact-name"
                         type="text"
+                        maxLength={120}
                         className="form-control"
                         placeholder="e.g. Rajesh Kumar"
                         required
@@ -365,6 +373,7 @@ export default function LandingPage() {
                       <input
                         id="contact-email"
                         type="email"
+                        maxLength={254}
                         className="form-control"
                         placeholder="rajesh@company.in"
                         required
@@ -379,6 +388,7 @@ export default function LandingPage() {
                       <input
                         id="contact-subject"
                         type="text"
+                        maxLength={200}
                         className="form-control"
                         placeholder="e.g. TaxPro GSP Sandbox Onboarding Inquiry"
                         required
@@ -393,6 +403,7 @@ export default function LandingPage() {
                       <textarea
                         id="contact-message"
                         rows={4}
+                        maxLength={5000}
                         className="form-control"
                         placeholder="Tell us about your organization's GST compliance requirements..."
                         required
@@ -401,8 +412,8 @@ export default function LandingPage() {
                       />
                     </div>
                     <div className="col-12 text-center mt-3">
-                      <button type="submit" className="btn btn-primary px-5 py-2.5 fw-semibold rounded-3">
-                        Send Message
+                      <button type="submit" disabled={contactSubmitting} className="btn btn-primary px-5 py-2.5 fw-semibold rounded-3">
+                        {contactSubmitting ? 'Sending…' : 'Send Message'}
                       </button>
                     </div>
                   </div>
@@ -420,7 +431,7 @@ export default function LandingPage() {
             <div className="col-12 col-md-6">
               <div className="d-flex align-items-center gap-2 mb-2">
                 <span className="badge bg-primary px-2.5 py-1.5 fs-6 rounded-3">GST</span>
-                <span className="fs-5 fw-bold text-dark">Compliance Portal</span>
+                <span className="fs-5 fw-bold text-dark">CandidTax</span>
               </div>
               <p className="text-secondary small mb-0" style={{ maxWidth: '420px' }}>
                 Secure taxpayer authentication and automated return reconciliation powered by authorized GST Suvidha Providers.
@@ -445,7 +456,7 @@ export default function LandingPage() {
           </div>
 
           <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 pt-4 mt-4 border-top border-light-subtle small text-secondary">
-            <span>© {new Date().getFullYear()} GST Taxpayer Compliance & Analytics Portal. All rights reserved.</span>
+            <span>© {new Date().getFullYear()} CandidTax. All rights reserved.</span>
             <div className="d-flex gap-3">
               <Link to="/privacy" className="text-secondary text-decoration-none">Privacy</Link>
               <Link to="/terms" className="text-secondary text-decoration-none">Terms</Link>

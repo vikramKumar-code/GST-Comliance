@@ -1,7 +1,6 @@
 const assert = require('node:assert/strict');
 
-const PORT = process.env.PORT || 4000;
-const BASE_URL = `http://localhost:${PORT}`;
+const BASE_URL = process.env.TEST_API_BASE_URL || 'http://127.0.0.1:4000';
 
 let currentCheck = '';
 
@@ -34,7 +33,7 @@ const clientIp = `192.168.10.${Math.floor(Math.random() * 200) + 10}`;
 async function request(path, options = {}) {
   const url = `${BASE_URL}${path}`;
   const headers = {
-    'Content-Type': 'application/json',
+    'Content-Type': options.contentType || 'application/json',
     'X-Forwarded-For': options.ip || clientIp,
     ...(options.headers || {})
   };
@@ -42,7 +41,9 @@ async function request(path, options = {}) {
   const response = await fetch(url, {
     method: options.method || 'GET',
     headers,
-    body: options.body ? JSON.stringify(options.body) : undefined
+    body: options.rawBody !== undefined
+      ? options.rawBody
+      : options.body ? JSON.stringify(options.body) : undefined
   });
 
   const text = await response.text();
@@ -75,6 +76,25 @@ async function main() {
     const res = await request('/health');
     assert.equal(res.status, 200, 'Expected status 200 for /health');
     assert.deepEqual(res.body, { ok: true }, 'Expected body { ok: true }');
+  });
+
+  await runAsyncCheck('POST /api body parsers reject oversized JSON and urlencoded payloads (413)', async () => {
+    const value = 'a'.repeat(33 * 1024);
+    const json = await request('/api/contact', {
+      method: 'POST',
+      contentType: 'application/json',
+      rawBody: JSON.stringify({ message: value })
+    });
+    assert.equal(json.status, 413);
+    assert.equal(json.body.code, 'PAYLOAD_TOO_LARGE');
+
+    const form = await request('/api/contact', {
+      method: 'POST',
+      contentType: 'application/x-www-form-urlencoded',
+      rawBody: `message=${value}`
+    });
+    assert.equal(form.status, 413);
+    assert.equal(form.body.code, 'PAYLOAD_TOO_LARGE');
   });
 
   // 2. POST /api/gstin/search

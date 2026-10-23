@@ -2,6 +2,17 @@ const mongoose = require('mongoose');
 
 const auditLogSchema = new mongoose.Schema(
   {
+    workspaceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      default: null,
+      index: true
+    },
+    memberId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'WorkspaceMember',
+      default: null
+    },
     gstin: {
       type: String,
       required: true,
@@ -30,6 +41,8 @@ const auditLogSchema = new mongoose.Schema(
   },
   { timestamps: false }
 );
+
+auditLogSchema.index({ workspaceId: 1, createdAt: -1 });
 
 auditLogSchema.index({ gstin: 1, createdAt: -1 });
 

@@ -14,9 +14,8 @@ exports.search = async (req, res, next) => {
       throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
     }
 
-    // In taxpro mode: TaxPro provider has no search API.
-    // Must NOT call the provider and must NOT fail. Return verified: false with null names.
     if (FinaggService.getProviderName() === 'taxpro') {
+      const result = await FinaggService.searchGstin(gstin);
       if (mongoose.connection?.readyState === 1) {
         await AuditLog.create({
           gstin,
@@ -27,11 +26,8 @@ exports.search = async (req, res, next) => {
 
       return res.status(200).json({
         success: true,
-        gstin,
-        legalName: null,
-        tradeName: null,
-        status: null,
-        verified: false
+        ...result,
+        verified: true
       });
     }
 

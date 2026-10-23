@@ -27,6 +27,14 @@ class ApiError extends Error {
     return new ApiError('RATE_LIMITED', message, 429);
   }
 
+  static forbidden(message = 'Request origin is not allowed') {
+    return new ApiError('FORBIDDEN', message, 403);
+  }
+
+  static payloadTooLarge(message = 'Request body exceeds the allowed size.') {
+    return new ApiError('PAYLOAD_TOO_LARGE', message, 413);
+  }
+
   static providerAuth(message = 'Failed to authenticate with GST provider') {
     return new ApiError('PROVIDER_AUTH', message, 502);
   }

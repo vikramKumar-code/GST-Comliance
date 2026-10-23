@@ -3,10 +3,13 @@ const SessionService = require('../services/session.service');
 const Consent = require('../models/Consent');
 const OtpState = require('../models/OtpState');
 const AuditLog = require('../models/AuditLog');
+const Workspace = require('../models/Workspace');
+const TenantService = require('../services/tenant.service');
 const ApiError = require('../utils/apiError');
 const { isProduction, SESSION_HOURS } = require('../config/env');
 
 exports.requestOtp = async (req, res, next) => {
+  let workspaceId = null;
   try {
     const { gstin, username, consent } = req.body;
     const normGstin = gstin.trim().toUpperCase();
@@ -16,8 +19,12 @@ exports.requestOtp = async (req, res, next) => {
       throw ApiError.validationError('Taxpayer consent is mandatory.');
     }
 
+    const workspace = await Workspace.findOne({ gstin: normGstin });
+    workspaceId = workspace?._id || null;
+
     // 1. Record mandatory taxpayer consent
     await Consent.create({
+      workspaceId,
       gstin: normGstin,
       purpose: 'GST return fetch and compliance view',
       grantedAt: new Date(),
@@ -32,7 +39,7 @@ exports.requestOtp = async (req, res, next) => {
         attempts: 0,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000)
       },
-      { upsert: true, new: true }
+      { upsert: true }
     );
 
     // 3. Dispatch OTP via provider
@@ -40,6 +47,7 @@ exports.requestOtp = async (req, res, next) => {
 
     // 4. Audit Log
     await AuditLog.create({
+      workspaceId,
       gstin: normGstin,
       action: 'OTP_REQUEST',
       status: 'SUCCESS'
@@ -52,6 +60,7 @@ exports.requestOtp = async (req, res, next) => {
   } catch (error) {
     if (req.body?.gstin) {
       await AuditLog.create({
+        workspaceId,
         gstin: req.body.gstin.trim().toUpperCase(),
         action: 'OTP_REQUEST',
         status: 'FAILURE'
@@ -106,7 +115,15 @@ exports.verifyOtp = async (req, res, next) => {
     await OtpState.deleteOne({ gstin: normGstin, username: normUsername }).catch(() => {});
 
     // 4. Create encrypted session & sign JWT
-    const { token } = await SessionService.createSession(normGstin, normUsername, verifyResult.token);
+    const { workspace, membership } = await TenantService.ensureMembership(normGstin, normUsername);
+    await Promise.all([
+      Consent.updateMany({ gstin: normGstin, workspaceId: null }, { $set: { workspaceId: workspace._id } }),
+      AuditLog.updateMany({ gstin: normGstin, workspaceId: null }, { $set: { workspaceId: workspace._id } })
+    ]).catch(() => {});
+    const { token } = await SessionService.createSession(normGstin, normUsername, verifyResult.token, {
+      workspaceId: workspace._id,
+      memberId: membership._id
+    });
 
     // 5. Set httpOnly cookie 'sid'
     res.cookie('sid', token, {
@@ -117,6 +134,8 @@ exports.verifyOtp = async (req, res, next) => {
     });
 
     await AuditLog.create({
+      workspaceId: workspace._id,
+      memberId: membership._id,
       gstin: normGstin,
       action: 'OTP_VERIFY',
       status: 'SUCCESS'
@@ -157,6 +176,8 @@ exports.logout = async (req, res, next) => {
 
     if (req.gstin) {
       await AuditLog.create({
+        workspaceId: req.workspaceId,
+        memberId: req.membership?._id || null,
         gstin: req.gstin,
         action: 'LOGOUT',
         status: 'SUCCESS'

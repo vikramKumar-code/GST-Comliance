@@ -4,17 +4,22 @@
 
 :root {
   --bs-body-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --bs-body-bg: #f8fafc;
-  --bs-body-color: #1e293b;
+  --bs-body-bg: #f5f8f6;
+  --bs-body-color: #203b35;
   --bs-card-bg: #ffffff;
-  --bs-card-border-color: #e2e8f0;
-  --bs-primary: #2563eb;
-  --bs-primary-rgb: 37, 99, 235;
+  --bs-card-border-color: #e1eae5;
+  --bs-primary: #176b5b;
+  --bs-primary-rgb: 23, 107, 91;
+  --bs-link-color: #176b5b;
+  --bs-link-hover-color: #125747;
+  --bs-primary-text-emphasis: #125747;
+  --bs-primary-bg-subtle: #e5f0e8;
+  --bs-primary-border-subtle: #c8dfd0;
 }
 
 body {
-  background-color: #f8fafc !important;
-  color: #1e293b !important;
+  background-color: #f5f8f6 !important;
+  color: #203b35 !important;
   font-family: var(--bs-body-font-family);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -23,18 +28,63 @@ body {
 /* Clean Cards */
 .card {
   background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #1e293b !important;
-  border-radius: 12px;
+  border: 1px solid #e1eae5 !important;
+  color: #203b35 !important;
+  border-radius: 16px;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+}
+
+.container.min-vh-100 {
+  position: relative;
+  isolation: isolate;
+}
+
+.container.min-vh-100::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  background: radial-gradient(ellipse at 18% 18%, rgba(217, 234, 220, 0.56), transparent 38%), #f5f8f6;
+  content: '';
+}
+
+.container.min-vh-100 > .row .card {
+  border-radius: 22px !important;
+  box-shadow: 0 22px 60px rgba(29, 57, 48, 0.1) !important;
+}
+
+.d-flex.flex-column.min-vh-100.bg-light {
+  background: #f5f8f6 !important;
+}
+
+.d-flex.flex-column.min-vh-100.bg-light > nav {
+  min-height: 72px;
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: #e1eae5 !important;
+  backdrop-filter: blur(14px);
+}
+
+.d-flex.flex-column.min-vh-100.bg-light > footer {
+  background: #173c35 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #d5e2dc !important;
+}
+
+.d-flex.flex-column.min-vh-100.bg-light > footer a,
+.d-flex.flex-column.min-vh-100.bg-light > footer .text-muted {
+  color: #d5e2dc !important;
+}
+
+.d-flex.flex-column.min-vh-100.bg-light main > .container {
+  padding-top: clamp(1.5rem, 4vw, 3rem) !important;
+  padding-bottom: 3rem !important;
 }
 
 /* Clean Form Controls */
 .form-control, .form-select {
   background-color: #ffffff !important;
-  border: 1px solid #cbd5e1 !important;
-  color: #0f172a !important;
-  border-radius: 8px;
+  border: 1px solid #cddbd3 !important;
+  color: #18332f !important;
+  border-radius: 10px;
   font-size: 0.95rem;
   padding: 0.65rem 0.9rem;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -42,9 +92,9 @@ body {
 
 .form-control:focus, .form-select:focus {
   background-color: #ffffff !important;
-  border-color: #2563eb !important;
-  color: #0f172a !important;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+  border-color: #176b5b !important;
+  color: #18332f !important;
+  box-shadow: 0 0 0 3px rgba(23, 107, 91, 0.14) !important;
 }
 
 .form-control::placeholder {
@@ -65,25 +115,35 @@ body {
 
 /* Primary Button */
 .btn-primary {
-  background-color: #2563eb !important;
-  border: 1px solid #1d4ed8 !important;
+  background-color: #176b5b !important;
+  border: 1px solid #176b5b !important;
   color: #ffffff !important;
-  border-radius: 8px;
+  border-radius: 10px;
   font-weight: 600;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   transition: all 0.15s ease;
 }
 
+.btn-outline-primary {
+  --bs-btn-color: #176b5b;
+  --bs-btn-border-color: #9dbdaf;
+  --bs-btn-hover-bg: #176b5b;
+  --bs-btn-hover-border-color: #176b5b;
+  --bs-btn-active-bg: #125747;
+  --bs-btn-active-border-color: #125747;
+  border-radius: 10px;
+}
+
 .btn-primary:hover:not(:disabled) {
-  background-color: #1d4ed8 !important;
-  border-color: #1e40af !important;
-  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+  background-color: #125747 !important;
+  border-color: #125747 !important;
+  box-shadow: 0 4px 12px -1px rgba(23, 107, 91, 0.24);
   transform: translateY(-1px);
 }
 
 .btn-outline-secondary {
-  border-color: #cbd5e1 !important;
-  color: #475569 !important;
+  border-color: #cddbd3 !important;
+  color: #526a63 !important;
   background-color: #ffffff !important;
   border-radius: 8px;
 }
@@ -91,14 +151,14 @@ body {
 .btn-outline-secondary:hover:not(:disabled) {
   background-color: #f1f5f9 !important;
   color: #0f172a !important;
-  border-color: #94a3b8 !important;
+  border-color: #9eb8ac !important;
 }
 
 /* Table Clean Styling */
 .table {
   --bs-table-bg: #ffffff;
-  --bs-table-color: #1e293b;
-  --bs-table-border-color: #e2e8f0;
+  --bs-table-color: #203b35;
+  --bs-table-border-color: #e1eae5;
 }
 
 .table thead th {
@@ -108,7 +168,7 @@ body {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 1px solid #e2e8f0 !important;
+  border-bottom: 1px solid #e1eae5 !important;
 }
 
 .table-striped > tbody > tr:nth-of-type(odd) > * {
@@ -124,13 +184,13 @@ body {
 .return-hover-card {
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   background-color: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 12px;
+  border: 1px solid #e1eae5 !important;
+  border-radius: 16px;
 }
 
 .return-hover-card:hover {
   transform: translateY(-2px);
-  border-color: #2563eb !important;
+  border-color: #176b5b !important;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
 }
 
@@ -145,7 +205,7 @@ body {
 
 /* Accessible visible focus states */
 :focus-visible {
-  outline: 2px solid #2563eb !important;
+  outline: 2px solid #176b5b !important;
   outline-offset: 2px !important;
 }
 
@@ -153,7 +213,7 @@ button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 2px solid #2563eb !important;
+  outline: 2px solid #176b5b !important;
   outline-offset: 2px !important;
 }
 

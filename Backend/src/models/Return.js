@@ -2,6 +2,12 @@ const mongoose = require('mongoose');
 
 const returnSchema = new mongoose.Schema(
   {
+    workspaceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      default: null,
+      index: true
+    },
     gstin: {
       type: String,
       required: true,
@@ -32,5 +38,6 @@ const returnSchema = new mongoose.Schema(
 
 // Compound unique index ensuring one record per GSTIN + Return Type + Period
 returnSchema.index({ gstin: 1, type: 1, period: 1 }, { unique: true });
+returnSchema.index({ workspaceId: 1, type: 1, period: -1 });
 
 module.exports = mongoose.model('Return', returnSchema);

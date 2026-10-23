@@ -18,6 +18,9 @@ export default function PrivacyPage() {
           <p className="text-secondary">
             Our platform accesses GST taxpayer details solely upon your explicit consent. This includes GSTIN, entity registration details, and return filing metadata retrieved via GST Suvidha Provider (FinAGG) APIs.
           </p>
+          <p className="text-secondary">
+            If you use the contact form, we store your name, email address, subject, and message to respond to your inquiry. Contact messages are automatically deleted after 180 days.
+          </p>
         </section>
 
         <section className="mb-4">

@@ -11,8 +11,12 @@ function getProviderName() {
   if (process.env.USE_MOCK === 'true') {
     return 'mock';
   }
-  const prov = (process.env.PROVIDER || 'mock').toLowerCase();
-  return prov === 'taxpro' ? 'taxpro' : 'mock';
+  const prov = (process.env.PROVIDER || 'mock').trim().toLowerCase();
+  if (!['mock', 'taxpro'].includes(prov)) {
+    // Fail closed: a typo must never silently route real-looking workflows to mock data.
+    throw new Error('PROVIDER must be either "mock" or "taxpro"');
+  }
+  return prov;
 }
 
 function getProvider() {
@@ -65,7 +69,9 @@ class FinaggService {
     if (getProviderName() === 'taxpro') {
       return provider.getReturnsSummary(gstin, period, gstToken, username);
     }
-    const opt = (typeof username === 'object' && username !== null) ? username : options;
+    const opt = (typeof gstToken === 'object' && gstToken !== null)
+      ? gstToken
+      : ((typeof username === 'object' && username !== null) ? username : options);
     return provider.getReturnsSummary(gstin, period, opt);
   }
 
@@ -75,9 +81,11 @@ class FinaggService {
   static async getReturn(type, gstin, period, gstToken, username, options) {
     const provider = getProvider();
     if (getProviderName() === 'taxpro') {
-      return provider.getReturn(type, gstin, period, gstToken, username);
+      return provider.getReturn(type, gstin, period, gstToken, username, options);
     }
-    const opt = (typeof username === 'object' && username !== null) ? username : options;
+    const opt = (typeof gstToken === 'object' && gstToken !== null)
+      ? gstToken
+      : ((typeof username === 'object' && username !== null) ? username : options);
     return provider.getReturn(type, gstin, period, opt);
   }
 }

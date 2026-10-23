@@ -1,0 +1,313 @@
+// Sandbox-only interactive collector. It never writes raw responses or tokens to disk.
+const fs = require('node:fs');
+const path = require('node:path');
+const readline = require('node:readline/promises');
+const { stdin, stdout } = require('node:process');
+const axios = require('axios');
+const dotenv = require('dotenv');
+const { sanitizeSample } = require('./sanitize-sample');
+const { isValidPeriod } = require('../src/utils/gstin');
+
+const BACKEND_DIR = path.resolve(__dirname, '..');
+const DOC_DIR = path.resolve(BACKEND_DIR, '..', 'doc');
+const ENV_PATH = path.join(BACKEND_DIR, '.env');
+const AUTH_PATH = '/taxpayerapi/dec/v1.0/authenticate';
+const REQUEST_TIMEOUT_MS = 20000;
+
+dotenv.config({ path: ENV_PATH });
+
+function createPrompt() {
+  return readline.createInterface({ input: stdin, output: stdout });
+}
+
+function readHidden(prompt) {
+  if (!stdin.isTTY || typeof stdin.setRawMode !== 'function') {
+    return Promise.reject(new Error('Run this collector from an interactive terminal so the OTP can stay hidden.'));
+  }
+
+  return new Promise((resolve, reject) => {
+    stdout.write(prompt);
+    let value = '';
+    let ignoreLineFeed = false;
+    const previousRawMode = stdin.isRaw;
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+
+    const finish = (error) => {
+      stdin.removeListener('data', onData);
+      stdin.setRawMode(Boolean(previousRawMode));
+      stdout.write('\n');
+      if (error) reject(error);
+      else resolve(value);
+    };
+
+    const onData = (chunk) => {
+      for (const char of chunk) {
+        if (ignoreLineFeed && char === '\n') {
+          ignoreLineFeed = false;
+          continue;
+        }
+        ignoreLineFeed = false;
+        if (char === '\u0003') return finish(new Error('Interrupted.'));
+        if (char === '\r' || char === '\n') {
+          ignoreLineFeed = char === '\r';
+          return finish();
+        }
+        if (char === '\u007f' || char === '\b') {
+          value = value.slice(0, -1);
+          continue;
+        }
+        if (char >= ' ' && char <= '~') value += char;
+      }
+    };
+
+    stdin.on('data', onData);
+  });
+}
+
+function providerErrorCode(data) {
+  const code = data && typeof data === 'object' ? data.error?.error_cd : null;
+  return typeof code === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(code) ? code : null;
+}
+
+function toJsonBody(data) {
+  if (data && typeof data === 'object') return data;
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function writeSanitizedSample(filename, body) {
+  fs.mkdirSync(DOC_DIR, { recursive: true });
+  const outputPath = path.join(DOC_DIR, filename);
+  const sanitized = sanitizeSample(body);
+  fs.writeFileSync(outputPath, `${JSON.stringify(sanitized, null, 2)}\n`, { flag: 'wx' });
+  return outputPath;
+}
+
+function assertSandboxConfig() {
+  const { TAXPRO_BASE_URL, TAXPRO_ASPID, TAXPRO_PASSWORD } = process.env;
+  const missing = [];
+  if (!TAXPRO_ASPID) missing.push('TAXPRO_ASPID');
+  if (!TAXPRO_PASSWORD) missing.push('TAXPRO_PASSWORD');
+  if (!TAXPRO_BASE_URL) missing.push('TAXPRO_BASE_URL');
+  if (missing.length) throw new Error(`Set these values in Backend/.env first: ${missing.join(', ')}`);
+
+  let parsed;
+  try {
+    parsed = new URL(TAXPRO_BASE_URL);
+  } catch {
+    throw new Error('TAXPRO_BASE_URL must be a valid TaxPro sandbox URL.');
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'gstsandbox.charteredinfo.com') {
+    throw new Error('This collector only permits https://gstsandbox.charteredinfo.com.');
+  }
+
+  return parsed.origin;
+}
+
+async function sendGet(client, route, params, headers) {
+  const response = await client.get(route, {
+    params,
+    headers,
+    timeout: REQUEST_TIMEOUT_MS,
+    maxRedirects: 0,
+    validateStatus: () => true
+  });
+  return { status: response.status, body: toJsonBody(response.data) };
+}
+
+async function saveCallResult(name, result) {
+  if (!result.body) {
+    console.log(`${name}: response was not JSON; nothing was saved.`);
+    return;
+  }
+
+  const successful = result.status >= 200 && result.status < 300 && result.body.status_cd === '1';
+  const filename = successful ? name : name.replace(/\.json$/, '-error.json');
+  try {
+    const outputPath = writeSanitizedSample(filename, result.body);
+    console.log(`${name}: saved sanitized ${successful ? 'success' : 'error'} response to ${outputPath}`);
+  } catch (error) {
+    if (error.code === 'EEXIST') {
+      console.log(`${name}: output already exists; move or rename it before collecting another sample.`);
+      return;
+    }
+    throw error;
+  }
+
+  if (!successful) {
+    const code = providerErrorCode(result.body);
+    console.log(`${name}: HTTP ${result.status}; provider error code ${code || 'unavailable'}.`);
+  }
+}
+
+async function requestSample(client, route, params, headers, filename) {
+  try {
+    const result = await sendGet(client, route, params, headers);
+    await saveCallResult(filename, result);
+    return result.body?.status_cd === '1';
+  } catch (error) {
+    // Do not print Axios errors: they may contain request config or credentials.
+    console.error(`${filename}: request failed (${error.code || 'network error'}); no response was saved.`);
+    return false;
+  }
+}
+
+async function main() {
+  const baseURL = assertSandboxConfig();
+  if (!stdin.isTTY) throw new Error('Run this collector in a terminal, not in a non-interactive shell.');
+
+  const prompt = createPrompt();
+  const client = axios.create({ baseURL, timeout: REQUEST_TIMEOUT_MS, maxRedirects: 0 });
+  const taxpayer = {};
+  let otp = '';
+  let tokenResponse;
+  const credentials = {
+    aspid: process.env.TAXPRO_ASPID,
+    password: process.env.TAXPRO_PASSWORD
+  };
+
+  try {
+    console.log('TaxPro sandbox sample collector. Raw responses and auth tokens stay in memory only.');
+    console.log('API profile: current official docs (v4.1/v7.0/v4.2) or TaxPro email examples (v2.1/v0.3/v1.0).');
+    const profile = (await prompt.question('Choose profile [current/email]: ')).trim().toLowerCase();
+    if (!['current', 'email'].includes(profile)) throw new Error('Choose current or email.');
+    const currentSettings = {};
+    if (profile === 'current') {
+      currentSettings.gstr1ActionRequired = (await prompt.question(
+        'TaxPro-confirmed GSTR-1 action_required (Y/N): '
+      )).trim().toUpperCase();
+      if (!['Y', 'N'].includes(currentSettings.gstr1ActionRequired)) {
+        throw new Error('Enter the TaxPro-confirmed Y or N value for GSTR-1 action_required.');
+      }
+    }
+
+    taxpayer.gstin = (await prompt.question('Sandbox taxpayer GSTIN: ')).trim().toUpperCase();
+    taxpayer.username = (await prompt.question('GST portal username: ')).trim();
+    if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(taxpayer.gstin) || !taxpayer.username) {
+      throw new Error('Enter a valid sandbox GSTIN and non-empty GST portal username.');
+    }
+
+    const otpRequest = await sendGet(client, AUTH_PATH, {
+      action: 'OTPREQUEST',
+      gstin: taxpayer.gstin,
+      username: taxpayer.username
+    }, credentials);
+    if (otpRequest.status < 200 || otpRequest.status >= 300 || otpRequest.body?.status_cd !== '1') {
+      const code = providerErrorCode(otpRequest.body);
+      throw new Error(`OTP request was not successful (HTTP ${otpRequest.status}; provider code ${code || 'unavailable'}).`);
+    }
+
+    otp = await readHidden('GST portal OTP (input hidden): ');
+    if (!/^\d{4,8}$/.test(otp)) throw new Error('OTP must contain 4 to 8 digits.');
+    tokenResponse = await sendGet(client, AUTH_PATH, {
+      action: 'AUTHTOKEN',
+      gstin: taxpayer.gstin,
+      username: taxpayer.username,
+      OTP: otp
+    }, credentials);
+    if (tokenResponse.status < 200 || tokenResponse.status >= 300 ||
+        tokenResponse.body?.status_cd !== '1' ||
+        typeof tokenResponse.body.auth_token !== 'string' || !tokenResponse.body.auth_token) {
+      const code = providerErrorCode(tokenResponse.body);
+      throw new Error(`Auth-token request was not successful (HTTP ${tokenResponse.status}; provider code ${code || 'unavailable'}).`);
+    }
+
+    const authHeaders = { ...credentials, authtoken: tokenResponse.body.auth_token };
+    otp = '';
+    const periods = {};
+    for (const returnType of ['GSTR-1', 'GSTR-3B', 'GSTR-2B']) {
+      periods[returnType] = (await prompt.question(`${returnType} return period (MMYYYY): `)).trim();
+      if (!isValidPeriod(periods[returnType])) {
+        throw new Error(`${returnType} return period must be a valid past or current month in MMYYYY format.`);
+      }
+    }
+
+    const isEmailProfile = profile === 'email';
+    const currentReturnHeaders = {
+      ...authHeaders,
+      gstin: taxpayer.gstin,
+      username: taxpayer.username,
+      ret_prd: periods['GSTR-1']
+    };
+    const gstr1Params = { action: 'B2B' };
+    if (!isEmailProfile) {
+      gstr1Params.action_required = currentSettings.gstr1ActionRequired;
+      currentReturnHeaders.ret_prd = periods['GSTR-1'];
+    } else {
+      gstr1Params.gstin = taxpayer.gstin;
+      gstr1Params.username = taxpayer.username;
+      gstr1Params.ret_period = periods['GSTR-1'];
+    }
+    await requestSample(
+      client,
+      isEmailProfile ? '/taxpayerapi/dec/v2.1/returns/gstr1' : '/taxpayerapi/dec/v4.1/returns/gstr1',
+      gstr1Params,
+      isEmailProfile ? authHeaders : currentReturnHeaders,
+      isEmailProfile ? 'gstr1-b2b-v2.1.json' : 'gstr1-b2b.json'
+    );
+
+    // The current GSTR-1 API documents RETSUM as a separate aggregate-summary call.
+    // Keep the provider-email legacy profile limited to its explicitly listed B2B call.
+    if (!isEmailProfile) {
+      await requestSample(client, '/taxpayerapi/dec/v4.1/returns/gstr1', {
+        action: 'RETSUM'
+      }, currentReturnHeaders, 'gstr1-retsum.json');
+    }
+
+    currentReturnHeaders.ret_prd = periods['GSTR-3B'];
+    await requestSample(client, isEmailProfile
+      ? '/taxpayerapi/dec/v0.3/returns/gstr3b'
+      : '/taxpayerapi/dec/v7.0/returns/gstr3b', {
+      action: 'RETSUM',
+      ...(isEmailProfile ? {
+        gstin: taxpayer.gstin,
+        username: taxpayer.username,
+        ret_period: periods['GSTR-3B']
+      } : {})
+    }, isEmailProfile ? authHeaders : currentReturnHeaders,
+    isEmailProfile ? 'gstr3b-retsum-v0.3.json' : 'gstr3b-retsum.json');
+
+    if (isEmailProfile) {
+      await requestSample(client, '/taxpayerapi/dec/v1.0/returns/gstr2b', {
+        action: 'GET2B',
+        gstin: taxpayer.gstin,
+        username: taxpayer.username,
+        ret_period: periods['GSTR-2B'],
+        rtnprd: periods['GSTR-2B']
+      }, authHeaders, 'gstr2b-get2b-v1.0.json');
+    } else {
+      currentReturnHeaders.ret_prd = periods['GSTR-2B'];
+      await requestSample(client, '/taxpayerapi/dec/v4.2/returns/gstr2b', {
+        action: 'GET2B'
+      }, currentReturnHeaders, 'gstr2b-success.json');
+    }
+
+    console.log('Review each sanitized file under doc/ before using it for a mapper or sharing it.');
+  } finally {
+    taxpayer.gstin = '';
+    taxpayer.username = '';
+    otp = '';
+    if (tokenResponse?.body) tokenResponse.body.auth_token = '';
+    credentials.aspid = '';
+    credentials.password = '';
+    prompt.close();
+  }
+}
+
+main().catch((error) => {
+  // Never print Axios messages/config: even errors can carry the request URL or headers.
+  if (error.isAxiosError) {
+    console.error(`TaxPro sample collection stopped: request failed (${error.code || 'network error'}).`);
+  } else {
+    console.error(`TaxPro sample collection stopped: ${error.message}`);
+  }
+  process.exitCode = 1;
+});

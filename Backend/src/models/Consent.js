@@ -2,6 +2,12 @@ const mongoose = require('mongoose');
 
 const consentSchema = new mongoose.Schema(
   {
+    workspaceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      default: null,
+      index: true
+    },
     gstin: {
       type: String,
       required: true,
@@ -30,5 +36,6 @@ const consentSchema = new mongoose.Schema(
 );
 
 consentSchema.index({ gstin: 1, grantedAt: -1 });
+consentSchema.index({ workspaceId: 1, grantedAt: -1 });
 
 module.exports = mongoose.model('Consent', consentSchema);

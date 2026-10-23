@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../config/env');
 const Session = require('../models/Session');
+const Workspace = require('../models/Workspace');
+const WorkspaceMember = require('../models/WorkspaceMember');
 const ApiError = require('../utils/apiError');
 const { decrypt } = require('../utils/crypto');
 
@@ -39,10 +41,33 @@ const auth = async (req, res, next) => {
       throw ApiError.sessionExpired('Session has expired. Please verify OTP again.');
     }
 
+    let membership = null;
+    if (session.workspaceId || session.memberId) {
+      if (!session.workspaceId || !session.memberId) {
+        throw ApiError.sessionExpired('Workspace access is unavailable. Please verify OTP again.');
+      }
+      const [workspace, activeMembership] = await Promise.all([
+        Workspace.findOne({ _id: session.workspaceId, gstin: session.gstin, status: 'ACTIVE' }),
+        WorkspaceMember.findOne({
+          _id: session.memberId,
+          workspaceId: session.workspaceId,
+          status: 'ACTIVE'
+        })
+      ]);
+      if (!workspace || !activeMembership) {
+        throw ApiError.sessionExpired('Workspace access is unavailable. Please verify OTP again.');
+      }
+      membership = activeMembership;
+    }
+
     // Attach active session and taxpayer context to the request object
     req.session = session;
     req.gstin = session.gstin;
     req.username = session.username;
+    req.workspaceId = session.workspaceId || null;
+    req.membership = membership;
+    // Legacy sessions remain scoped to their verified GSTIN and keep read access.
+    req.workspaceRole = membership?.role || 'MEMBER';
     if (session.gstTokenEnc) {
       try {
         req.gstToken = decrypt(session.gstTokenEnc);

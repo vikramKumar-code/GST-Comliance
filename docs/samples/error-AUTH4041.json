@@ -1,7 +1,0 @@
-{
-    "status_cd": "0",
-    "error": {
-        "error_cd": "AUTH4041",
-        "message": "GSTN Error: Invalid Parameter state-cd in request header"
-    }
-}

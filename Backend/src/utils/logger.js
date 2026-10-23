@@ -1,6 +1,10 @@
 const { NODE_ENV } = require('../config/env');
 
-const SENSITIVE_KEYS = ['otp', 'token', 'gsttoken', 'gsttokenenc', 'password', 'dataenc', 'authorization'];
+const SENSITIVE_KEYS = [
+  'otp', 'token', 'gsttoken', 'gsttokenenc', 'password', 'dataenc', 'authorization',
+  'aspid', 'asp-secret', 'gstin', 'pan', 'username', 'email', 'phone', 'mobile',
+  'session', 'signature', 'sek', 'rek', 'certificate', 'privatekey', 'legalname', 'trdnm', 'lgnm'
+];
 
 function redactSensitive(data) {
   if (!data || typeof data !== 'object') return data;
