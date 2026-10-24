@@ -27,6 +27,7 @@ A secure taxpayer portal to verify identity via GSTN OTP and inspect GSTR-1 (sal
 | **Backend** | Task 25: Unified Test Runner | Sequential `test:all` runner executing all 6 test suites with fast-fail stop on first error and clear pass/fail summary | ✅ Complete |
 | **Frontend** | Task 1: Pages & Components | Landing page, LoginPage, OtpPage, DashboardPage, ReturnDetailPage, AuthContext, Axios client | ✅ Complete |
 | **Frontend** | Task 2 (F2): Mock Mode End-to-End | Full frontend-backend mock flow (login, OTP 123456, GstinForm, ProtectedRoute, dashboard summary, return tables, calm EmptyState for DATA_NOT_AVAILABLE, stale notice, dark mode & a11y) | ✅ Complete |
+| **Frontend** | Task 26: Baseline Screenshots & UI-API Mapping | UI freeze applied; 21 baseline screenshots captured across 3 viewports (1280px, 768px, 360px) in `docs/ui-baseline/`; comprehensive UI to API mapping in `docs/UI_API_MAP.md`; `getReturnsSummary` contract mismatch resolved | ✅ Complete |
 
 ---
 

@@ -2,12 +2,12 @@ import client from './client';
 
 /**
  * Fetch summary of filed returns and available periods
- * @param {string} [period] - Period in MMYYYY format (e.g. "092026")
- * @returns {Promise<{ filedReturns: Array<Object>, availablePeriods: Array<string> }>}
+ * @param {string} period - Required period in MMYYYY format (e.g. "092026")
+ * @returns {Promise<{ success: boolean, gstin: string, availablePeriods: Array<{ period: string, financialYear: string, gstr1: string, gstr2b: string, gstr3b: string }>, stale?: boolean }>}
  */
 export const getReturnsSummary = async (period) => {
   return client.get('/returns/summary', {
-    params: period ? { period } : undefined,
+    params: { period },
   });
 };
 
