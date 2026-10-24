@@ -62,4 +62,4 @@ if (require.main === module) {
   console.log('Wrote', outFile, '- now inspect it for any unstructured personal data.');
 }
 
-module.exports = { sanitizeSample };
+module.exports = { sanitizeSample, cleanString };

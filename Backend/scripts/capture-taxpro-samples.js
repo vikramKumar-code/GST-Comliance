@@ -6,7 +6,7 @@ const readline = require('node:readline/promises');
 const { stdin, stdout } = require('node:process');
 const axios = require('axios');
 const dotenv = require('dotenv');
-const { sanitizeSample } = require('./sanitize-sample');
+const { sanitizeSample, cleanString } = require('./sanitize-sample');
 const { isValidPeriod } = require('../src/utils/gstin');
 
 function formatSafeHeaderDiagnostics(headers) {
@@ -78,6 +78,16 @@ function readHidden(prompt) {
 function providerErrorCode(data) {
   const code = data && typeof data === 'object' ? data.error?.error_cd : null;
   return typeof code === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(code) ? code : null;
+}
+
+function providerErrorMessage(data) {
+  if (!data || typeof data !== 'object') return null;
+  let raw = data.error?.message;
+  if (!raw && typeof data.message === 'string') raw = data.message;
+  if (!raw && typeof data.error === 'string') raw = data.error;
+  if (typeof raw !== 'string') return null;
+  const singleLine = raw.replace(/[\r\n\t]+/g, ' ').trim();
+  return cleanString(singleLine);
 }
 
 function toJsonBody(data) {
@@ -218,18 +228,28 @@ async function main() {
       throw new Error('Enter a valid sandbox GSTIN and non-empty GST portal username.');
     }
 
+    const safeCredentialsDiagnostics = formatSafeHeaderDiagnostics(credentials);
+    console.log(`OTPREQUEST: outgoing headers: ${JSON.stringify(safeCredentialsDiagnostics)}`);
     const otpRequest = await sendGet(client, AUTH_PATH, {
       action: 'OTPREQUEST',
       gstin: taxpayer.gstin,
       username: taxpayer.username
     }, credentials);
     if (otpRequest.status < 200 || otpRequest.status >= 300 || otpRequest.body?.status_cd !== '1') {
+      await saveCallResult('otprequest.json', otpRequest);
       const code = providerErrorCode(otpRequest.body);
-      throw new Error(`OTP request was not successful (HTTP ${otpRequest.status}; provider code ${code || 'unavailable'}).`);
+      const msg = providerErrorMessage(otpRequest.body);
+      const details = [
+        `HTTP ${otpRequest.status}`,
+        `provider code: ${code || 'unavailable'}`,
+        `provider message: ${msg || 'none'}`
+      ].join('; ');
+      throw new Error(`OTP request was not successful (${details}).`);
     }
 
     otp = await readHidden('GST portal OTP (input hidden): ');
     if (!/^\d{4,8}$/.test(otp)) throw new Error('OTP must contain 4 to 8 digits.');
+    console.log(`AUTHTOKEN: outgoing headers: ${JSON.stringify(safeCredentialsDiagnostics)}`);
     tokenResponse = await sendGet(client, AUTH_PATH, {
       action: 'AUTHTOKEN',
       gstin: taxpayer.gstin,
@@ -239,8 +259,15 @@ async function main() {
     if (tokenResponse.status < 200 || tokenResponse.status >= 300 ||
         tokenResponse.body?.status_cd !== '1' ||
         typeof tokenResponse.body.auth_token !== 'string' || !tokenResponse.body.auth_token) {
+      await saveCallResult('authtoken.json', tokenResponse);
       const code = providerErrorCode(tokenResponse.body);
-      throw new Error(`Auth-token request was not successful (HTTP ${tokenResponse.status}; provider code ${code || 'unavailable'}).`);
+      const msg = providerErrorMessage(tokenResponse.body);
+      const details = [
+        `HTTP ${tokenResponse.status}`,
+        `provider code: ${code || 'unavailable'}`,
+        `provider message: ${msg || 'none'}`
+      ].join('; ');
+      throw new Error(`Auth-token request was not successful (${details}).`);
     }
 
     const authHeaders = { ...credentials, 'auth-token': tokenResponse.body.auth_token };
@@ -345,5 +372,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  formatSafeHeaderDiagnostics
+  formatSafeHeaderDiagnostics,
+  providerErrorMessage
 };

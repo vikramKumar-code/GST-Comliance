@@ -11,7 +11,10 @@ const {
   mapTaxProErrorCode,
   formatSafeHeaderDiagnostics
 } = require('../src/services/providers/taxpro');
-const { formatSafeHeaderDiagnostics: collectorFormatDiagnostics } = require('./capture-taxpro-samples');
+const {
+  formatSafeHeaderDiagnostics: collectorFormatDiagnostics,
+  providerErrorMessage
+} = require('./capture-taxpro-samples');
 const ReturnService = require('../src/services/return.service');
 const FinaggService = require('../src/services/finagg.service');
 const ApiError = require('../src/utils/apiError');
@@ -542,6 +545,37 @@ async function main() {
         assert.ok(!serialized.includes(val), `Serialized safe diagnostics must not leak "${val}"`);
       }
     }
+  });
+
+  runCheck('safe provider error message extraction sanitizes sensitive taxpayer and credential strings', () => {
+    assert.equal(providerErrorMessage(null), null);
+    assert.equal(providerErrorMessage({}), null);
+    assert.equal(providerErrorMessage({ status_cd: '0' }), null);
+
+    const normal = providerErrorMessage({
+      status_cd: '0',
+      error: {
+        error_cd: 'AUTH4037',
+        message: 'GSTN Error: API Access is not enabled for the taxpayer'
+      }
+    });
+    assert.equal(normal, 'GSTN Error: API Access is not enabled for the taxpayer');
+
+    const withSensitive = providerErrorMessage({
+      status_cd: '0',
+      error: {
+        error_cd: 'AUTH403',
+        message: 'Error for 27AAAAA0000A1Z5 user test@example.com phone 9876543210 pan ABCDE1234F token abcdef0123456789abcdef0123456789\r\n'
+      }
+    });
+    assert.ok(!withSensitive.includes('27AAAAA0000A1Z5'));
+    assert.ok(!withSensitive.includes('test@example.com'));
+    assert.ok(!withSensitive.includes('9876543210'));
+    assert.ok(!withSensitive.includes('ABCDE1234F'));
+    assert.ok(!withSensitive.includes('abcdef0123456789abcdef0123456789'));
+    assert.ok(withSensitive.includes('REDACTED'));
+    assert.ok(!withSensitive.includes('\r'));
+    assert.ok(!withSensitive.includes('\n'));
   });
 
   // 4. Check the AUTH4041 response independently; source call is undocumented.
