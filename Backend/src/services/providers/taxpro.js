@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const axios = require('axios');
 const ApiError = require('../../utils/apiError');
 const logger = require('../../utils/logger');
@@ -15,6 +16,18 @@ function getValidErrorCd(errorCd) {
     return errorCd;
   }
   return 'invalid';
+}
+
+/**
+ * Safe header diagnostics: reports header names and presence only.
+ * Never log secrets, passwords, auth tokens, OTPs, or private keys.
+ */
+function formatSafeHeaderDiagnostics(headers) {
+  const summary = {};
+  for (const [key, val] of Object.entries(headers || {})) {
+    summary[key] = val !== undefined && val !== null && String(val).length > 0 ? '[PRESENT]' : '[EMPTY]';
+  }
+  return summary;
 }
 
 function mapTaxProErrorCode(errorCd) {
@@ -178,6 +191,7 @@ class TaxProProvider {
       maxRedirects: 0
     });
     this.aspCallerGstin = options.aspCallerGstin || process.env.TAXPRO_ASP_GSTIN || '';
+    this.ipUsr = options.ipUsr !== undefined ? options.ipUsr : (process.env.TAXPRO_GSP_IP_USR || '');
     this.gspSession = options.gspSession || new TaxProGspSession({
       aspid: this.aspid,
       password: this.password,
@@ -193,6 +207,10 @@ class TaxProProvider {
 
   getPassword() {
     return this.password !== undefined && this.password !== '' ? this.password : (process.env.TAXPRO_PASSWORD || '');
+  }
+
+  getIpUsr() {
+    return this.ipUsr !== undefined && this.ipUsr !== '' ? this.ipUsr : (process.env.TAXPRO_GSP_IP_USR || '');
   }
 
   /**
@@ -370,7 +388,9 @@ class TaxProProvider {
           : '/taxpayerapi/dec/v1.0/returns/gstr2b';
         action = 'GET2B';
         extraParams = {};
-        if (this.apiProfile !== 'current') {
+        if (this.apiProfile === 'current') {
+          extraParams.rtnprd = period;
+        } else {
           extraParams.ret_period = period;
           extraParams.rtnprd = period;
         }
@@ -399,15 +419,23 @@ class TaxProProvider {
     };
     if (this.apiProfile === 'current') {
       const stateCd = typeof gstin === 'string' && gstin.length >= 2 ? gstin.slice(0, 2) : '';
+      const ipUsr = this.getIpUsr();
+      if (!ipUsr) {
+        logger.error('TaxPro return request failed: TAXPRO_GSP_IP_USR is required for current profile');
+        throw ApiError.providerError('TAXPRO_GSP_IP_USR is required for TaxPro return requests.', 500);
+      }
       Object.assign(headers, {
         gstin,
         username: username || '',
         'state-cd': stateCd,
-        ret_prd: period
+        ret_prd: period,
+        txn: crypto.randomUUID(),
+        'ip-usr': ipUsr
       });
     }
 
     try {
+      logger.debug(`TaxPro return request outgoing headers for [${normType}]`, formatSafeHeaderDiagnostics(headers));
       const response = await this.httpClient.get(path, { params, headers });
       const data = checkTaxProResponse(response.data, `getReturn:${normType}`);
       return data;
@@ -427,3 +455,4 @@ module.exports.SESSION_ERROR_CODES = SESSION_ERROR_CODES;
 module.exports.checkTaxProResponse = checkTaxProResponse;
 module.exports.mapTaxProErrorCode = mapTaxProErrorCode;
 module.exports.handleTaxProError = handleTaxProError;
+module.exports.formatSafeHeaderDiagnostics = formatSafeHeaderDiagnostics;

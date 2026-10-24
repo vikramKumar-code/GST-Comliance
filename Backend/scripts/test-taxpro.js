@@ -4,7 +4,14 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { TaxProProvider, SESSION_ERROR_CODES, checkTaxProResponse, mapTaxProErrorCode } = require('../src/services/providers/taxpro');
+const {
+  TaxProProvider,
+  SESSION_ERROR_CODES,
+  checkTaxProResponse,
+  mapTaxProErrorCode,
+  formatSafeHeaderDiagnostics
+} = require('../src/services/providers/taxpro');
+const { formatSafeHeaderDiagnostics: collectorFormatDiagnostics } = require('./capture-taxpro-samples');
 const ReturnService = require('../src/services/return.service');
 const FinaggService = require('../src/services/finagg.service');
 const ApiError = require('../src/utils/apiError');
@@ -355,7 +362,8 @@ async function main() {
       aspid: testAspid,
       password: testPassword,
       apiProfile: 'current',
-      gstr1ActionRequired: 'N'
+      gstr1ActionRequired: 'N',
+      ipUsr: '203.0.113.1'
     });
 
     await currentAdapter.getReturn('GSTR1', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
@@ -378,7 +386,19 @@ async function main() {
       assert.equal(call.config.headers['state-cd'], '27', 'TaxPro current profile requires state-cd header');
       assert.equal(call.config.headers.username, 'testuser');
       assert.equal(call.config.headers.ret_prd, '092026');
+      assert.equal(call.config.headers['ip-usr'], '203.0.113.1', 'Must forward ip-usr header from config');
+      assert.match(
+        call.config.headers.txn,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        'Must send unique UUID v4 txn transaction ID'
+      );
     }
+    const txns = fakeClient.calls.map((call) => call.config.headers.txn);
+    assert.equal(new Set(txns).size, 3, 'Each return request must receive a unique txn transaction ID');
+    assert.equal(fakeClient.calls[0].config.params.rtnprd, undefined, 'GSTR-1 does not include rtnprd in query params');
+    assert.equal(fakeClient.calls[1].config.params.rtnprd, undefined, 'GSTR-3B does not include rtnprd in query params');
+    assert.equal(fakeClient.calls[2].config.params.rtnprd, '092026', 'GSTR-2B GET2B requires rtnprd in query parameters');
+    assert.equal(fakeClient.calls[2].config.headers.ret_prd, '092026', 'GSTR-2B preserves ret_prd header');
   });
 
   await runAsyncCheck('legacy API profile matches the TaxPro sandbox email routes and period fields', async () => {
@@ -411,7 +431,11 @@ async function main() {
 
   await runAsyncCheck('current API profile requires only the GSTR-1 action flag confirmation', async () => {
     fakeClient.calls = [];
-    const unconfirmedAdapter = new TaxProProvider({ httpClient: fakeClient, apiProfile: 'current' });
+    const unconfirmedAdapter = new TaxProProvider({
+      httpClient: fakeClient,
+      apiProfile: 'current',
+      ipUsr: '203.0.113.1'
+    });
     await assert.rejects(
       () => unconfirmedAdapter.getReturn('GSTR1', '27AAAAA0000A1Z5', '092026', testToken, 'testuser'),
       (error) => error.code === 'PROVIDER_ERROR' && error.statusCode === 502
@@ -431,6 +455,93 @@ async function main() {
     assert.equal(fakeClient.calls[1].config.headers.authtoken, undefined);
     assert.equal(fakeClient.calls[0].config.params.gstin, '27AAAAA0000A1Z5');
     assert.equal(fakeClient.calls[1].config.params.gstin, '27AAAAA0000A1Z5');
+    assert.equal(fakeClient.calls[0].config.headers['ip-usr'], '203.0.113.1');
+    assert.equal(fakeClient.calls[1].config.headers['ip-usr'], '203.0.113.1');
+    assert.match(
+      fakeClient.calls[0].config.headers.txn,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
+    assert.match(
+      fakeClient.calls[1].config.headers.txn,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
+    assert.notEqual(fakeClient.calls[0].config.headers.txn, fakeClient.calls[1].config.headers.txn);
+    assert.equal(fakeClient.calls[1].config.params.rtnprd, '092026');
+  });
+
+  await runAsyncCheck('current API profile fails safely when TAXPRO_GSP_IP_USR is missing', async () => {
+    fakeClient.calls = [];
+    const savedEnvIp = process.env.TAXPRO_GSP_IP_USR;
+    delete process.env.TAXPRO_GSP_IP_USR;
+    try {
+      const noIpAdapter = new TaxProProvider({
+        httpClient: fakeClient,
+        aspid: testAspid,
+        password: testPassword,
+        apiProfile: 'current',
+        gstr1ActionRequired: 'N',
+        ipUsr: ''
+      });
+
+      await assert.rejects(
+        () => noIpAdapter.getReturn('GSTR1', '27AAAAA0000A1Z5', '092026', testToken, 'testuser'),
+        (error) => {
+          assert.equal(error.code, 'PROVIDER_ERROR');
+          assert.equal(error.statusCode, 500);
+          assert.match(error.message, /TAXPRO_GSP_IP_USR is required/);
+          return true;
+        }
+      );
+      assert.equal(fakeClient.calls.length, 0, 'No HTTP request should be sent when ip-usr is missing');
+    } finally {
+      if (savedEnvIp !== undefined) {
+        process.env.TAXPRO_GSP_IP_USR = savedEnvIp;
+      } else {
+        delete process.env.TAXPRO_GSP_IP_USR;
+      }
+    }
+  });
+
+  runCheck('safe header diagnostics reports header names and presence only, never values or secrets', () => {
+    const testHeaders = {
+      aspid: testAspid,
+      password: testPassword,
+      'auth-token': testToken,
+      gstin: '27AAAAA0000A1Z5',
+      'state-cd': '27',
+      ret_prd: '092026',
+      txn: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+      'ip-usr': '203.0.113.1',
+      empty_field: '',
+      null_field: null,
+      undef_field: undefined
+    };
+
+    for (const fn of [formatSafeHeaderDiagnostics, collectorFormatDiagnostics]) {
+      const diagnostics = fn(testHeaders);
+      assert.deepEqual(diagnostics, {
+        aspid: '[PRESENT]',
+        password: '[PRESENT]',
+        'auth-token': '[PRESENT]',
+        gstin: '[PRESENT]',
+        'state-cd': '[PRESENT]',
+        ret_prd: '[PRESENT]',
+        txn: '[PRESENT]',
+        'ip-usr': '[PRESENT]',
+        empty_field: '[EMPTY]',
+        null_field: '[EMPTY]',
+        undef_field: '[EMPTY]'
+      });
+
+      const serialized = JSON.stringify(diagnostics);
+      const sensitiveValues = [
+        testAspid, testPassword, testToken,
+        '27AAAAA0000A1Z5', '092026', '3fa85f64-5717-4562-b3fc-2c963f66afa6', '203.0.113.1'
+      ];
+      for (const val of sensitiveValues) {
+        assert.ok(!serialized.includes(val), `Serialized safe diagnostics must not leak "${val}"`);
+      }
+    }
   });
 
   // 4. Check the AUTH4041 response independently; source call is undocumented.

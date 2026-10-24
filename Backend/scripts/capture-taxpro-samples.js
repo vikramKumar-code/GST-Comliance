@@ -1,4 +1,5 @@
 // Sandbox-only interactive collector. It never writes raw responses or tokens to disk.
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline/promises');
@@ -7,6 +8,14 @@ const axios = require('axios');
 const dotenv = require('dotenv');
 const { sanitizeSample } = require('./sanitize-sample');
 const { isValidPeriod } = require('../src/utils/gstin');
+
+function formatSafeHeaderDiagnostics(headers) {
+  const summary = {};
+  for (const [key, val] of Object.entries(headers || {})) {
+    summary[key] = val !== undefined && val !== null && String(val).length > 0 ? '[PRESENT]' : '[EMPTY]';
+  }
+  return summary;
+}
 
 const BACKEND_DIR = path.resolve(__dirname, '..');
 const DOC_DIR = path.resolve(BACKEND_DIR, '..', 'doc');
@@ -159,6 +168,8 @@ async function saveCallResult(name, result) {
 
 async function requestSample(client, route, params, headers, filename) {
   try {
+    const safeDiagnostics = formatSafeHeaderDiagnostics(headers);
+    console.log(`${filename}: outgoing headers: ${JSON.stringify(safeDiagnostics)}`);
     const result = await sendGet(client, route, params, headers);
     await saveCallResult(filename, result);
     return result.body?.status_cd === '1';
@@ -188,6 +199,9 @@ async function main() {
     console.log('API profile: current official docs (v4.1/v7.0/v4.2) or TaxPro email examples (v2.1/v0.3/v1.0).');
     const profile = (await prompt.question('Choose profile [current/email]: ')).trim().toLowerCase();
     if (!['current', 'email'].includes(profile)) throw new Error('Choose current or email.');
+    if (profile === 'current' && !process.env.TAXPRO_GSP_IP_USR) {
+      throw new Error('TAXPRO_GSP_IP_USR is required in Backend/.env for the current profile.');
+    }
     const currentSettings = {};
     if (profile === 'current') {
       currentSettings.gstr1ActionRequired = (await prompt.question(
@@ -248,7 +262,8 @@ async function main() {
       gstin: taxpayer.gstin,
       username: taxpayer.username,
       'state-cd': stateCd,
-      ret_prd: periods['GSTR-1']
+      ret_prd: periods['GSTR-1'],
+      'ip-usr': process.env.TAXPRO_GSP_IP_USR
     };
     const gstr1Params = { action: 'B2B', gstin: taxpayer.gstin };
     if (!isEmailProfile) {
@@ -262,7 +277,7 @@ async function main() {
       client,
       isEmailProfile ? '/taxpayerapi/dec/v2.1/returns/gstr1' : '/taxpayerapi/dec/v4.1/returns/gstr1',
       gstr1Params,
-      isEmailProfile ? authHeaders : currentReturnHeaders,
+      isEmailProfile ? authHeaders : { ...currentReturnHeaders, txn: crypto.randomUUID() },
       isEmailProfile ? 'gstr1-b2b-v2.1.json' : 'gstr1-b2b.json'
     );
 
@@ -272,7 +287,7 @@ async function main() {
       await requestSample(client, '/taxpayerapi/dec/v4.1/returns/gstr1', {
         action: 'RETSUM',
         gstin: taxpayer.gstin
-      }, currentReturnHeaders, 'gstr1-retsum.json');
+      }, { ...currentReturnHeaders, txn: crypto.randomUUID() }, 'gstr1-retsum.json');
     }
 
     currentReturnHeaders.ret_prd = periods['GSTR-3B'];
@@ -285,7 +300,7 @@ async function main() {
         username: taxpayer.username,
         ret_period: periods['GSTR-3B']
       } : {})
-    }, isEmailProfile ? authHeaders : currentReturnHeaders,
+    }, isEmailProfile ? authHeaders : { ...currentReturnHeaders, txn: crypto.randomUUID() },
     isEmailProfile ? 'gstr3b-retsum-v0.3.json' : 'gstr3b-retsum.json');
 
     if (isEmailProfile) {
@@ -300,8 +315,9 @@ async function main() {
       currentReturnHeaders.ret_prd = periods['GSTR-2B'];
       await requestSample(client, '/taxpayerapi/dec/v4.2/returns/gstr2b', {
         action: 'GET2B',
-        gstin: taxpayer.gstin
-      }, currentReturnHeaders, 'gstr2b-success.json');
+        gstin: taxpayer.gstin,
+        rtnprd: periods['GSTR-2B']
+      }, { ...currentReturnHeaders, txn: crypto.randomUUID() }, 'gstr2b-success.json');
     }
 
     console.log('Review each sanitized file under doc/ before using it for a mapper or sharing it.');
@@ -316,12 +332,18 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  // Never print Axios messages/config: even errors can carry the request URL or headers.
-  if (error.isAxiosError) {
-    console.error(`TaxPro sample collection stopped: request failed (${error.code || 'network error'}).`);
-  } else {
-    console.error(`TaxPro sample collection stopped: ${error.message}`);
-  }
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    // Never print Axios messages/config: even errors can carry the request URL or headers.
+    if (error.isAxiosError) {
+      console.error(`TaxPro sample collection stopped: request failed (${error.code || 'network error'}).`);
+    } else {
+      console.error(`TaxPro sample collection stopped: ${error.message}`);
+    }
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  formatSafeHeaderDiagnostics
+};
