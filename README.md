@@ -24,6 +24,7 @@ A secure taxpayer portal to verify identity via GSTN OTP and inspect GSTR-1 (sal
 | **Backend** | Roadmap Step 2: Repeatable mock E2E | Isolated child server, unique guarded test database, health wait, API suite, and cleanup; passed twice consecutively | ✅ Complete |
 | **Backend** | Roadmap Step 3: SaaS tenant foundation | One workspace per verified GSTIN, owner/member membership, active-membership checks, tenant-scoped return cache and workspace audit/consent metadata | Implemented; full E2E awaits local MongoDB |
 | **Backend** | Task 17: Secret & transport guards | Strict explicit NODE_ENV enforcement, dev fallback scoping, hardened production secret validation, repeated-char/zero key refusal, and fail-closed TAXPRO_DEC_PRODUCTION_APPROVED check | ✅ Complete |
+| **Backend** | Task 25: Unified Test Runner | Sequential `test:all` runner executing all 6 test suites with fast-fail stop on first error and clear pass/fail summary | ✅ Complete |
 | **Frontend** | Task 1: Pages & Components | Landing page, LoginPage, OtpPage, DashboardPage, ReturnDetailPage, AuthContext, Axios client | ✅ Complete |
 | **Frontend** | Task 2 (F2): Mock Mode End-to-End | Full frontend-backend mock flow (login, OTP 123456, GstinForm, ProtectedRoute, dashboard summary, return tables, calm EmptyState for DATA_NOT_AVAILABLE, stale notice, dark mode & a11y) | ✅ Complete |
 
@@ -125,6 +126,20 @@ When `USE_MOCK=true` is enabled in `Backend/.env`, `finagg.service.js` operates 
 ---
 
 ## 5. Test Scripts & Automated Verification
+
+### 0. Unified Backend Test Suite (`npm run test:all`)
+Runs all backend test suites sequentially in order, stopping immediately on the first failure (fast-fail) and printing a clear PASS or FAIL status per suite:
+1. `test-config` (`node scripts/test-config.js`): Fail-closed production secrets, remote URL validation, and transport guard checks.
+2. `test-middleware` (`node scripts/test-middleware.js`): Joi validation schemas, centralized error handler, and session cookie authentication.
+3. `test-taxpro` (`node scripts/test-taxpro.js`): Offline TaxPro adapter, response mapping, sample payload handling from `doc/`, and credential leak prevention.
+4. `test-tenancy` (`node --require ./scripts/e2e-no-dotenv.js scripts/test-tenancy.js`): SaaS tenant isolation, unique workspace per GSTIN, and membership roles.
+5. `test-rate-limit-store` (`node scripts/test-rate-limit-store.js`): Distributed rate-limit store concurrency, atomic increments, decrement, reset, and window expiry.
+6. `test:e2e` (`node scripts/run-e2e.js`): End-to-end functional API suite against an isolated mock server and ephemeral guarded test database.
+
+```powershell
+cd Backend
+npm run test:all
+```
 
 ### 1. Middleware & Validation Suite
 Run the unit test suite verifying Joi schemas, MongoDB-shared rate limiting, centralized error handling, and cookie authentication:
