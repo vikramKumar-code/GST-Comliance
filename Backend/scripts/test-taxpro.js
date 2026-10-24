@@ -375,6 +375,7 @@ async function main() {
       assert.equal(call.config.params.username, undefined);
       assert.equal(call.config.params.ret_prd, undefined);
       assert.equal(call.config.headers.gstin, '27AAAAA0000A1Z5');
+      assert.equal(call.config.headers['state-cd'], '27', 'TaxPro current profile requires state-cd header');
       assert.equal(call.config.headers.username, 'testuser');
       assert.equal(call.config.headers.ret_prd, '092026');
     }
@@ -424,6 +425,8 @@ async function main() {
     assert.equal(fakeClient.calls[1].config.headers.ret_prd, '092026');
     assert.equal(fakeClient.calls[0].config.headers['auth-token'], testToken);
     assert.equal(fakeClient.calls[1].config.headers['auth-token'], testToken);
+    assert.equal(fakeClient.calls[0].config.headers['state-cd'], '27');
+    assert.equal(fakeClient.calls[1].config.headers['state-cd'], '27');
     assert.equal(fakeClient.calls[0].config.headers.authtoken, undefined);
     assert.equal(fakeClient.calls[1].config.headers.authtoken, undefined);
     assert.equal(fakeClient.calls[0].config.params.gstin, '27AAAAA0000A1Z5');

@@ -398,7 +398,13 @@ class TaxProProvider {
       'auth-token': token
     };
     if (this.apiProfile === 'current') {
-      Object.assign(headers, { gstin, username: username || '', ret_prd: period });
+      const stateCd = typeof gstin === 'string' && gstin.length >= 2 ? gstin.slice(0, 2) : '';
+      Object.assign(headers, {
+        gstin,
+        username: username || '',
+        'state-cd': stateCd,
+        ret_prd: period
+      });
     }
 
     try {

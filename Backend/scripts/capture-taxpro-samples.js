@@ -240,10 +240,14 @@ async function main() {
     }
 
     const isEmailProfile = profile === 'email';
+    const stateCd = typeof taxpayer.gstin === 'string' && taxpayer.gstin.length >= 2
+      ? taxpayer.gstin.slice(0, 2)
+      : '';
     const currentReturnHeaders = {
       ...authHeaders,
       gstin: taxpayer.gstin,
       username: taxpayer.username,
+      'state-cd': stateCd,
       ret_prd: periods['GSTR-1']
     };
     const gstr1Params = { action: 'B2B', gstin: taxpayer.gstin };
