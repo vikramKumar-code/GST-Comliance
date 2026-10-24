@@ -238,6 +238,8 @@ async function main() {
       ['GSP022', 'PROVIDER_AUTH', 502, 'Could not complete the request. Please try again.'],
       ['GSP025', 'RATE_LIMITED', 429, 'Too many requests. Please wait and try again.'],
       ['GSP030', 'PROVIDER_DOWN', 503, 'GST service is unavailable. Please try again later.'],
+      ['GSP101', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
+      ['RET2B1023', 'DATA_NOT_AVAILABLE', 404, 'Data for this period is not available yet. Try another month.'],
       ['GSP500', 'PROVIDER_DOWN', 503, 'GST service is unavailable. Please try again later.'],
       ['UNKNOWN999', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.']
     ];
@@ -337,7 +339,9 @@ async function main() {
     assert.equal(call.config.params.action, 'GET2B');
     assert.equal(call.config.params.ret_period, '012022');
     assert.equal(call.config.params.rtnprd, '012022', 'ret_period and rtnprd must have same value');
-    assert.equal(call.config.headers.authtoken, testToken);
+    assert.equal(call.config.headers['auth-token'], testToken);
+    assert.equal(call.config.headers.authtoken, undefined, 'Must not send duplicate authtoken header');
+    assert.equal(call.config.params.gstin, '27AAAAA0000A1Z5');
     assert.equal(call.config.params.authtoken, undefined);
     assert.equal(call.config.params.password, undefined);
     assert.equal(call.config.params.aspid, undefined);
@@ -364,9 +368,10 @@ async function main() {
       '/taxpayerapi/dec/v4.2/returns/gstr2b'
     ]);
     assert.equal(fakeClient.calls[0].config.params.action_required, 'N');
-    assert.equal(fakeClient.calls[0].config.headers.authtoken, testToken);
     for (const call of fakeClient.calls) {
-      assert.equal(call.config.params.gstin, undefined);
+      assert.equal(call.config.headers['auth-token'], testToken, 'Must send hyphenated auth-token header');
+      assert.equal(call.config.headers.authtoken, undefined, 'Must not send duplicate authtoken header');
+      assert.equal(call.config.params.gstin, '27AAAAA0000A1Z5', 'TaxPro current profile requires gstin in query parameters');
       assert.equal(call.config.params.username, undefined);
       assert.equal(call.config.params.ret_prd, undefined);
       assert.equal(call.config.headers.gstin, '27AAAAA0000A1Z5');
@@ -394,7 +399,9 @@ async function main() {
     for (const call of fakeClient.calls) {
       assert.equal(call.config.headers.aspid, testAspid);
       assert.equal(call.config.headers.password, testPassword);
-      assert.equal(call.config.headers.authtoken, testToken);
+      assert.equal(call.config.headers['auth-token'], testToken, 'Must send hyphenated auth-token header');
+      assert.equal(call.config.headers.authtoken, undefined, 'Must not send duplicate authtoken header');
+      assert.equal(call.config.params.gstin, '27AAAAA0000A1Z5');
       assert.equal(call.config.params.aspid, undefined);
       assert.equal(call.config.params.password, undefined);
       assert.equal(call.config.params.authtoken, undefined);
@@ -415,6 +422,12 @@ async function main() {
     assert.equal(fakeClient.calls.length, 2);
     assert.equal(fakeClient.calls[0].config.headers.ret_prd, '092026');
     assert.equal(fakeClient.calls[1].config.headers.ret_prd, '092026');
+    assert.equal(fakeClient.calls[0].config.headers['auth-token'], testToken);
+    assert.equal(fakeClient.calls[1].config.headers['auth-token'], testToken);
+    assert.equal(fakeClient.calls[0].config.headers.authtoken, undefined);
+    assert.equal(fakeClient.calls[1].config.headers.authtoken, undefined);
+    assert.equal(fakeClient.calls[0].config.params.gstin, '27AAAAA0000A1Z5');
+    assert.equal(fakeClient.calls[1].config.params.gstin, '27AAAAA0000A1Z5');
   });
 
   // 4. Check the AUTH4041 response independently; source call is undocumented.
@@ -460,6 +473,52 @@ async function main() {
     assert.ok(!caughtError.message.includes('internal raw'), 'Never forward raw provider message');
 
     assert.equal(fakeClient.calls.length, 0, 'Error mapping must not depend on unconfirmed endpoint paths');
+  });
+
+  // 5b. Check GSP101 provider error envelope -> PROVIDER_ERROR (502)
+  await runAsyncCheck('5b. GSP101 provider error envelope maps to PROVIDER_ERROR (502) without raw detail leaks', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => ({
+      status: 200,
+      data: {
+        status_cd: '0',
+        error: {
+          error_cd: 'GSP101',
+          message: 'Error: Missing GST mandatory parms Gstin and/or auth-token.'
+        }
+      }
+    }));
+
+    let caughtError = null;
+    try {
+      await adapter.getReturn('GSTR3B', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
+    } catch (err) {
+      caughtError = err;
+    }
+
+    assert.ok(caughtError, 'Expected getReturn to throw on GSP101 error envelope');
+    assert.equal(caughtError.code, 'PROVIDER_ERROR');
+    assert.equal(caughtError.statusCode, 502);
+    assert.equal(caughtError.message, 'Could not complete the request. Please try again.');
+    assert.ok(!caughtError.message.includes('Missing GST'), 'Never forward raw GSP101 provider message');
+    assert.ok(!caughtError.message.includes('auth-token'), 'Never forward raw provider error details');
+  });
+
+  // 5c. Check RET2B1023 provider error envelope -> DATA_NOT_AVAILABLE (404)
+  runCheck('5c. RET2B1023 provider error envelope validates to DATA_NOT_AVAILABLE (404)', () => {
+    assert.throws(
+      () => checkTaxProResponse({
+        status_cd: '0',
+        error: {
+          error_cd: 'RET2B1023',
+          message: 'GSTN Error: Data for the requested period is not available'
+        }
+      }, 'test-RET2B1023'),
+      (err) => err.code === 'DATA_NOT_AVAILABLE' &&
+               err.statusCode === 404 &&
+               err.message === 'Data for this period is not available yet. Try another month.' &&
+               !err.message.includes('GSTN Error')
+    );
   });
 
   // 6. Check timeout -> PROVIDER_DOWN (503)

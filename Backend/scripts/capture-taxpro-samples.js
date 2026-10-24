@@ -144,7 +144,16 @@ async function saveCallResult(name, result) {
 
   if (!successful) {
     const code = providerErrorCode(result.body);
-    console.log(`${name}: HTTP ${result.status}; provider error code ${code || 'unavailable'}.`);
+    if (code === 'RET2B1023') {
+      console.log(`${name}: DATA_NOT_AVAILABLE - The requested sandbox period has no available data.`);
+    } else if (code === 'GSP101') {
+      const sanitizedMsg = typeof result.body.error?.message === 'string'
+        ? result.body.error.message.replace(/[\r\n\t]+/g, ' ').trim()
+        : 'Missing mandatory parameter';
+      console.log(`${name}: HTTP ${result.status}; GSP101 - ${sanitizedMsg}`);
+    } else {
+      console.log(`${name}: HTTP ${result.status}; provider error code ${code || 'unavailable'}.`);
+    }
   }
 }
 
@@ -220,7 +229,7 @@ async function main() {
       throw new Error(`Auth-token request was not successful (HTTP ${tokenResponse.status}; provider code ${code || 'unavailable'}).`);
     }
 
-    const authHeaders = { ...credentials, authtoken: tokenResponse.body.auth_token };
+    const authHeaders = { ...credentials, 'auth-token': tokenResponse.body.auth_token };
     otp = '';
     const periods = {};
     for (const returnType of ['GSTR-1', 'GSTR-3B', 'GSTR-2B']) {
@@ -237,12 +246,11 @@ async function main() {
       username: taxpayer.username,
       ret_prd: periods['GSTR-1']
     };
-    const gstr1Params = { action: 'B2B' };
+    const gstr1Params = { action: 'B2B', gstin: taxpayer.gstin };
     if (!isEmailProfile) {
       gstr1Params.action_required = currentSettings.gstr1ActionRequired;
       currentReturnHeaders.ret_prd = periods['GSTR-1'];
     } else {
-      gstr1Params.gstin = taxpayer.gstin;
       gstr1Params.username = taxpayer.username;
       gstr1Params.ret_period = periods['GSTR-1'];
     }
@@ -258,7 +266,8 @@ async function main() {
     // Keep the provider-email legacy profile limited to its explicitly listed B2B call.
     if (!isEmailProfile) {
       await requestSample(client, '/taxpayerapi/dec/v4.1/returns/gstr1', {
-        action: 'RETSUM'
+        action: 'RETSUM',
+        gstin: taxpayer.gstin
       }, currentReturnHeaders, 'gstr1-retsum.json');
     }
 
@@ -267,8 +276,8 @@ async function main() {
       ? '/taxpayerapi/dec/v0.3/returns/gstr3b'
       : '/taxpayerapi/dec/v7.0/returns/gstr3b', {
       action: 'RETSUM',
+      gstin: taxpayer.gstin,
       ...(isEmailProfile ? {
-        gstin: taxpayer.gstin,
         username: taxpayer.username,
         ret_period: periods['GSTR-3B']
       } : {})
@@ -286,7 +295,8 @@ async function main() {
     } else {
       currentReturnHeaders.ret_prd = periods['GSTR-2B'];
       await requestSample(client, '/taxpayerapi/dec/v4.2/returns/gstr2b', {
-        action: 'GET2B'
+        action: 'GET2B',
+        gstin: taxpayer.gstin
       }, currentReturnHeaders, 'gstr2b-success.json');
     }
 

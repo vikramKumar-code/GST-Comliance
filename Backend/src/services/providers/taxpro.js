@@ -390,12 +390,12 @@ class TaxProProvider {
     }
 
     const params = this.apiProfile === 'current'
-      ? { action, ...extraParams }
+      ? { action, gstin, ...extraParams }
       : { action, gstin, username: username || '', ...extraParams };
     const headers = {
       aspid: this.getAspid(),
       password: this.getPassword(),
-      authtoken: token
+      'auth-token': token
     };
     if (this.apiProfile === 'current') {
       Object.assign(headers, { gstin, username: username || '', ret_prd: period });
