@@ -13,7 +13,8 @@ const {
 } = require('../src/services/providers/taxpro');
 const {
   formatSafeHeaderDiagnostics: collectorFormatDiagnostics,
-  providerErrorMessage
+  providerErrorMessage,
+  formatSafeNetworkDiagnostics
 } = require('./capture-taxpro-samples');
 const ReturnService = require('../src/services/return.service');
 const FinaggService = require('../src/services/finagg.service');
@@ -738,6 +739,70 @@ async function main() {
     assert.equal(caughtError.code, 'PROVIDER_DOWN');
     assert.equal(caughtError.statusCode, 503);
     assert.equal(caughtError.message, 'GST service is unavailable. Please try again later.');
+
+    // Regression check: verify exactly 1 request was dispatched (no automated retries on timeout/ECONNABORTED)
+    assert.equal(fakeClient.calls.length, 1, 'requestOtp must not retry on timeout/ECONNABORTED');
+  });
+
+  runCheck('safe network diagnostics distinguishes timeout, cancellation, abort, and redacts sensitive strings', () => {
+    // 1. Timeout with elapsedMs
+    const timeoutErr = new Error('timeout of 20000ms exceeded');
+    timeoutErr.code = 'ECONNABORTED';
+    timeoutErr.elapsedMs = 20042;
+    const timeoutDiag = formatSafeNetworkDiagnostics(timeoutErr, 20000);
+    assert.match(timeoutDiag, /condition: timed out waiting for upstream response/);
+    assert.match(timeoutDiag, /code: ECONNABORTED/);
+    assert.match(timeoutDiag, /message: "timeout of 20000ms exceeded"/);
+    assert.match(timeoutDiag, /elapsed: 20042ms/);
+    assert.match(timeoutDiag, /configured timeout: 20000ms/);
+
+    // 2. Cancellation
+    const cancelErr = new Error('Request canceled by caller');
+    cancelErr.code = 'ERR_CANCELED';
+    cancelErr.elapsedMs = 45;
+    const cancelDiag = formatSafeNetworkDiagnostics(cancelErr, 20000);
+    assert.match(cancelDiag, /condition: explicitly cancelled/);
+    assert.match(cancelDiag, /code: ERR_CANCELED/);
+    assert.match(cancelDiag, /elapsed: 45ms/);
+
+    // 3. Abort without timeout (e.g. ECONNABORTED from socket abort before timeout)
+    const abortErr = new Error('socket hang up');
+    abortErr.code = 'ECONNABORTED';
+    abortErr.elapsedMs = 1200;
+    const abortDiag = formatSafeNetworkDiagnostics(abortErr, 20000);
+    assert.match(abortDiag, /condition: aborted/);
+    assert.match(abortDiag, /code: ECONNABORTED/);
+
+    // 4. Connection refused
+    const refusedErr = new Error('connect ECONNREFUSED 127.0.0.1:443');
+    refusedErr.code = 'ECONNREFUSED';
+    refusedErr.elapsedMs = 10;
+    const refusedDiag = formatSafeNetworkDiagnostics(refusedErr, 20000);
+    assert.match(refusedDiag, /condition: connection refused by host/);
+
+    // 5. DNS failure
+    const dnsErr = new Error('getaddrinfo ENOTFOUND gstsandbox.charteredinfo.com');
+    dnsErr.code = 'ENOTFOUND';
+    const dnsDiag = formatSafeNetworkDiagnostics(dnsErr, 20000);
+    assert.match(dnsDiag, /condition: DNS lookup failed/);
+
+    // 6. TCP connection timeout
+    const tcpTimeoutErr = new Error('connect ETIMEDOUT 1.2.3.4:443');
+    tcpTimeoutErr.code = 'ETIMEDOUT';
+    tcpTimeoutErr.elapsedMs = 21000;
+    const tcpTimeoutDiag = formatSafeNetworkDiagnostics(tcpTimeoutErr, 20000);
+    assert.match(tcpTimeoutDiag, /condition: TCP connection timed out/);
+
+    // 7. Sanitization of sensitive data in error message
+    const sensitiveErr = new Error('failed for 27AAAAA0000A1Z5 user test@example.com token abcdef0123456789abcdef0123456789 phone 9876543210 pan ABCDE1234F');
+    sensitiveErr.code = 'ECONNABORTED';
+    const sensitiveDiag = formatSafeNetworkDiagnostics(sensitiveErr, 20000);
+    assert.ok(!sensitiveDiag.includes('27AAAAA0000A1Z5'));
+    assert.ok(!sensitiveDiag.includes('test@example.com'));
+    assert.ok(!sensitiveDiag.includes('abcdef0123456789abcdef0123456789'));
+    assert.ok(!sensitiveDiag.includes('9876543210'));
+    assert.ok(!sensitiveDiag.includes('ABCDE1234F'));
+    assert.ok(sensitiveDiag.includes('REDACTED'));
   });
 
   // 7. Check network error / connection refused -> PROVIDER_DOWN (503)

@@ -90,6 +90,44 @@ function providerErrorMessage(data) {
   return cleanString(singleLine);
 }
 
+function formatSafeNetworkDiagnostics(error, timeoutMs = REQUEST_TIMEOUT_MS) {
+  if (!error) return 'unknown error';
+  const code = typeof error.code === 'string' && /^[A-Z0-9_-]{1,32}$/i.test(error.code)
+    ? error.code
+    : 'network error';
+  const rawMsg = typeof error.message === 'string'
+    ? error.message.replace(/[\r\n\t]+/g, ' ').trim()
+    : '';
+  const safeMsg = cleanString(rawMsg);
+  const elapsedMs = typeof error.elapsedMs === 'number' ? error.elapsedMs : null;
+
+  let condition = 'aborted';
+  if (code === 'ECONNABORTED' && /timeout/i.test(safeMsg)) {
+    condition = 'timed out waiting for upstream response';
+  } else if (code === 'ERR_CANCELED' || /cancel/i.test(safeMsg)) {
+    condition = 'explicitly cancelled';
+  } else if (code === 'ECONNREFUSED') {
+    condition = 'connection refused by host';
+  } else if (code === 'ENOTFOUND') {
+    condition = 'DNS lookup failed';
+  } else if (code === 'ETIMEDOUT') {
+    condition = 'TCP connection timed out';
+  }
+
+  const parts = [
+    `condition: ${condition}`,
+    `code: ${code}`,
+    `message: "${safeMsg}"`
+  ];
+  if (elapsedMs !== null) {
+    parts.push(`elapsed: ${elapsedMs}ms`);
+  }
+  if (timeoutMs) {
+    parts.push(`configured timeout: ${timeoutMs}ms`);
+  }
+  return parts.join('; ');
+}
+
 function toJsonBody(data) {
   if (data && typeof data === 'object') return data;
   if (typeof data === 'string') {
@@ -132,14 +170,24 @@ function assertSandboxConfig() {
 }
 
 async function sendGet(client, route, params, headers) {
-  const response = await client.get(route, {
-    params,
-    headers,
-    timeout: REQUEST_TIMEOUT_MS,
-    maxRedirects: 0,
-    validateStatus: () => true
-  });
-  return { status: response.status, body: toJsonBody(response.data) };
+  const startTime = Date.now();
+  try {
+    const response = await client.get(route, {
+      params,
+      headers,
+      timeout: REQUEST_TIMEOUT_MS,
+      maxRedirects: 0,
+      validateStatus: () => true
+    });
+    return {
+      status: response.status,
+      body: toJsonBody(response.data),
+      elapsedMs: Date.now() - startTime
+    };
+  } catch (error) {
+    error.elapsedMs = Date.now() - startTime;
+    throw error;
+  }
 }
 
 async function saveCallResult(name, result) {
@@ -184,8 +232,9 @@ async function requestSample(client, route, params, headers, filename) {
     await saveCallResult(filename, result);
     return result.body?.status_cd === '1';
   } catch (error) {
-    // Do not print Axios errors: they may contain request config or credentials.
-    console.error(`${filename}: request failed (${error.code || 'network error'}); no response was saved.`);
+    // Do not print raw Axios errors: they may contain request config or credentials.
+    const diag = formatSafeNetworkDiagnostics(error, REQUEST_TIMEOUT_MS);
+    console.error(`${filename}: request failed (${diag}); no response was saved.`);
     return false;
   }
 }
@@ -361,9 +410,10 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
-    // Never print Axios messages/config: even errors can carry the request URL or headers.
+    // Never print raw Axios messages/config: even errors can carry the request URL or headers.
     if (error.isAxiosError) {
-      console.error(`TaxPro sample collection stopped: request failed (${error.code || 'network error'}).`);
+      const diag = formatSafeNetworkDiagnostics(error, REQUEST_TIMEOUT_MS);
+      console.error(`TaxPro sample collection stopped: request failed (${diag}).`);
     } else {
       console.error(`TaxPro sample collection stopped: ${error.message}`);
     }
@@ -373,5 +423,6 @@ if (require.main === module) {
 
 module.exports = {
   formatSafeHeaderDiagnostics,
-  providerErrorMessage
+  providerErrorMessage,
+  formatSafeNetworkDiagnostics
 };
