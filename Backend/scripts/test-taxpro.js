@@ -576,6 +576,15 @@ async function main() {
     assert.ok(withSensitive.includes('REDACTED'));
     assert.ok(!withSensitive.includes('\r'));
     assert.ok(!withSensitive.includes('\n'));
+
+    const maxSession = providerErrorMessage({
+      status_cd: '0',
+      error: {
+        error_cd: 'AUTH403',
+        message: 'GSTN Error: Maximum session allowed for user with this GSP account exceeded.'
+      }
+    });
+    assert.equal(maxSession, 'GSTN Error: Maximum session allowed for user with this GSP account exceeded.');
   });
 
   // 4. Check the AUTH4041 response independently; source call is undocumented.
@@ -667,6 +676,46 @@ async function main() {
                err.message === 'Data for this period is not available yet. Try another month.' &&
                !err.message.includes('GSTN Error')
     );
+  });
+
+  // 5d. Check AUTH403 provider error stops requestOtp flow immediately without retrying
+  await runAsyncCheck('5d. AUTH403 provider error stops requestOtp immediately without repeated requests', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => {
+      const err = new Error('Request failed with status code 400');
+      err.response = {
+        status: 400,
+        data: {
+          status_cd: '0',
+          error: {
+            error_cd: 'AUTH403',
+            message: 'GSTN Error: Maximum session allowed for user with this GSP account exceeded.'
+          }
+        }
+      };
+      throw err;
+    });
+
+    let caughtError = null;
+    try {
+      await adapter.requestOtp('33AANCS2882A1ZG', 'TN_NT2.2265');
+    } catch (err) {
+      caughtError = err;
+    }
+
+    assert.ok(caughtError, 'Expected requestOtp to throw an error on AUTH403');
+    assert.equal(caughtError.code, 'PROVIDER_ERROR');
+    assert.equal(caughtError.statusCode, 502);
+    assert.equal(caughtError.message, 'Could not complete the request. Please try again.');
+    assert.ok(!caughtError.message.includes('Maximum session'), 'Never forward raw provider message');
+    assert.ok(!caughtError.message.includes('GSP account'), 'Never forward raw provider message');
+
+    // Regression check: exactly 1 request was dispatched. Proves no automated retry occurs on AUTH403.
+    assert.equal(fakeClient.calls.length, 1, 'requestOtp must halt immediately without repeated requests on AUTH403');
+    assert.equal(fakeClient.calls[0].url, '/taxpayerapi/dec/v1.0/authenticate');
+    assert.equal(fakeClient.calls[0].config.params.action, 'OTPREQUEST');
+    assert.equal(fakeClient.calls[0].config.params.gstin, '33AANCS2882A1ZG');
+    assert.equal(fakeClient.calls[0].config.params.username, 'TN_NT2.2265');
   });
 
   // 6. Check timeout -> PROVIDER_DOWN (503)
