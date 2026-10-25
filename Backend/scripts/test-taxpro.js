@@ -31,10 +31,17 @@ const {
 
 // Load sample files from doc/ folder
 const DOC_DIR = path.resolve(__dirname, '../../doc');
-const otpRequestSuccess = JSON.parse(fs.readFileSync(path.join(DOC_DIR, 'otprequest-success.json'), 'utf8'));
-const authTokenSuccess = JSON.parse(fs.readFileSync(path.join(DOC_DIR, 'authtoken-success.json'), 'utf8'));
-const gstr2bError = JSON.parse(fs.readFileSync(path.join(DOC_DIR, 'gstr2b-error-RET2B1023.json'), 'utf8'));
-const auth4041Error = JSON.parse(fs.readFileSync(path.join(DOC_DIR, 'error-AUTH4041.json'), 'utf8'));
+function loadSample(filename) {
+  const primary = path.join(DOC_DIR, filename);
+  if (fs.existsSync(primary)) return JSON.parse(fs.readFileSync(primary, 'utf8'));
+  const backup = path.join(DOC_DIR, 'backup-before-rerun', filename);
+  if (fs.existsSync(backup)) return JSON.parse(fs.readFileSync(backup, 'utf8'));
+  throw new Error(`Sample file not found: ${filename}`);
+}
+const otpRequestSuccess = loadSample('otprequest-success.json');
+const authTokenSuccess = loadSample('authtoken-success.json');
+const gstr2bError = loadSample('gstr2b-error-RET2B1023.json');
+const auth4041Error = loadSample('error-AUTH4041.json');
 
 /**
  * Fake HTTP Client for offline testing
@@ -251,6 +258,9 @@ async function main() {
       ['GSP030', 'PROVIDER_DOWN', 503, 'GST service is unavailable. Please try again later.'],
       ['GSP101', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
       ['RET2B1023', 'DATA_NOT_AVAILABLE', 404, 'Data for this period is not available yet. Try another month.'],
+      ['RET11400', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
+      ['RET2B1001', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
+      ['RT-3BGV1005', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
       ['GSP500', 'PROVIDER_DOWN', 503, 'GST service is unavailable. Please try again later.'],
       ['UNKNOWN999', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.']
     ];
@@ -717,6 +727,34 @@ async function main() {
     assert.equal(fakeClient.calls[0].config.params.action, 'OTPREQUEST');
     assert.equal(fakeClient.calls[0].config.params.gstin, '33AANCS2882A1ZG');
     assert.equal(fakeClient.calls[0].config.params.username, 'TN_NT2.2265');
+  });
+
+  // 5e. Check sandbox error envelopes for RET11400, RET2B1001, and RT-3BGV1005 map to PROVIDER_ERROR without leaks
+  runCheck('5e. Sandbox error envelopes RET11400, RET2B1001, RT-3BGV1005 validate safely', () => {
+    for (const [code, rawMsg] of [
+      ['RET11400', 'GSTN Error: Header Value Missing'],
+      ['RET2B1001', 'GSTN Error: API Header Value Missing'],
+      ['RT-3BGV1005', 'GSTN Error: Return period is invalid. If error persists quote error number RT-3BGV1005 when you contact customer care for quick resolution']
+    ]) {
+      assert.throws(
+        () => checkTaxProResponse({
+          status_cd: '0',
+          error: {
+            error_cd: code,
+            message: rawMsg
+          }
+        }, `test-${code}`),
+        (err) => {
+          assert.equal(err.code, 'PROVIDER_ERROR');
+          assert.equal(err.statusCode, 502);
+          assert.equal(err.message, 'Could not complete the request. Please try again.');
+          assert.ok(!err.message.includes('GSTN Error'));
+          assert.ok(!err.message.includes('Header Value'));
+          assert.ok(!err.message.includes('Return period'));
+          return true;
+        }
+      );
+    }
   });
 
   // 6. Check timeout -> PROVIDER_DOWN (503)
