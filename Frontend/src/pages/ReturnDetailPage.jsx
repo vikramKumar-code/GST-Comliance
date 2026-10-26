@@ -9,6 +9,7 @@ import ErrorMessage from '../components/ErrorMessage';
 import EmptyState from '../components/EmptyState';
 import { formatDate, formatPeriod } from '../utils/format';
 import Gstr1PrepareModal from '../components/Gstr1PrepareModal';
+import ItcReconciliationModal from '../components/ItcReconciliationModal';
 
 export default function ReturnDetailPage() {
   const { type } = useParams();
@@ -23,6 +24,7 @@ export default function ReturnDetailPage() {
   const [error, setError] = useState(null);
   const [isDataNotAvailable, setIsDataNotAvailable] = useState(false);
   const [isPrepareOpen, setIsPrepareOpen] = useState(false);
+  const [isReconcileOpen, setIsReconcileOpen] = useState(false);
 
   // Counter to ignore stale responses on fast period changes
   const requestIdRef = useRef(0);
@@ -130,6 +132,16 @@ export default function ReturnDetailPage() {
               <span>📋 Prepare GSTR-1</span>
             </button>
           )}
+          {formattedType === 'GSTR2B' && (
+            <button
+              type="button"
+              className="btn btn-outline-primary btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
+              onClick={() => setIsReconcileOpen(true)}
+              title="Reconcile GSTR-2B inward supplies with purchase bills"
+            >
+              <span>⚖️ Reconcile ITC</span>
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-primary btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
@@ -220,6 +232,14 @@ export default function ReturnDetailPage() {
           isOpen={isPrepareOpen}
           onClose={() => setIsPrepareOpen(false)}
           period={period}
+        />
+      )}
+
+      {formattedType === 'GSTR2B' && (
+        <ItcReconciliationModal
+          isOpen={isReconcileOpen}
+          onClose={() => setIsReconcileOpen(false)}
+          initialPeriod={period}
         />
       )}
     </div>
