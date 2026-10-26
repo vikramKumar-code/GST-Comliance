@@ -29,6 +29,14 @@ const SUITES = [
     args: [path.join(__dirname, 'test-rate-limit-store.js')]
   },
   {
+    name: 'test-billing',
+    args: [path.join(__dirname, 'test-billing.js')]
+  },
+  {
+    name: 'test-gstr1-builder',
+    args: [path.join(__dirname, 'test-gstr1-builder.js')]
+  },
+  {
     name: 'test:e2e',
     args: [path.join(__dirname, 'run-e2e.js')]
   }

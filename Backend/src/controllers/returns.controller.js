@@ -72,3 +72,30 @@ exports.getGstr3b = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.prepareGstr1 = async (req, res, next) => {
+  try {
+    const { resolveWorkspaceId } = require('../utils/workspaceHelper');
+    const Gstr1Service = require('../services/gstr1.service');
+    const workspaceId = await resolveWorkspaceId(req);
+    const result = await Gstr1Service.preparePayload(workspaceId, req.gstin, req.query.period);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.saveGstr1 = async (req, res, next) => {
+  try {
+    const { resolveWorkspaceId } = require('../utils/workspaceHelper');
+    const Gstr1Service = require('../services/gstr1.service');
+    const workspaceId = await resolveWorkspaceId(req);
+    const result = await Gstr1Service.savePayload(workspaceId, req.gstin, req.query.period, {
+      username: req.username,
+      gstToken: req.gstToken
+    });
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
