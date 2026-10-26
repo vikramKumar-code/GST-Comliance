@@ -37,6 +37,10 @@ const SUITES = [
     args: [path.join(__dirname, 'test-gstr1-builder.js')]
   },
   {
+    name: 'test-itc-reconciliation',
+    args: [path.join(__dirname, 'test-itc-reconciliation.js')]
+  },
+  {
     name: 'test:e2e',
     args: [path.join(__dirname, 'run-e2e.js')]
   }
