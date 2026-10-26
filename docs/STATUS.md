@@ -1,6 +1,6 @@
 # STATUS: project handoff (update at the end of every task)
 
-Last updated: 25 Oct 2026. Agent in use: **Antigravity only** (Codex retired; see `AGENTS.md`).
+Last updated: 26 Oct 2026. Agent in use: **Antigravity only** (Codex retired; see `AGENTS.md`).
 
 ## Product
 CandidTax: Customer-facing GST billing and compliance application inspired by Zoho Books. Features full sales invoicing with intra-state (CGST+SGST) vs inter-state (IGST) tax calculation, purchase bill tracking, customer and item catalogs, live taxpayer GSTIN verification, and official GST return breakdowns (GSTR-1, GSTR-2B, GSTR-3B). Stack: Node/Express/MongoDB (`Backend/`), React/Vite (`Frontend/`). Provider: TaxPro GSP / Mock Finagg.
@@ -14,31 +14,22 @@ Backend
   - Tax Calculation Utility (`Backend/src/utils/taxCalculator.js`): Line-item and total computation with automated intra-state (50/50 CGST+SGST) vs inter-state (100% IGST) based on seller GSTIN vs Place of Supply.
   - Controllers & Routes: Full CRUD and search for `/api/customers`, `/api/items`, `/api/invoices`, and `/api/bills`.
   - Enhanced Dashboard Controller: Computes real MongoDB sales totals, purchase expenses, receivables, and payables alongside GST return metrics.
-  - Test Suite (`Backend/scripts/test-billing.js`): Unit and integration tests for tax calculations, schema validations, and workspace tenancy isolation. Integrated into `npm run test:all` (7/7 suites passing).
+  - Test Suite (`Backend/scripts/test-billing.js`): Unit and integration tests for tax calculations, schema validations, and workspace tenancy isolation.
 - Joi validation; MongoDB-backed shared rate limiting; cookie-based JWT session (HttpOnly, SameSite=Lax); lockout after 3 wrong OTPs.
 - Mock mode & TaxPro adapter with safe error handling (`GSP053`, `AUTH4037`, `RET2B1023`, `GSP032`), timeout diagnostics, and zero credential leakage.
 - **TaxPro GSP Signing Key Diagnostic Hardening**: Granular safe diagnostic errors for missing `TAXPRO_ASPID`, `TAXPRO_PASSWORD`, and `TAXPRO_ASP_PRIVATE_KEY_PATH`, unreadable key paths, malformed PEMs, non-RSA keys, and encrypted passphrase verification without leaking secrets or credentials.
 - **TaxPro GST Taxpayer Authentication Implementation**: Full GET-based implementation for `OTPREQUEST`, `AUTHTOKEN`, `REFRESHTOKEN`, and `EVCOTP` on `/taxpayerapi/dec/v1.0/authenticate`. Strict architectural separation between taxpayer auth and GSP GetKey session signing; zero credential/token leakage; Joi & provider validation; safe error mapping for expired tokens (`AUTH4038`, `GSP052A` -> 401 `SESSION_EXPIRED`); session update support in `SessionService`; and 100% offline regression coverage.
+- **TaxPro Read-Only Return Mappers**: Added mathematical parsing for official GSTN/TaxPro return shapes (GSTR-1 `b2b` & `sec_sum`, GSTR-2B `b2b` & `itc_elg`, GSTR-3B `sup_details` & `itc_elg`), with fail-closed safety for unrecognized schemas. Verified with test 14b in `test-taxpro.js`.
 - **GSTR-1 Payload Builder & Dry-Run Save API**: Created `Gstr1Service` that auto-groups workspace sales invoices into official GSTN GSTR-1 schema (Table 4A B2B, Table 7 B2CS, Table 12 HSN, Table 13 DOCISS) with summary calculations. Added `GET /api/returns/gstr1/prepare` and `POST /api/returns/gstr1/save` with strict dry-run protection when `FEATURE_FILING !== 'true'`. Verified with `test-gstr1-builder.js`.
 - Unified backend test runner (`Backend/scripts/run-all-tests.js`, `npm run test:all`): 8/8 suites pass 100%.
 
 Frontend (CandidTax — Zoho Books Style Application)
-- Professional enterprise layout (`Layout.jsx`, `.zoho-*` design system in `index.css`) with collapsible & sticky left sidebar (`position: sticky; top: 0; height: 100vh`) and sticky top header with quick action `+ New` menu and active GSTIN context.
-- **Main Navigation & Business Modules**:
-  - **Dashboard** (`/dashboard`): Real sales invoice totals, purchase bills, eligible ITC, net tax payable, and recent transactions.
-  - **Taxpayer Search** (`/taxpayer-search`): Live GSTIN verification via `/api/gstin/search`.
-  - **Customers** (`/customers`): Searchable table, filter by GST type, and Add/Edit Customer modal with GST details and billing address.
-  - **Items & Services** (`/items`): Products and services table with HSN/SAC, pricing, unit, and GST rates.
-  - **Sales Invoices** (`/sales/invoices`): Interactive invoice builder with customer selection, line items, real-time CGST/SGST vs IGST calculations, MongoDB persistence, status management, and printable invoice drawer.
-  - **Sales Credit Notes** (`/sales/credit-notes`): Business credit notes overview.
-  - **Purchases & Bills** (`/purchases/bills`): Purchase bill tracker with expense categorization and ITC reconciliation.
-  - **Direct Expenses** (`/purchases/expenses`): Operational expense tracking.
-  - **GST Returns**: Clean business views for GSTR-1, GSTR-2B, GSTR-3B (`/returns/:type`), Unified Return Summary (`/returns/summary`), and Filing History (`/returns/filing-history`).
-  - **Excel Import** (`/excel-import`): Spreadsheet drag-and-drop import dropzone.
-  - **Reports** (`/reports`): Financial and GST reconciliation reports.
-  - **Settings** (`/settings`): Business profile and invoice preferences.
+- Professional enterprise layout (`Layout.jsx`, `.zoho-*` design system in `index.css`) with collapsible & sticky left sidebar and sticky top header with quick action `+ New` menu and active GSTIN context.
+- **Non-blocking Taxpayer Public Search**: Isolated taxpayer public search errors (`GSP014` / IP mismatch) in `GstinForm.jsx` so OTP request to GSTN is never blocked.
+- **GSTR-1 Review & Preparation Modal** (`Gstr1PrepareModal.jsx`): Interactive breakdown with summary KPI cards (Total Invoices, Taxable Value, CGST/SGST/IGST), tabbed sections for Table 4A (B2B), Table 7 (B2CS), Table 12 (HSN Summary), and Table 13 (Document Issues), and 1-click dry-run Save/Upload to GSTN.
+- Connected GSTR-1 preparation to `ReturnDetailPage.jsx` (📋 Prepare GSTR-1 button) and `InvoicesPage.jsx` (📋 File GSTR-1 header action).
 - Zero secret exposure: No developer debug tools or raw JSON viewers in primary user navigation.
-- Passes ESLint (`npm run lint`: 0 errors, 0 warnings) and Vite build (`npm run build`).
+- Passes ESLint (`npm run lint`: 0 errors, 0 warnings) and Vite build (`npm run build`: builds in 1.38s).
 
 ## Decisions
 - Customer-facing business workflows inspired by Zoho Books replace raw developer API testing tools.
