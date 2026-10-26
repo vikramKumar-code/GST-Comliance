@@ -11,6 +11,7 @@ const {
   searchGstinSchema,
   requestOtpSchema,
   verifyOtpSchema,
+  evcOtpSchema,
   periodQuerySchema
 } = require('../src/middleware/validate');
 const { otpLimiter } = require('../src/middleware/rateLimit');
@@ -92,6 +93,10 @@ async function main() {
 
   app.post('/test/validate/otp-verify', validate(verifyOtpSchema), (req, res) => {
     res.status(200).json({ success: true, message: 'OTP verified' });
+  });
+
+  app.post('/test/validate/evc-otp', validate(evcOtpSchema), (req, res) => {
+    res.status(200).json({ success: true, message: 'EVC OTP request validated' });
   });
 
   app.get('/test/validate/period', validate(periodQuerySchema, 'query'), (req, res) => {
@@ -206,6 +211,32 @@ async function main() {
       });
       assert.equal(resMissing.status, 400, 'Expected HTTP 400 when consent is missing');
       assert.equal(resMissing.body.code, 'VALIDATION_ERROR');
+    });
+
+    await runAsyncCheck('validate: evcOtpSchema validates PAN format and form_type', async () => {
+      // Good PAN and form_type
+      const goodRes = await request(baseUrl, '/test/validate/evc-otp', {
+        method: 'POST',
+        body: { pan: 'ABCDE1234F', form_type: 'R1' }
+      });
+      assert.equal(goodRes.status, 200);
+      assert.equal(goodRes.body.success, true);
+
+      // Invalid PAN
+      const badPan = await request(baseUrl, '/test/validate/evc-otp', {
+        method: 'POST',
+        body: { pan: '12345ABCDE', form_type: 'R1' }
+      });
+      assert.equal(badPan.status, 400);
+      assert.equal(badPan.body.code, 'VALIDATION_ERROR');
+
+      // Missing form_type
+      const missingForm = await request(baseUrl, '/test/validate/evc-otp', {
+        method: 'POST',
+        body: { pan: 'ABCDE1234F' }
+      });
+      assert.equal(missingForm.status, 400);
+      assert.equal(missingForm.body.code, 'VALIDATION_ERROR');
     });
 
     // ------------------------------------------------------------------------

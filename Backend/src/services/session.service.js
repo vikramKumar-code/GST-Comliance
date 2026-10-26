@@ -49,6 +49,23 @@ class SessionService {
   }
 
   /**
+   * Update an active session with a newly refreshed GST token
+   */
+  static async updateSessionToken(sessionId, newGstToken) {
+    if (!sessionId || !newGstToken) return null;
+    const gstTokenEnc = encrypt(newGstToken);
+    const expiresAt = new Date(Date.now() + SESSION_HOURS * 3600 * 1000);
+    return Session.findByIdAndUpdate(
+      sessionId,
+      {
+        gstTokenEnc,
+        expiresAt
+      },
+      { new: true }
+    );
+  }
+
+  /**
    * Destroy an existing session
    */
   static async destroySession(sessionId) {

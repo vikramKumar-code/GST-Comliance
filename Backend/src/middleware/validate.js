@@ -81,7 +81,29 @@ const verifyOtpSchema = Joi.object({
     })
 });
 
-// 4. Period Query Schema for returns & dashboard
+// 4. EVC OTP Schema
+const evcOtpSchema = Joi.object({
+  pan: Joi.string()
+    .trim()
+    .uppercase()
+    .pattern(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid PAN format. Must be 10 characters (e.g. ABCDE1234F).',
+      'any.required': 'PAN is required for EVC OTP.'
+    }),
+  form_type: Joi.string()
+    .trim()
+    .min(1)
+    .max(10)
+    .required()
+    .messages({
+      'string.empty': 'form_type is required.',
+      'any.required': 'form_type is required.'
+    })
+});
+
+// 5. Period Query Schema for returns & dashboard
 const periodQuerySchema = Joi.object({
   period: Joi.string()
     .trim()
@@ -130,6 +152,7 @@ module.exports = {
   searchGstinSchema,
   requestOtpSchema,
   verifyOtpSchema,
+  evcOtpSchema,
   periodQuerySchema,
   contactSchema
 };

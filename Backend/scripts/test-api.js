@@ -295,6 +295,56 @@ async function main() {
     assert.ok(res.body.expiresAt, 'Expected expiresAt to be present');
   });
 
+  // 5b. POST /api/auth/token/refresh
+  await runAsyncCheck('POST /api/auth/token/refresh with active session refreshes token', async () => {
+    const res = await request('/api/auth/token/refresh', {
+      method: 'POST',
+      headers: { Cookie: `sid=${sidCookie}` }
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.equal(res.body.message, 'GST session token refreshed successfully.');
+    assert.equal(res.body.token, undefined, 'Raw auth token must NEVER be returned');
+    assert.equal(res.body.auth_token, undefined);
+
+    // Unauthenticated refresh returns 401
+    const resNoAuth = await request('/api/auth/token/refresh', {
+      method: 'POST'
+    });
+    assert.equal(resNoAuth.status, 401);
+    assert.equal(resNoAuth.body.code, 'SESSION_EXPIRED');
+  });
+
+  // 5c. POST /api/auth/otp/evc
+  await runAsyncCheck('POST /api/auth/otp/evc validates PAN and dispatches EVC OTP', async () => {
+    // Valid PAN and form_type
+    const res = await request('/api/auth/otp/evc', {
+      method: 'POST',
+      headers: { Cookie: `sid=${sidCookie}` },
+      body: { pan: 'ABCDE1234F', form_type: 'R1' }
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.success, true);
+    assert.ok(typeof res.body.message === 'string');
+
+    // Invalid PAN returns 400
+    const resBadPan = await request('/api/auth/otp/evc', {
+      method: 'POST',
+      headers: { Cookie: `sid=${sidCookie}` },
+      body: { pan: 'INVALID123', form_type: 'R1' }
+    });
+    assert.equal(resBadPan.status, 400);
+    assert.equal(resBadPan.body.code, 'VALIDATION_ERROR');
+
+    // Missing cookie returns 401
+    const resNoAuth = await request('/api/auth/otp/evc', {
+      method: 'POST',
+      body: { pan: 'ABCDE1234F', form_type: 'R1' }
+    });
+    assert.equal(resNoAuth.status, 401);
+    assert.equal(resNoAuth.body.code, 'SESSION_EXPIRED');
+  });
+
   // Period format validation: "132026" and a future period -> VALIDATION_ERROR (400)
   await runAsyncCheck('GET /api/returns: period "132026" and future period return VALIDATION_ERROR (400)', async () => {
     const resBadMonth = await request('/api/returns/gstr1?period=132026', {

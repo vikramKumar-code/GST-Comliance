@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:4000';
+export const BACKEND_BASE_URL = rawBaseUrl.replace(/\/api\/?$/, '');
+export const API_BASE_URL = `${BACKEND_BASE_URL}/api`;
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -66,7 +68,7 @@ client.interceptors.response.use(
       message = 'Could not complete the request. Please try again.';
     } else if (code === 'PROVIDER_DOWN') {
       message = 'GST service is unavailable. Please try again later.';
-    } else if (!message || FRIENDLY_ERROR_MESSAGES[code]) {
+    } else if (!message) {
       // Use friendly short message if errorData.message is generic or missing
       message = FRIENDLY_ERROR_MESSAGES[code] || error.message || 'An unexpected error occurred.';
     }
@@ -79,11 +81,12 @@ client.interceptors.response.use(
       }
     }
 
-    // Normalise error object to { code, message, status }
+    // Normalise error object to { code, message, status, data }
     return Promise.reject({
       code,
       message,
       status,
+      data: errorData,
     });
   }
 );

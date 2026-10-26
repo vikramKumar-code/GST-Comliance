@@ -25,6 +25,11 @@ const REQUEST_TIMEOUT_MS = 20000;
 
 dotenv.config({ path: ENV_PATH });
 
+const PERIOD_PLACEMENT = (process.env.TAXPRO_PERIOD_PLACEMENT || 'both').trim().toLowerCase();
+if (!['header', 'query', 'both'].includes(PERIOD_PLACEMENT)) {
+  throw new Error('TAXPRO_PERIOD_PLACEMENT must be header, query, or both.');
+}
+
 function createPrompt() {
   return readline.createInterface({ input: stdin, output: stdout });
 }
@@ -191,50 +196,34 @@ async function sendGet(client, route, params, headers) {
 }
 
 async function saveCallResult(name, result) {
-  if (!result.body) {
-    console.log(`${name}: response was not JSON; nothing was saved.`);
-    return;
-  }
+  if (!result.body) return;
 
   const successful = result.status >= 200 && result.status < 300 && result.body.status_cd === '1';
   const filename = successful ? name : name.replace(/\.json$/, '-error.json');
   try {
-    const outputPath = writeSanitizedSample(filename, result.body);
-    console.log(`${name}: saved sanitized ${successful ? 'success' : 'error'} response to ${outputPath}`);
+    writeSanitizedSample(filename, result.body);
   } catch (error) {
     if (error.code === 'EEXIST') {
-      console.log(`${name}: output already exists; move or rename it before collecting another sample.`);
       return;
     }
     throw error;
   }
-
-  if (!successful) {
-    const code = providerErrorCode(result.body);
-    if (code === 'RET2B1023') {
-      console.log(`${name}: DATA_NOT_AVAILABLE - The requested sandbox period has no available data.`);
-    } else if (code === 'GSP101') {
-      const sanitizedMsg = typeof result.body.error?.message === 'string'
-        ? result.body.error.message.replace(/[\r\n\t]+/g, ' ').trim()
-        : 'Missing mandatory parameter';
-      console.log(`${name}: HTTP ${result.status}; GSP101 - ${sanitizedMsg}`);
-    } else {
-      console.log(`${name}: HTTP ${result.status}; provider error code ${code || 'unavailable'}.`);
-    }
-  }
 }
 
-async function requestSample(client, route, params, headers, filename) {
+async function requestSample(client, route, params, headers, filename, apiName) {
+  const label = apiName || filename.replace(/\.json$/, '');
   try {
-    const safeDiagnostics = formatSafeHeaderDiagnostics(headers);
-    console.log(`${filename}: outgoing headers: ${JSON.stringify(safeDiagnostics)}`);
     const result = await sendGet(client, route, params, headers);
     await saveCallResult(filename, result);
-    return result.body?.status_cd === '1';
+    const httpClass = result.status ? `${Math.floor(result.status / 100)}xx` : 'none';
+    const successful = result.status >= 200 && result.status < 300 && result.body?.status_cd === '1';
+    const outcome = successful ? 'success' : (providerErrorCode(result.body) || 'error');
+    console.log(`${label}: mode: ${PERIOD_PLACEMENT}, HTTP class: ${httpClass}, result: ${outcome}`);
+    return successful;
   } catch (error) {
-    // Do not print raw Axios errors: they may contain request config or credentials.
-    const diag = formatSafeNetworkDiagnostics(error, REQUEST_TIMEOUT_MS);
-    console.error(`${filename}: request failed (${diag}); no response was saved.`);
+    const httpClass = error.response?.status ? `${Math.floor(error.response.status / 100)}xx` : 'network';
+    const outcome = providerErrorCode(error.response?.data) || error.code || 'error';
+    console.log(`${label}: mode: ${PERIOD_PLACEMENT}, HTTP class: ${httpClass}, result: ${outcome}`);
     return false;
   }
 }
@@ -277,8 +266,6 @@ async function main() {
       throw new Error('Enter a valid sandbox GSTIN and non-empty GST portal username.');
     }
 
-    const safeCredentialsDiagnostics = formatSafeHeaderDiagnostics(credentials);
-    console.log(`OTPREQUEST: outgoing headers: ${JSON.stringify(safeCredentialsDiagnostics)}`);
     const otpRequest = await sendGet(client, AUTH_PATH, {
       action: 'OTPREQUEST',
       gstin: taxpayer.gstin,
@@ -298,7 +285,6 @@ async function main() {
 
     otp = await readHidden('GST portal OTP (input hidden): ');
     if (!/^\d{4,8}$/.test(otp)) throw new Error('OTP must contain 4 to 8 digits.');
-    console.log(`AUTHTOKEN: outgoing headers: ${JSON.stringify(safeCredentialsDiagnostics)}`);
     tokenResponse = await sendGet(client, AUTH_PATH, {
       action: 'AUTHTOKEN',
       gstin: taxpayer.gstin,
@@ -333,18 +319,25 @@ async function main() {
     const stateCd = typeof taxpayer.gstin === 'string' && taxpayer.gstin.length >= 2
       ? taxpayer.gstin.slice(0, 2)
       : '';
+    const sendHeaderPeriod = PERIOD_PLACEMENT === 'header' || PERIOD_PLACEMENT === 'both';
+    const sendQueryPeriod = PERIOD_PLACEMENT === 'query' || PERIOD_PLACEMENT === 'both';
+
     const currentReturnHeaders = {
       ...authHeaders,
       gstin: taxpayer.gstin,
       username: taxpayer.username,
       'state-cd': stateCd,
-      ret_prd: periods['GSTR-1'],
       'ip-usr': process.env.TAXPRO_GSP_IP_USR
     };
     const gstr1Params = { action: 'B2B', gstin: taxpayer.gstin };
     if (!isEmailProfile) {
       gstr1Params.action_required = currentSettings.gstr1ActionRequired;
-      currentReturnHeaders.ret_prd = periods['GSTR-1'];
+      if (sendQueryPeriod) {
+        gstr1Params.ret_period = periods['GSTR-1'];
+      }
+      if (sendHeaderPeriod) {
+        currentReturnHeaders.ret_period = periods['GSTR-1'];
+      }
     } else {
       gstr1Params.username = taxpayer.username;
       gstr1Params.ret_period = periods['GSTR-1'];
@@ -354,46 +347,91 @@ async function main() {
       isEmailProfile ? '/taxpayerapi/dec/v2.1/returns/gstr1' : '/taxpayerapi/dec/v4.1/returns/gstr1',
       gstr1Params,
       isEmailProfile ? authHeaders : { ...currentReturnHeaders, txn: crypto.randomUUID() },
-      isEmailProfile ? 'gstr1-b2b-v2.1.json' : 'gstr1-b2b.json'
+      isEmailProfile ? 'gstr1-b2b-v2.1.json' : 'gstr1-b2b.json',
+      'GSTR-1 B2B'
     );
 
     // The current GSTR-1 API documents RETSUM as a separate aggregate-summary call.
     // Keep the provider-email legacy profile limited to its explicitly listed B2B call.
     if (!isEmailProfile) {
-      await requestSample(client, '/taxpayerapi/dec/v4.1/returns/gstr1', {
+      const gstr1RetsumParams = {
         action: 'RETSUM',
         gstin: taxpayer.gstin
-      }, { ...currentReturnHeaders, txn: crypto.randomUUID() }, 'gstr1-retsum.json');
+      };
+      if (sendQueryPeriod) {
+        gstr1RetsumParams.ret_period = periods['GSTR-1'];
+      }
+      if (sendHeaderPeriod) {
+        currentReturnHeaders.ret_period = periods['GSTR-1'];
+      }
+      await requestSample(
+        client,
+        '/taxpayerapi/dec/v4.1/returns/gstr1',
+        gstr1RetsumParams,
+        { ...currentReturnHeaders, txn: crypto.randomUUID() },
+        'gstr1-retsum.json',
+        'GSTR-1 RETSUM'
+      );
     }
 
-    currentReturnHeaders.ret_prd = periods['GSTR-3B'];
-    await requestSample(client, isEmailProfile
-      ? '/taxpayerapi/dec/v0.3/returns/gstr3b'
-      : '/taxpayerapi/dec/v7.0/returns/gstr3b', {
+    if (!isEmailProfile && sendHeaderPeriod) {
+      currentReturnHeaders.ret_period = periods['GSTR-3B'];
+    }
+    const gstr3bParams = {
       action: 'RETSUM',
       gstin: taxpayer.gstin,
-      ...(isEmailProfile ? {
-        username: taxpayer.username,
-        ret_period: periods['GSTR-3B']
-      } : {})
-    }, isEmailProfile ? authHeaders : { ...currentReturnHeaders, txn: crypto.randomUUID() },
-    isEmailProfile ? 'gstr3b-retsum-v0.3.json' : 'gstr3b-retsum.json');
+      ...(isEmailProfile
+        ? { username: taxpayer.username, ret_period: periods['GSTR-3B'] }
+        : (sendQueryPeriod ? { ret_period: periods['GSTR-3B'] } : {}))
+    };
+    await requestSample(
+      client,
+      isEmailProfile ? '/taxpayerapi/dec/v0.3/returns/gstr3b' : '/taxpayerapi/dec/v7.0/returns/gstr3b',
+      gstr3bParams,
+      isEmailProfile ? authHeaders : { ...currentReturnHeaders, txn: crypto.randomUUID() },
+      isEmailProfile ? 'gstr3b-retsum-v0.3.json' : 'gstr3b-retsum.json',
+      'GSTR-3B RETSUM'
+    );
 
     if (isEmailProfile) {
-      await requestSample(client, '/taxpayerapi/dec/v1.0/returns/gstr2b', {
-        action: 'GET2B',
-        gstin: taxpayer.gstin,
-        username: taxpayer.username,
-        ret_period: periods['GSTR-2B'],
-        rtnprd: periods['GSTR-2B']
-      }, authHeaders, 'gstr2b-get2b-v1.0.json');
+      await requestSample(
+        client,
+        '/taxpayerapi/dec/v1.0/returns/gstr2b',
+        {
+          action: 'GET2B',
+          gstin: taxpayer.gstin,
+          username: taxpayer.username,
+          ret_period: periods['GSTR-2B'],
+          rtnprd: periods['GSTR-2B']
+        },
+        authHeaders,
+        'gstr2b-get2b-v1.0.json',
+        'GSTR-2B'
+      );
     } else {
-      currentReturnHeaders.ret_prd = periods['GSTR-2B'];
-      await requestSample(client, '/taxpayerapi/dec/v4.2/returns/gstr2b', {
+      // Current profile requests GSTR-2B v4.2 GET2B.
+      // Note: optional 'typ' and 'file_num' are omitted until documented by TaxPro.
+      // On-demand generation APIs (GEN2B PUT v4.1, GENSTS2B GET v4.1) are omitted
+      // pending provider confirmation on parameter placement (query vs JSON body).
+      if (sendHeaderPeriod) {
+        currentReturnHeaders.ret_period = periods['GSTR-2B'];
+      }
+      const gstr2bParams = {
         action: 'GET2B',
-        gstin: taxpayer.gstin,
-        rtnprd: periods['GSTR-2B']
-      }, { ...currentReturnHeaders, txn: crypto.randomUUID() }, 'gstr2b-success.json');
+        gstin: taxpayer.gstin
+      };
+      if (sendQueryPeriod) {
+        gstr2bParams.ret_period = periods['GSTR-2B'];
+        gstr2bParams.rtnprd = periods['GSTR-2B'];
+      }
+      await requestSample(
+        client,
+        '/taxpayerapi/dec/v4.2/returns/gstr2b',
+        gstr2bParams,
+        { ...currentReturnHeaders, txn: crypto.randomUUID() },
+        'gstr2b-success.json',
+        'GSTR-2B'
+      );
     }
 
     console.log('Review each sanitized file under doc/ before using it for a mapper or sharing it.');
@@ -424,5 +462,6 @@ if (require.main === module) {
 module.exports = {
   formatSafeHeaderDiagnostics,
   providerErrorMessage,
-  formatSafeNetworkDiagnostics
+  formatSafeNetworkDiagnostics,
+  PERIOD_PLACEMENT
 };

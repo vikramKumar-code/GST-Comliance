@@ -192,3 +192,78 @@ exports.logout = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.refreshToken = async (req, res, next) => {
+  try {
+    if (!req.session?._id || !req.gstToken) {
+      throw ApiError.sessionExpired('Authentication required. Please verify OTP again.');
+    }
+    const normGstin = req.gstin;
+    const normUsername = req.username;
+
+    const result = await FinaggService.refreshToken(normGstin, normUsername, req.gstToken);
+
+    await SessionService.updateSessionToken(req.session._id, result.token);
+
+    await AuditLog.create({
+      workspaceId: req.workspaceId,
+      memberId: req.membership?._id || null,
+      gstin: normGstin,
+      action: 'TOKEN_REFRESH',
+      status: 'SUCCESS'
+    }).catch(() => {});
+
+    res.status(200).json({
+      success: true,
+      message: 'GST session token refreshed successfully.'
+    });
+  } catch (error) {
+    if (req.gstin) {
+      await AuditLog.create({
+        workspaceId: req.workspaceId,
+        memberId: req.membership?._id || null,
+        gstin: req.gstin,
+        action: 'TOKEN_REFRESH',
+        status: 'FAILURE'
+      }).catch(() => {});
+    }
+    next(error);
+  }
+};
+
+exports.requestEvcOtp = async (req, res, next) => {
+  try {
+    if (!req.session?._id || !req.gstToken) {
+      throw ApiError.sessionExpired('Authentication required. Please verify OTP again.');
+    }
+    const { pan, form_type } = req.body;
+    const normGstin = req.gstin;
+    const normUsername = req.username;
+
+    const result = await FinaggService.requestEvcOtp(normGstin, normUsername, pan, form_type, req.gstToken);
+
+    await AuditLog.create({
+      workspaceId: req.workspaceId,
+      memberId: req.membership?._id || null,
+      gstin: normGstin,
+      action: 'EVC_OTP_REQUEST',
+      status: 'SUCCESS'
+    }).catch(() => {});
+
+    res.status(200).json({
+      success: true,
+      message: result?.message || 'EVC OTP has been dispatched successfully to the registered mobile/email on GST portal.'
+    });
+  } catch (error) {
+    if (req.gstin) {
+      await AuditLog.create({
+        workspaceId: req.workspaceId,
+        memberId: req.membership?._id || null,
+        gstin: req.gstin,
+        action: 'EVC_OTP_REQUEST',
+        status: 'FAILURE'
+      }).catch(() => {});
+    }
+    next(error);
+  }
+};

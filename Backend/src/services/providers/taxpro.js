@@ -5,8 +5,8 @@ const logger = require('../../utils/logger');
 const { TaxProGspSession } = require('./taxproGspSession');
 const { isValidGstin, isValidPeriod } = require('../../utils/gstin');
 
-// [CONFIRM] from TaxPro docs: add the real error_cd for an expired or invalid token
-const SESSION_ERROR_CODES = [];
+// Official TaxPro / GSTN error codes for an expired or invalid taxpayer auth token
+const SESSION_ERROR_CODES = ['AUTH4038', 'GSP052', 'GSP052A', 'TEC4002'];
 
 /**
  * Validate error_cd before logging: must match /^[A-Za-z0-9_-]{1,32}$/ or return 'invalid'
@@ -37,7 +37,13 @@ function mapTaxProErrorCode(errorCd) {
   if (errorCd === 'RET2B1023') {
     return ApiError.dataNotAvailable('Data for this period is not available yet. Try another month.');
   }
-  if (['GSP018', 'GSP020', 'GSP020A', 'GSP021', 'GSP022', 'GSP023', 'GSP024', 'GSP024A', 'GSP061'].includes(errorCd)) {
+  if (errorCd === 'GSP053') {
+    return ApiError.otpInvalid('OTP request has expired or was not found. Please request a new OTP.');
+  }
+  if (errorCd === 'AUTH4037') {
+    return ApiError.validationError('Portal user is not registered with this GSTIN. Please check your portal username and GSTIN.');
+  }
+  if (['GSP014', 'GSP018', 'GSP020', 'GSP020A', 'GSP021', 'GSP022', 'GSP023', 'GSP024', 'GSP024A', 'GSP061'].includes(errorCd)) {
     return ApiError.providerAuth('Could not complete the request. Please try again.');
   }
   if (errorCd === 'GSP025') {
@@ -148,6 +154,8 @@ function checkTaxProResponse(data, operation) {
   return data;
 }
 
+const PERIOD_PLACEMENT = 'both';
+
 class TaxProProvider {
   /**
    * @param {Object} options
@@ -155,6 +163,7 @@ class TaxProProvider {
    * @param {string} [options.aspid]
    * @param {string} [options.password]
    * @param {'legacy'|'current'} [options.apiProfile]
+   * @param {'header'|'query'|'both'} [options.periodPlacement]
    * @param {string} [options.gstr1ActionRequired]
    * @param {Object} [options.httpClient] Injectable HTTP client for offline testing
    */
@@ -182,6 +191,10 @@ class TaxProProvider {
     if (!['legacy', 'current'].includes(this.apiProfile)) {
       throw new Error('TAXPRO_API_PROFILE must be legacy or current');
     }
+    this.periodPlacement = (options.periodPlacement || process.env.TAXPRO_PERIOD_PLACEMENT || PERIOD_PLACEMENT).trim().toLowerCase();
+    if (!['header', 'query', 'both'].includes(this.periodPlacement)) {
+      throw new Error('TAXPRO_PERIOD_PLACEMENT must be header, query, or both');
+    }
     this.gstr1ActionRequired = (options.gstr1ActionRequired || process.env.TAXPRO_GSTR1_ACTION_REQUIRED || '').trim().toUpperCase();
 
     // Injectable HTTP client for network-free testing
@@ -197,16 +210,17 @@ class TaxProProvider {
       password: this.password,
       privateKeyPath: options.privateKeyPath,
       privateKeyPassphrase: options.privateKeyPassphrase,
+      ipUsr: this.ipUsr,
       httpClient: this.httpClient
     });
   }
 
   getAspid() {
-    return this.aspid !== undefined && this.aspid !== '' ? this.aspid : (process.env.TAXPRO_ASPID || '');
+    return this.aspid !== undefined ? this.aspid : (process.env.TAXPRO_ASPID || '');
   }
 
   getPassword() {
-    return this.password !== undefined && this.password !== '' ? this.password : (process.env.TAXPRO_PASSWORD || '');
+    return this.password !== undefined ? this.password : (process.env.TAXPRO_PASSWORD || '');
   }
 
   getIpUsr() {
@@ -252,7 +266,14 @@ class TaxProProvider {
       headers = await this.gspSession.getHeaders();
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      throw ApiError.providerError('TaxPro GSP signing-key configuration is invalid.', 502);
+      const safeReason = error && typeof error.message === 'string'
+        ? error.message
+        : 'TaxPro GSP signing-key configuration is invalid.';
+      logger.error(`TaxPro GSP signing-key error during [${operation}]`, {
+        code: 'PROVIDER_ERROR',
+        reason: safeReason
+      });
+      throw ApiError.providerError(`TaxPro GSP signing-key configuration is invalid: ${safeReason}`, 502);
     }
     try {
       const response = await this.httpClient.get(path, { params, headers });
@@ -267,13 +288,22 @@ class TaxProProvider {
    * GET /taxpayerapi/dec/v1.0/authenticate action=OTPREQUEST
    */
   async requestOtp(gstin, username) {
+    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!username || typeof username !== 'string' || !username.trim()) {
+      throw ApiError.validationError('Username is required.');
+    }
+    const aspid = this.getAspid();
+    const password = this.getPassword();
+    if (!aspid || !password) {
+      throw ApiError.providerError('TaxPro ASP credentials (TAXPRO_ASPID, TAXPRO_PASSWORD) are not configured.', 500);
+    }
     const path = '/taxpayerapi/dec/v1.0/authenticate';
     const params = {
       action: 'OTPREQUEST',
-      gstin,
-      username
+      gstin: gstin.toUpperCase(),
+      username: username.trim()
     };
-    const headers = { aspid: this.getAspid(), password: this.getPassword() };
+    const headers = { aspid, password };
 
     try {
       const response = await this.httpClient.get(path, { params, headers });
@@ -293,14 +323,26 @@ class TaxProProvider {
    * Returns { token: response.auth_token }. Never store sek.
    */
   async verifyOtp(gstin, username, otp) {
+    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!username || typeof username !== 'string' || !username.trim()) {
+      throw ApiError.validationError('Username is required.');
+    }
+    if (!otp || typeof otp !== 'string' || !/^[0-9]{4,8}$/.test(otp.trim())) {
+      throw ApiError.validationError('OTP must be 4 to 8 digits.');
+    }
+    const aspid = this.getAspid();
+    const password = this.getPassword();
+    if (!aspid || !password) {
+      throw ApiError.providerError('TaxPro ASP credentials (TAXPRO_ASPID, TAXPRO_PASSWORD) are not configured.', 500);
+    }
     const path = '/taxpayerapi/dec/v1.0/authenticate';
     const params = {
       action: 'AUTHTOKEN',
-      gstin,
-      username,
-      OTP: otp
+      gstin: gstin.toUpperCase(),
+      username: username.trim(),
+      OTP: otp.trim()
     };
-    const headers = { aspid: this.getAspid(), password: this.getPassword() };
+    const headers = { aspid, password };
 
     try {
       const response = await this.httpClient.get(path, { params, headers });
@@ -314,6 +356,107 @@ class TaxProProvider {
       };
     } catch (error) {
       throw handleTaxProError(error, 'verifyOtp');
+    }
+  }
+
+  /**
+   * Refresh GST AuthToken via TaxPro
+   * GET /taxpayerapi/dec/v1.0/authenticate action=REFRESHTOKEN
+   * Query params: action=REFRESHTOKEN, gstin, username
+   * Headers: aspid, password, auth-token / AuthToken
+   * Returns { token: response.auth_token }. Never store sek.
+   */
+  async refreshToken(gstin, username, token) {
+    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!username || typeof username !== 'string' || !username.trim()) {
+      throw ApiError.validationError('Username is required.');
+    }
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      throw ApiError.validationError('Auth token is required to refresh session.');
+    }
+    const aspid = this.getAspid();
+    const password = this.getPassword();
+    if (!aspid || !password) {
+      throw ApiError.providerError('TaxPro ASP credentials (TAXPRO_ASPID, TAXPRO_PASSWORD) are not configured.', 500);
+    }
+    const path = '/taxpayerapi/dec/v1.0/authenticate';
+    const params = {
+      action: 'REFRESHTOKEN',
+      gstin: gstin.toUpperCase(),
+      username: username.trim()
+    };
+    const cleanToken = token.trim();
+    const headers = {
+      aspid,
+      password,
+      'auth-token': cleanToken,
+      AuthToken: cleanToken
+    };
+
+    try {
+      const response = await this.httpClient.get(path, { params, headers });
+      const data = checkTaxProResponse(response.data, 'refreshToken');
+      if (typeof data.auth_token !== 'string' || !data.auth_token.trim()) {
+        throw ApiError.providerError('Could not complete the request. Please try again.', 502);
+      }
+      return {
+        token: data.auth_token
+      };
+    } catch (error) {
+      throw handleTaxProError(error, 'refreshToken');
+    }
+  }
+
+  /**
+   * Request EVC OTP for electronic verification / return filing via TaxPro
+   * GET /taxpayerapi/dec/v1.0/authenticate action=EVCOTP
+   * Query params: action=EVCOTP, gstin, username, pan, form_type
+   * Headers: aspid, password, auth-token / authtoken
+   */
+  async requestEvcOtp(gstin, username, pan, formType, token) {
+    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!username || typeof username !== 'string' || !username.trim()) {
+      throw ApiError.validationError('Username is required.');
+    }
+    if (!pan || typeof pan !== 'string' || !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan.trim().toUpperCase())) {
+      throw ApiError.validationError('Invalid PAN format. Must be 10 characters (e.g. ABCDE1234F).');
+    }
+    if (!formType || typeof formType !== 'string' || !formType.trim()) {
+      throw ApiError.validationError('Form type is required for EVC OTP.');
+    }
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      throw ApiError.validationError('Auth token is required for EVC OTP request.');
+    }
+    const aspid = this.getAspid();
+    const password = this.getPassword();
+    if (!aspid || !password) {
+      throw ApiError.providerError('TaxPro ASP credentials (TAXPRO_ASPID, TAXPRO_PASSWORD) are not configured.', 500);
+    }
+    const path = '/taxpayerapi/dec/v1.0/authenticate';
+    const params = {
+      action: 'EVCOTP',
+      gstin: gstin.toUpperCase(),
+      username: username.trim(),
+      pan: pan.trim().toUpperCase(),
+      form_type: formType.trim().toUpperCase()
+    };
+    const cleanToken = token.trim();
+    const headers = {
+      aspid,
+      password,
+      'auth-token': cleanToken,
+      authtoken: cleanToken
+    };
+
+    try {
+      const response = await this.httpClient.get(path, { params, headers });
+      const data = checkTaxProResponse(response.data, 'requestEvcOtp');
+      return {
+        status_cd: data.status_cd,
+        message: 'EVC OTP has been dispatched successfully to the registered mobile/email on GST portal.'
+      };
+    } catch (error) {
+      throw handleTaxProError(error, 'requestEvcOtp');
     }
   }
 
@@ -354,6 +497,9 @@ class TaxProProvider {
     let action;
     let extraParams = {};
 
+    const sendHeaderPeriod = this.periodPlacement === 'header' || this.periodPlacement === 'both';
+    const sendQueryPeriod = this.periodPlacement === 'query' || this.periodPlacement === 'both';
+
     switch (normType) {
       case 'GSTR1':
         path = this.apiProfile === 'current'
@@ -366,6 +512,9 @@ class TaxProProvider {
             throw ApiError.providerError('Current TaxPro GSTR-1 action_required has not been confirmed.', 502);
           }
           extraParams.action_required = this.gstr1ActionRequired;
+          if (sendQueryPeriod) {
+            extraParams.ret_period = period;
+          }
         } else {
           extraParams.ret_period = period;
         }
@@ -377,19 +526,32 @@ class TaxProProvider {
           : '/taxpayerapi/dec/v0.3/returns/gstr3b';
         action = 'RETSUM';
         extraParams = {};
-        if (this.apiProfile !== 'current') {
+        if (this.apiProfile === 'current') {
+          if (sendQueryPeriod) {
+            extraParams.ret_period = period;
+          }
+        } else {
           extraParams.ret_period = period;
         }
         break;
 
       case 'GSTR2B':
+        // TaxPro GSTR-2B v4.2 GET2B endpoint.
+        // Optional parameters: 'typ' (section/type) and 'file_num' (chunking/pagination) are documented
+        // in TaxPro UCL docs but omitted here until supported values and pagination thresholds are confirmed.
+        // Companion APIs: GEN2B (PUT /taxpayerapi/dec/v4.1/returns/gstr2b) and GENSTS2B
+        // (GET /taxpayerapi/dec/v4.1/returns/gstr2b) provide on-demand generation and tracking (e.g. on RET2B1023),
+        // but remain unintegrated pending provider confirmation on parameter placement (query vs JSON body).
         path = this.apiProfile === 'current'
           ? '/taxpayerapi/dec/v4.2/returns/gstr2b'
           : '/taxpayerapi/dec/v1.0/returns/gstr2b';
         action = 'GET2B';
         extraParams = {};
         if (this.apiProfile === 'current') {
-          extraParams.rtnprd = period;
+          if (sendQueryPeriod) {
+            extraParams.ret_period = period;
+            extraParams.rtnprd = period;
+          }
         } else {
           extraParams.ret_period = period;
           extraParams.rtnprd = period;
@@ -428,14 +590,16 @@ class TaxProProvider {
         gstin,
         username: username || '',
         'state-cd': stateCd,
-        ret_prd: period,
         txn: crypto.randomUUID(),
         'ip-usr': ipUsr
       });
+      if (sendHeaderPeriod) {
+        headers.ret_period = period;
+      }
     }
 
     try {
-      logger.debug(`TaxPro return request outgoing headers for [${normType}]`, formatSafeHeaderDiagnostics(headers));
+      logger.debug(`TaxPro return request dispatched for [${normType}]`);
       const response = await this.httpClient.get(path, { params, headers });
       const data = checkTaxProResponse(response.data, `getReturn:${normType}`);
       return data;
@@ -448,10 +612,12 @@ class TaxProProvider {
 const defaultTaxProInstance = new TaxProProvider();
 defaultTaxProInstance.TaxProProvider = TaxProProvider;
 defaultTaxProInstance.SESSION_ERROR_CODES = SESSION_ERROR_CODES;
+defaultTaxProInstance.PERIOD_PLACEMENT = PERIOD_PLACEMENT;
 
 module.exports = defaultTaxProInstance;
 module.exports.TaxProProvider = TaxProProvider;
 module.exports.SESSION_ERROR_CODES = SESSION_ERROR_CODES;
+module.exports.PERIOD_PLACEMENT = PERIOD_PLACEMENT;
 module.exports.checkTaxProResponse = checkTaxProResponse;
 module.exports.mapTaxProErrorCode = mapTaxProErrorCode;
 module.exports.handleTaxProError = handleTaxProError;

@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const path = require('node:path');
 
 function decodeBase64(value, label) {
   if (typeof value !== 'string' || !value.trim()) {
@@ -70,11 +71,48 @@ function formatTaxProTimestamp(date = new Date()) {
 }
 
 function createSignedContent(aspid, timestamp, privateKeyPath, passphrase) {
+  if (!aspid || typeof aspid !== 'string' || !aspid.trim()) {
+    throw new Error('TAXPRO_ASPID is not configured');
+  }
+  const cleanAspid = aspid.trim().replace(/^["']|["']$/g, '');
+  if (!cleanAspid) {
+    throw new Error('TAXPRO_ASPID is not configured');
+  }
+  if (!privateKeyPath || typeof privateKeyPath !== 'string' || !privateKeyPath.trim()) {
+    throw new Error('TAXPRO_ASP_PRIVATE_KEY_PATH is not configured');
+  }
+
+  const cleanPath = privateKeyPath.trim().replace(/^["']|["']$/g, '');
+  if (!cleanPath) {
+    throw new Error('TAXPRO_ASP_PRIVATE_KEY_PATH is not configured');
+  }
+
+  let resolvedPath = cleanPath;
+  if (!path.isAbsolute(cleanPath)) {
+    const cwdCandidate = path.resolve(process.cwd(), cleanPath);
+    if (fs.existsSync(cwdCandidate)) {
+      resolvedPath = cwdCandidate;
+    } else {
+      const rootCandidate = path.resolve(__dirname, '../../..', cleanPath);
+      if (fs.existsSync(rootCandidate)) {
+        resolvedPath = rootCandidate;
+      } else {
+        resolvedPath = cwdCandidate;
+      }
+    }
+  }
+
   let keyBytes;
   try {
-    keyBytes = fs.readFileSync(privateKeyPath);
-  } catch {
-    throw new Error('TaxPro ASP signing key could not be read');
+    keyBytes = fs.readFileSync(resolvedPath);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      throw new Error('TaxPro ASP signing key file not found at configured path');
+    }
+    if (err.code === 'EACCES') {
+      throw new Error('TaxPro ASP signing key file permission denied at configured path');
+    }
+    throw new Error('TaxPro ASP signing key could not be read from configured path');
   }
 
   let privateKey;
@@ -85,31 +123,47 @@ function createSignedContent(aspid, timestamp, privateKeyPath, passphrase) {
     });
   } catch {
     keyBytes.fill(0);
+    if (passphrase) {
+      throw new Error('TaxPro ASP signing key is not a readable PEM private key or passphrase is incorrect');
+    }
     throw new Error('TaxPro ASP signing key is not a readable PEM private key');
   }
   keyBytes.fill(0);
   if (privateKey.asymmetricKeyType !== 'rsa') {
-    throw new Error('TaxPro ASP signing key must be RSA');
+    throw new Error('TaxPro ASP signing key must be an RSA private key');
   }
 
-  return crypto.sign('RSA-SHA256', Buffer.from(`${aspid}${timestamp}`, 'utf8'), privateKey).toString('base64');
+  return crypto.sign('RSA-SHA256', Buffer.from(`${cleanAspid}${timestamp}`, 'utf8'), privateKey).toString('base64');
 }
 
 class TaxProGspSession {
   constructor(options = {}) {
-    this.aspid = options.aspid || process.env.TAXPRO_ASPID || '';
-    this.password = options.password || process.env.TAXPRO_PASSWORD || '';
-    this.privateKeyPath = options.privateKeyPath || process.env.TAXPRO_ASP_PRIVATE_KEY_PATH || '';
-    this.privateKeyPassphrase = options.privateKeyPassphrase || process.env.TAXPRO_ASP_PRIVATE_KEY_PASSPHRASE || '';
+    const rawAspid = options.aspid !== undefined ? options.aspid : (process.env.TAXPRO_ASPID || '');
+    this.aspid = typeof rawAspid === 'string'
+      ? rawAspid.trim().replace(/^["']|["']$/g, '')
+      : '';
+    const rawPassword = options.password !== undefined ? options.password : (process.env.TAXPRO_PASSWORD || '');
+    this.password = typeof rawPassword === 'string'
+      ? rawPassword.trim().replace(/^["']|["']$/g, '')
+      : '';
+    const rawPath = options.privateKeyPath !== undefined
+      ? options.privateKeyPath
+      : (process.env.TAXPRO_ASP_PRIVATE_KEY_PATH || '');
+    this.privateKeyPath = typeof rawPath === 'string'
+      ? rawPath.trim().replace(/^["']|["']$/g, '')
+      : '';
+    this.privateKeyPassphrase = options.privateKeyPassphrase !== undefined
+      ? options.privateKeyPassphrase
+      : (process.env.TAXPRO_ASP_PRIVATE_KEY_PASSPHRASE || '');
     this.httpClient = options.httpClient;
     this.now = options.now || (() => Date.now());
     this.session = null;
     this.refreshPromise = null;
+    const rawIp = options.ipUsr !== undefined ? options.ipUsr : (process.env.TAXPRO_GSP_IP_USR || '');
+    const cleanIp = typeof rawIp === 'string' ? rawIp.trim().replace(/^["']|["']$/g, '') : '';
     this.extraHeaders = {
-      appver: options.appver || process.env.TAXPRO_APP_VERSION || 'CandidTax/1.0',
-      ...(options.ipUsr || process.env.TAXPRO_GSP_IP_USR
-        ? { 'ip-usr': options.ipUsr || process.env.TAXPRO_GSP_IP_USR }
-        : {})
+      appver: (options.appver || process.env.TAXPRO_APP_VERSION || 'CandidTax/1.0').trim(),
+      ...(cleanIp ? { 'ip-usr': cleanIp } : {})
     };
   }
 
@@ -122,8 +176,17 @@ class TaxProGspSession {
   }
 
   async refreshSession() {
-    if (!this.aspid || !this.password || !this.privateKeyPath || !this.httpClient) {
-      throw new Error('TaxPro ASP credentials, registered signing key, and HTTP client are required for GSP APIs');
+    if (!this.aspid) {
+      throw new Error('TAXPRO_ASPID is not configured');
+    }
+    if (!this.password) {
+      throw new Error('TAXPRO_PASSWORD is not configured');
+    }
+    if (!this.privateKeyPath) {
+      throw new Error('TAXPRO_ASP_PRIVATE_KEY_PATH is not configured');
+    }
+    if (!this.httpClient) {
+      throw new Error('HTTP client is not configured for GSP session');
     }
     const timestamp = formatTaxProTimestamp(new Date(this.now()));
     const txn = crypto.randomUUID();

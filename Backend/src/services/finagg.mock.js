@@ -75,6 +75,38 @@ class FinaggMock {
   }
 
   /**
+   * Refresh GST AuthToken (Mock)
+   */
+  static async refreshToken(gstin, username, token) {
+    FinaggMock._checkProviderDown(gstin);
+    if (!token) {
+      throw ApiError.validationError('Auth token is required to refresh session.');
+    }
+    const refreshedToken = `mock_gst_token_refreshed_${Date.now()}`;
+    return {
+      status_cd: '1',
+      auth_token: refreshedToken,
+      expiry: '',
+      sek: '',
+      token: refreshedToken
+    };
+  }
+
+  /**
+   * Request EVC OTP (Mock)
+   */
+  static async requestEvcOtp(gstin, username, pan, formType, token) {
+    FinaggMock._checkProviderDown(gstin);
+    if (!token) {
+      throw ApiError.validationError('Auth token is required for EVC OTP request.');
+    }
+    return {
+      status_cd: '1',
+      message: 'OTP has been dispatched successfully to the registered mobile/email on GST portal.'
+    };
+  }
+
+  /**
    * Fetch returns summary (available periods and filing status)
    */
   static async getReturnsSummary(gstin, requestedPeriod, options = {}) {

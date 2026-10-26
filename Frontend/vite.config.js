@@ -8,5 +8,15 @@ export default defineConfig({
     allowedHosts: [
       'groove-devotion-frozen.ngrok-free.dev',
     ],
+    proxy: {
+      '/api': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+      },
+    },
   },
 })

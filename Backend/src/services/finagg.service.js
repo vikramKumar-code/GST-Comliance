@@ -62,6 +62,24 @@ class FinaggService {
   }
 
   /**
+   * Refresh GST session auth token
+   * Returns { token: response.auth_token }
+   */
+  static async refreshToken(gstin, username, token) {
+    const res = await getProvider().refreshToken(gstin, username, token);
+    return {
+      token: res.token || res.auth_token
+    };
+  }
+
+  /**
+   * Request EVC OTP for electronic verification / return filing
+   */
+  static async requestEvcOtp(gstin, username, pan, formType, token) {
+    return getProvider().requestEvcOtp(gstin, username, pan, formType, token);
+  }
+
+  /**
    * Fetch returns filing summary
    */
   static async getReturnsSummary(gstin, period, gstToken, username, options) {

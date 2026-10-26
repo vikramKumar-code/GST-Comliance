@@ -49,7 +49,7 @@ export default function LandingPage() {
         <div className="container d-flex justify-content-between align-items-center">
           <Link to="/" className="landing-brand">
             <span className="brand-mark">GST</span>
-            <span className="brand-copy">CandidTax <small>GST COMPLIANCE</small></span>
+            <span className="brand-copy">CandidTax<small>GST COMPLIANCE</small></span>
           </Link>
           <nav className="landing-nav-links">
             <a href="#features" className="landing-nav-link d-none d-md-inline">Features</a>

@@ -28,6 +28,7 @@ export default function useReturns(initialPeriod) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isDataNotAvailable, setIsDataNotAvailable] = useState(false);
+  const [lastResponse, setLastResponse] = useState(null);
 
   // Counter to ignore out-of-date responses on fast period changes
   const requestIdRef = useRef(0);
@@ -37,6 +38,7 @@ export default function useReturns(initialPeriod) {
     setLoading(true);
     setError(null);
     setIsDataNotAvailable(false);
+    const startTime = performance.now();
 
     return Promise.all([
       getDashboard(selectedPeriod),
@@ -44,13 +46,33 @@ export default function useReturns(initialPeriod) {
     ])
       .then(([dash, summary]) => {
         if (currentRequestId !== requestIdRef.current) return;
+        const latency = Math.round(performance.now() - startTime);
         setDashboardData(dash);
         if (summary?.availablePeriods) {
           setAvailablePeriods(summary.availablePeriods);
         }
+        setLastResponse({
+          method: 'GET',
+          endpoint: `/api/dashboard?period=${selectedPeriod}`,
+          status: 200,
+          latency,
+          data: dash,
+          success: true,
+        });
       })
       .catch((err) => {
         if (currentRequestId !== requestIdRef.current) return;
+        const latency = Math.round(performance.now() - startTime);
+        setLastResponse({
+          method: 'GET',
+          endpoint: `/api/dashboard?period=${selectedPeriod}`,
+          status: err.status || (err?.code === 'DATA_NOT_AVAILABLE' ? 404 : 500),
+          latency,
+          data: err.data || { code: err.code, message: err.message },
+          success: false,
+          errorCode: err.code,
+        });
+
         if (err?.code === 'DATA_NOT_AVAILABLE' || err?.status === 404) {
           setIsDataNotAvailable(true);
           setDashboardData(null);
@@ -71,6 +93,7 @@ export default function useReturns(initialPeriod) {
     if (!period) return;
     let ignore = false;
     const currentRequestId = ++requestIdRef.current;
+    const startTime = performance.now();
 
     Promise.resolve().then(() => {
       if (ignore) return;
@@ -84,13 +107,33 @@ export default function useReturns(initialPeriod) {
       ])
         .then(([dash, summary]) => {
           if (ignore || currentRequestId !== requestIdRef.current) return;
+          const latency = Math.round(performance.now() - startTime);
           setDashboardData(dash);
           if (summary?.availablePeriods) {
             setAvailablePeriods(summary.availablePeriods);
           }
+          setLastResponse({
+            method: 'GET',
+            endpoint: `/api/dashboard?period=${period}`,
+            status: 200,
+            latency,
+            data: dash,
+            success: true,
+          });
         })
         .catch((err) => {
           if (ignore || currentRequestId !== requestIdRef.current) return;
+          const latency = Math.round(performance.now() - startTime);
+          setLastResponse({
+            method: 'GET',
+            endpoint: `/api/dashboard?period=${period}`,
+            status: err.status || (err?.code === 'DATA_NOT_AVAILABLE' ? 404 : 500),
+            latency,
+            data: err.data || { code: err.code, message: err.message },
+            success: false,
+            errorCode: err.code,
+          });
+
           if (err?.code === 'DATA_NOT_AVAILABLE' || err?.status === 404) {
             setIsDataNotAvailable(true);
             setDashboardData(null);
@@ -125,6 +168,7 @@ export default function useReturns(initialPeriod) {
     isDataNotAvailable,
     isStale,
     updatedAt,
+    lastResponse,
     refresh: () => executeFetch(period),
   };
 }
