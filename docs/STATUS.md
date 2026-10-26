@@ -31,8 +31,9 @@ Frontend (CandidTax — Zoho Books Style Application)
 - **GSTR-1 Review & Preparation Modal** (`Gstr1PrepareModal.jsx`): Interactive breakdown with summary KPI cards (Total Invoices, Taxable Value, CGST/SGST/IGST), tabbed sections for Table 4A (B2B), Table 7 (B2CS), Table 12 (HSN Summary), and Table 13 (Document Issues), and 1-click dry-run Save/Upload to GSTN.
 - Connected GSTR-1 preparation to `ReturnDetailPage.jsx` (📋 Prepare GSTR-1 button) and `InvoicesPage.jsx` (📋 File GSTR-1 header action).
 - **ITC Reconciliation & GST Refund Modal** (`ItcReconciliationModal.jsx`): Interactive review modal with 4-bucket transaction filtering (Matched, Missing in 2B, Discrepancies, Extra in 2B) and GST Refund / Net Liability Estimator with side-by-side tax offsetting. Wired into `BillsPage.jsx` (⚖️ Reconcile ITC & Refund) and `ReturnDetailPage.jsx` (⚖️ Reconcile ITC on GSTR-2B).
+- **Filing History & Return Summary Live Integration**: Connected `FilingHistoryPage.jsx` to live `RETTRACK` acknowledgments (ARN, filing date, return type, online status) and `ReturnSummaryPage.jsx` to multi-return tax liability & ITC comparison (GSTR-1 vs GSTR-2B vs GSTR-3B) with period tracking.
 - Zero secret exposure: No developer debug tools or raw JSON viewers in primary user navigation.
-- Passes ESLint (`npm run lint`: 0 errors, 0 warnings) and Vite build (`npm run build`: builds in 3.57s).
+- Passes ESLint (`npm run lint`: 0 errors, 0 warnings) and Vite build (`npm run build`: builds in 718ms).
 
 ## Decisions
 - Customer-facing business workflows inspired by Zoho Books replace raw developer API testing tools.
