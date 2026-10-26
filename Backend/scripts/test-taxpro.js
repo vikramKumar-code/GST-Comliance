@@ -1642,6 +1642,55 @@ async function main() {
     });
   });
 
+  // 13b. RETTRACK maps official GSTN EFiledlist response into availablePeriods and filings
+  await runAsyncCheck('13b. RETTRACK maps official GSTN EFiledlist into availablePeriods and filings', async () => {
+    const trackingClient = new FakeHttpClient();
+    trackingClient.setHandler(() => ({
+      status: 200,
+      data: {
+        status_cd: '1',
+        EFiledlist: [
+          {
+            valid: 'Y',
+            mof: 'ONLINE',
+            dof: '11/10/2026',
+            rtntype: 'GSTR1',
+            ret_prd: '092026',
+            arn: 'AA2709260012345',
+            status: 'Filed'
+          },
+          {
+            valid: 'Y',
+            mof: 'ONLINE',
+            dof: '20/10/2026',
+            rtntype: 'GSTR3B',
+            ret_prd: '092026',
+            arn: 'AA2709260067890',
+            status: 'Filed'
+          }
+        ]
+      }
+    }));
+    const trackingAdapter = new TaxProProvider({
+      httpClient: trackingClient,
+      aspid: testAspid,
+      password: testPassword,
+      gspSession: { getHeaders: async () => ({ aspid: testAspid, txn: 'TESTTXN' }) }
+    });
+
+    const summary = await trackingAdapter.getReturnsSummary('27AAAAA0000A1Z5', '092026', testToken);
+    assert.equal(summary.gstin, '27AAAAA0000A1Z5');
+    assert.equal(summary.financialYear, '2026-27');
+    assert.equal(summary.filings.length, 2);
+    assert.equal(summary.filings[0].arn, 'AA2709260012345');
+    assert.equal(summary.filings[0].type, 'GSTR1');
+    assert.equal(summary.filings[1].arn, 'AA2709260067890');
+    assert.equal(summary.filings[1].type, 'GSTR3B');
+    assert.equal(summary.availablePeriods.length, 1);
+    assert.equal(summary.availablePeriods[0].gstr1, 'FILED');
+    assert.equal(summary.availablePeriods[0].gstr3b, 'FILED');
+  });
+
   // 14. Mappers in TaxPro mode throw PROVIDER_ERROR with "mapper needs real sample"
   runCheck('14. ReturnService mappers in TaxPro mode throw PROVIDER_ERROR', () => {
     assert.throws(

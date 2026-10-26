@@ -446,6 +446,47 @@ class ReturnService {
 
     try {
       const summary = await FinaggService.getReturnsSummary(normGstin, period, gstToken, options.username, options);
+
+      // Attach return breakdown comparison for the requested period if available
+      if (period) {
+        try {
+          const [g1Res, g2bRes, g3bRes] = await Promise.allSettled([
+            ReturnService.getReturn('GSTR1', normGstin, period, gstToken, options),
+            ReturnService.getReturn('GSTR2B', normGstin, period, gstToken, options),
+            ReturnService.getReturn('GSTR3B', normGstin, period, gstToken, options)
+          ]);
+
+          const returns = [];
+          if (g1Res.status === 'fulfilled' && g1Res.value) {
+            returns.push({
+              type: 'GSTR-1 (Outward Supplies)',
+              period,
+              totals: g1Res.value.totals || { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }
+            });
+          }
+          if (g2bRes.status === 'fulfilled' && g2bRes.value) {
+            returns.push({
+              type: 'GSTR-2B (Inward Supplies / ITC)',
+              period,
+              totals: g2bRes.value.totals || { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }
+            });
+          }
+          if (g3bRes.status === 'fulfilled' && g3bRes.value) {
+            returns.push({
+              type: 'GSTR-3B (Monthly Summary)',
+              period,
+              totals: g3bRes.value.totals || { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 }
+            });
+          }
+
+          if (returns.length > 0) {
+            summary.returns = returns;
+          }
+        } catch {
+          // Non-blocking: summary continues even if return fetching fails
+        }
+      }
+
       return summary;
     } catch (error) {
       if (error.code === 'SESSION_EXPIRED' && options.sessionId) {

@@ -119,6 +119,14 @@ class FinaggMock {
         { period: '082026', financialYear: '2026-27', gstr1: 'FILED', gstr2b: 'GENERATED', gstr3b: 'FILED' },
         { period: '072026', financialYear: '2026-27', gstr1: 'FILED', gstr2b: 'GENERATED', gstr3b: 'FILED' },
         { period: '062026', financialYear: '2026-27', gstr1: 'FILED', gstr2b: 'GENERATED', gstr3b: 'FILED' }
+      ],
+      filings: [
+        { type: 'GSTR1', period: '092026', arn: 'AA2909260012345', date: '11/10/2026', status: 'Filed', mode: 'ONLINE' },
+        { type: 'GSTR3B', period: '092026', arn: 'AA2909260067890', date: '20/10/2026', status: 'Filed', mode: 'ONLINE' },
+        { type: 'GSTR1', period: '082026', arn: 'AA2908260054321', date: '11/09/2026', status: 'Filed', mode: 'ONLINE' },
+        { type: 'GSTR3B', period: '082026', arn: 'AA2908260098765', date: '20/09/2026', status: 'Filed', mode: 'ONLINE' },
+        { type: 'GSTR1', period: '072026', arn: 'AA2907260023456', date: '11/08/2026', status: 'Filed', mode: 'ONLINE' },
+        { type: 'GSTR3B', period: '072026', arn: 'AA2907260087654', date: '20/08/2026', status: 'Filed', mode: 'ONLINE' }
       ]
     };
   }

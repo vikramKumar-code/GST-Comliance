@@ -479,6 +479,41 @@ class TaxProProvider {
       gstin: gstin.toUpperCase(),
       fy: financialYear
     }, 'gsp:trackReturns');
+
+    if (Array.isArray(response.EFiledlist)) {
+      const filings = response.EFiledlist.map((item) => ({
+        type: String(item.rtntype || '').toUpperCase(),
+        arn: String(item.arn || ''),
+        period: String(item.ret_prd || ''),
+        date: String(item.dof || ''),
+        status: String(item.status || 'Filed'),
+        mode: String(item.mof || 'ONLINE')
+      }));
+
+      const periodMap = new Map();
+      for (const f of filings) {
+        if (!periodMap.has(f.period)) {
+          periodMap.set(f.period, {
+            period: f.period,
+            financialYear,
+            gstr1: 'NOT_FILED',
+            gstr2b: 'GENERATED',
+            gstr3b: 'NOT_FILED'
+          });
+        }
+        const record = periodMap.get(f.period);
+        if (f.type === 'GSTR1') record.gstr1 = f.status.toUpperCase();
+        if (f.type === 'GSTR3B') record.gstr3b = f.status.toUpperCase();
+      }
+
+      return {
+        gstin: gstin.toUpperCase(),
+        financialYear,
+        availablePeriods: Array.from(periodMap.values()),
+        filings
+      };
+    }
+
     throw ApiError.providerError(
       `TaxPro return-tracking response received for ${financialYear}, but its mapper requires a sanitized provider sample.`,
       502
