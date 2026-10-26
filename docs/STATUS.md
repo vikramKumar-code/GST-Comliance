@@ -24,7 +24,8 @@ Backend
 - **ITC Reconciliation & GST Refund Estimation Engine**: Created `ReconciliationService` (`GET /api/reconciliation/itc` and `GET /api/reconciliation/refund-estimate`) that reconciles purchase bills against GSTR-2B inward supplies into MATCHED, MISMATCHED_VALUE, MISSING_IN_2B (at-risk), and EXTRA_IN_2B categories. Automatically calculates surplus ITC eligible for refund (RFD-01) vs net cash payable via GSTR-3B. Verified with `test-itc-reconciliation.js`.
 - **Return Tracking (RETTRACK) & Multi-Return Summary**: Mapped official GSTN `EFiledlist` response in TaxPro adapter into `filings` (type, ARN, period, date, mode, status) and `availablePeriods`. Enriched `getReturnsSummary` to aggregate multi-return line-item comparisons for GSTR-1, GSTR-2B, and GSTR-3B. Verified with test 13b in `test-taxpro.js`.
 - **Financial & Tax Reports Engine**: Created `ReportService` (`GET /api/reports/gstr-comparison`, `/sales-register`, `/purchase-register`) providing side-by-side GSTR-1 vs GSTR-3B liability variance analysis (detecting DRC-01B notice risk) and date-filtered register summaries. Verified with `test-reports.js`.
-- Unified backend test runner (`Backend/scripts/run-all-tests.js`, `npm run test:all`): 10/10 suites pass 100%.
+- **Bulk Ingestion Engine**: Created `ImportService` (`POST /api/import/invoices`, `/bills`) supporting multi-item transaction grouping by document number, automatic Customer/Item upserting, intra vs inter-state tax calculation via `taxCalculator.js`, duplicate skipping, and strict tenancy isolation. Verified with `test-import.js`.
+- Unified backend test runner (`Backend/scripts/run-all-tests.js`, `npm run test:all`): 11/11 suites pass 100%.
 
 Frontend (CandidTax — Zoho Books Style Application)
 - Professional enterprise layout (`Layout.jsx`, `.zoho-*` design system in `index.css`) with collapsible & sticky left sidebar and sticky top header with quick action `+ New` menu and active GSTIN context.
