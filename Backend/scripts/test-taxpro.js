@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   TaxProProvider,
+  PERIOD_PLACEMENT,
   SESSION_ERROR_CODES,
   checkTaxProResponse,
   mapTaxProErrorCode,
@@ -14,13 +15,15 @@ const {
 const {
   formatSafeHeaderDiagnostics: collectorFormatDiagnostics,
   providerErrorMessage,
-  formatSafeNetworkDiagnostics
+  formatSafeNetworkDiagnostics,
+  PERIOD_PLACEMENT: collectorPeriodPlacement
 } = require('./capture-taxpro-samples');
 const ReturnService = require('../src/services/return.service');
 const FinaggService = require('../src/services/finagg.service');
 const ApiError = require('../src/utils/apiError');
 const logger = require('../src/utils/logger');
 const { sanitizeSample } = require('./sanitize-sample');
+const { isValidPeriod } = require('../src/utils/gstin');
 const {
   TaxProGspSession,
   aesEncryptBase64,
@@ -148,10 +151,124 @@ async function main() {
         publicKey,
         Buffer.from(signature, 'base64')
       ), true);
+      const quotePaddedSignature = createSignedContent(' "TESTASP" ', timestamp, keyPath);
+      assert.equal(crypto.verify(
+        'RSA-SHA256',
+        Buffer.from(`TESTASP${timestamp}`, 'utf8'),
+        publicKey,
+        Buffer.from(quotePaddedSignature, 'base64')
+      ), true, 'Signature input must strip quotes and whitespace from aspid');
     } finally {
       if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath);
       fs.rmdirSync(tempDir);
     }
+  });
+
+  runCheck('TaxPro signing key validation provides safe diagnostics for missing, malformed, non-existent, and non-RSA keys', () => {
+    const timestamp = formatTaxProTimestamp(new Date());
+
+    // 1. Missing aspid
+    assert.throws(
+      () => createSignedContent('', timestamp, '/any/path'),
+      (err) => err.message === 'TAXPRO_ASPID is not configured'
+    );
+
+    // 2. Missing key path
+    assert.throws(
+      () => createSignedContent('TESTASP', timestamp, ''),
+      (err) => err.message === 'TAXPRO_ASP_PRIVATE_KEY_PATH is not configured'
+    );
+
+    // 3. Non-existent file path
+    assert.throws(
+      () => createSignedContent('TESTASP', timestamp, '/nonexistent/path/key.pem'),
+      (err) => err.message === 'TaxPro ASP signing key file not found at configured path'
+    );
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taxpro-diag-test-'));
+    try {
+      // 4. Malformed PEM file
+      const malformedKeyPath = path.join(tempDir, 'malformed.pem');
+      fs.writeFileSync(malformedKeyPath, '---NOT A VALID PEM---');
+      assert.throws(
+        () => createSignedContent('TESTASP', timestamp, malformedKeyPath),
+        (err) => err.message === 'TaxPro ASP signing key is not a readable PEM private key'
+      );
+
+      // 5. Non-RSA key (EC key)
+      const ecKeyPath = path.join(tempDir, 'ec-key.pem');
+      const { privateKey: ecKey } = crypto.generateKeyPairSync('ec', {
+        namedCurve: 'prime256v1',
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+      });
+      fs.writeFileSync(ecKeyPath, ecKey);
+      assert.throws(
+        () => createSignedContent('TESTASP', timestamp, ecKeyPath),
+        (err) => err.message === 'TaxPro ASP signing key must be an RSA private key'
+      );
+
+      // 6. Encrypted RSA key without passphrase vs with passphrase
+      const encKeyPath = path.join(tempDir, 'enc-key.pem');
+      const testPassphrase = 'TestPassphrase123!';
+      const { privateKey: encRsaKey, publicKey: encRsaPub } = crypto.generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: {
+          type: 'pkcs8',
+          format: 'pem',
+          cipher: 'aes-256-cbc',
+          passphrase: testPassphrase
+        },
+        publicKeyEncoding: { type: 'spki', format: 'pem' }
+      });
+      fs.writeFileSync(encKeyPath, encRsaKey);
+
+      // Without passphrase or wrong passphrase
+      assert.throws(
+        () => createSignedContent('TESTASP', timestamp, encKeyPath, 'wrong-pass'),
+        (err) => err.message.includes('TaxPro ASP signing key is not a readable PEM private key or passphrase is incorrect')
+      );
+
+      // With correct passphrase
+      const sig = createSignedContent('TESTASP', timestamp, encKeyPath, testPassphrase);
+      assert.equal(crypto.verify(
+        'RSA-SHA256',
+        Buffer.from(`TESTASP${timestamp}`, 'utf8'),
+        encRsaPub,
+        Buffer.from(sig, 'base64')
+      ), true);
+
+      // 7. Path with surrounding quotes and whitespace
+      const quotedPath = `  "${encKeyPath}"  `;
+      const quotedSig = createSignedContent('TESTASP', timestamp, quotedPath, testPassphrase);
+      assert.equal(quotedSig, sig);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  await runAsyncCheck('TaxPro GSP session refresh reports missing credentials and key path without exposing secrets', async () => {
+    const httpClient = new FakeHttpClient();
+
+    // Missing aspid
+    const noAspSession = new TaxProGspSession({ aspid: '', password: 'PASS', privateKeyPath: '/path', httpClient });
+    await assert.rejects(
+      () => noAspSession.refreshSession(),
+      (err) => err.message === 'TAXPRO_ASPID is not configured'
+    );
+
+    // Missing password
+    const noPassSession = new TaxProGspSession({ aspid: 'ASP', password: '', privateKeyPath: '/path', httpClient });
+    await assert.rejects(
+      () => noPassSession.refreshSession(),
+      (err) => err.message === 'TAXPRO_PASSWORD is not configured'
+    );
+
+    // Missing key path
+    const noKeySession = new TaxProGspSession({ aspid: 'ASP', password: 'PASS', privateKeyPath: '', httpClient });
+    await assert.rejects(
+      () => noKeySession.refreshSession(),
+      (err) => err.message === 'TAXPRO_ASP_PRIVATE_KEY_PATH is not configured'
+    );
   });
 
   await runAsyncCheck('TaxPro GSP GetKey session is signed, transaction-bound, cached, and sends only encrypted ASP secret', async () => {
@@ -253,9 +370,12 @@ async function main() {
 
   runCheck('documented GSP errors map to safe auth, rate-limit, and outage classes', () => {
     const cases = [
+      ['GSP014', 'PROVIDER_AUTH', 502, 'Could not complete the request. Please try again.'],
       ['GSP022', 'PROVIDER_AUTH', 502, 'Could not complete the request. Please try again.'],
       ['GSP025', 'RATE_LIMITED', 429, 'Too many requests. Please wait and try again.'],
       ['GSP030', 'PROVIDER_DOWN', 503, 'GST service is unavailable. Please try again later.'],
+      ['GSP053', 'OTP_INVALID', 400, 'OTP request has expired or was not found. Please request a new OTP.'],
+      ['AUTH4037', 'VALIDATION_ERROR', 400, 'Portal user is not registered with this GSTIN. Please check your portal username and GSTIN.'],
       ['GSP101', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
       ['RET2B1023', 'DATA_NOT_AVAILABLE', 404, 'Data for this period is not available yet. Try another month.'],
       ['RET11400', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
@@ -333,6 +453,159 @@ async function main() {
     assert.equal(call.config.params.username, 'testuser');
   });
 
+  // 2a. Check refreshToken
+  await runAsyncCheck('2a. refreshToken with mocked response returns refreshed token, never stores sek', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler((url, config) => ({
+      status: 200,
+      data: {
+        status_cd: '1',
+        auth_token: 'REFRESHED_AUTH_TOKEN_ABC123',
+        expiry: '',
+        sek: ''
+      }
+    }));
+
+    const res = await adapter.refreshToken('27AAAAA0000A1Z5', 'testuser', testToken);
+    assert.equal(res.token, 'REFRESHED_AUTH_TOKEN_ABC123');
+    assert.equal(res.sek, undefined, 'sek must never be stored or returned');
+    assert.equal(res.auth_token, undefined, 'Should normalize to token field');
+
+    assert.equal(fakeClient.calls.length, 1);
+    const call = fakeClient.calls[0];
+    assert.equal(call.url, '/taxpayerapi/dec/v1.0/authenticate');
+    assert.equal(call.config.params.action, 'REFRESHTOKEN');
+    assert.equal(call.config.params.gstin, '27AAAAA0000A1Z5');
+    assert.equal(call.config.params.username, 'testuser');
+    assert.equal(call.config.headers.aspid, testAspid);
+    assert.equal(call.config.headers.password, testPassword);
+    assert.equal(call.config.headers['auth-token'], testToken);
+    assert.equal(call.config.headers.AuthToken, testToken);
+    assert.equal(call.config.params.token, undefined);
+    assert.equal(call.config.params.auth_token, undefined);
+  });
+
+  // 2b. Check requestEvcOtp
+  await runAsyncCheck('2b. requestEvcOtp with valid params dispatches EVC OTP', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler((url, config) => ({
+      status: 200,
+      data: {
+        status_cd: '1'
+      }
+    }));
+
+    const res = await adapter.requestEvcOtp('27AAAAA0000A1Z5', 'testuser', 'ABCDE1234F', 'R1', testToken);
+    assert.equal(res.status_cd, '1');
+    assert.ok(typeof res.message === 'string');
+
+    assert.equal(fakeClient.calls.length, 1);
+    const call = fakeClient.calls[0];
+    assert.equal(call.url, '/taxpayerapi/dec/v1.0/authenticate');
+    assert.equal(call.config.params.action, 'EVCOTP');
+    assert.equal(call.config.params.gstin, '27AAAAA0000A1Z5');
+    assert.equal(call.config.params.username, 'testuser');
+    assert.equal(call.config.params.pan, 'ABCDE1234F');
+    assert.equal(call.config.params.form_type, 'R1');
+    assert.equal(call.config.headers.aspid, testAspid);
+    assert.equal(call.config.headers.password, testPassword);
+    assert.equal(call.config.headers['auth-token'], testToken);
+    assert.equal(call.config.headers.authtoken, testToken);
+  });
+
+  // 2c. Request validation
+  await runAsyncCheck('2c. Taxpayer auth methods strictly validate required parameters', async () => {
+    // requestOtp validation
+    await assert.rejects(() => adapter.requestOtp('invalid-gstin', 'testuser'), { code: 'INVALID_GSTIN' });
+    await assert.rejects(() => adapter.requestOtp('27AAAAA0000A1Z5', ''), { code: 'VALIDATION_ERROR' });
+
+    // verifyOtp validation
+    await assert.rejects(() => adapter.verifyOtp('27AAAAA0000A1Z5', 'testuser', '12'), { code: 'VALIDATION_ERROR' });
+    await assert.rejects(() => adapter.verifyOtp('27AAAAA0000A1Z5', 'testuser', '123456789'), { code: 'VALIDATION_ERROR' });
+    await assert.rejects(() => adapter.verifyOtp('27AAAAA0000A1Z5', 'testuser', 'abc123'), { code: 'VALIDATION_ERROR' });
+
+    // refreshToken validation
+    await assert.rejects(() => adapter.refreshToken('27AAAAA0000A1Z5', 'testuser', ''), { code: 'VALIDATION_ERROR' });
+    await assert.rejects(() => adapter.refreshToken('27AAAAA0000A1Z5', '', testToken), { code: 'VALIDATION_ERROR' });
+
+    // requestEvcOtp validation
+    await assert.rejects(() => adapter.requestEvcOtp('27AAAAA0000A1Z5', 'testuser', 'INVALIDPAN', 'R1', testToken), { code: 'VALIDATION_ERROR' });
+    await assert.rejects(() => adapter.requestEvcOtp('27AAAAA0000A1Z5', 'testuser', 'ABCDE1234F', '', testToken), { code: 'VALIDATION_ERROR' });
+    await assert.rejects(() => adapter.requestEvcOtp('27AAAAA0000A1Z5', 'testuser', 'ABCDE1234F', 'R1', ''), { code: 'VALIDATION_ERROR' });
+  });
+
+  // 2d. Missing ASP credentials fail closed
+  await runAsyncCheck('2d. Taxpayer auth methods fail closed when ASP credentials are missing', async () => {
+    const unconfiguredAdapter = new TaxProProvider({
+      httpClient: fakeClient,
+      aspid: '',
+      password: ''
+    });
+    await assert.rejects(() => unconfiguredAdapter.requestOtp('27AAAAA0000A1Z5', 'testuser'), { code: 'PROVIDER_ERROR', statusCode: 500 });
+    await assert.rejects(() => unconfiguredAdapter.verifyOtp('27AAAAA0000A1Z5', 'testuser', '123456'), { code: 'PROVIDER_ERROR', statusCode: 500 });
+    await assert.rejects(() => unconfiguredAdapter.refreshToken('27AAAAA0000A1Z5', 'testuser', testToken), { code: 'PROVIDER_ERROR', statusCode: 500 });
+    await assert.rejects(() => unconfiguredAdapter.requestEvcOtp('27AAAAA0000A1Z5', 'testuser', 'ABCDE1234F', 'R1', testToken), { code: 'PROVIDER_ERROR', statusCode: 500 });
+  });
+
+  // 2e. Taxpayer authentication separation
+  await runAsyncCheck('2e. Taxpayer authentication is completely separated from GSP GetKey session and signing', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler((url, config) => ({
+      status: 200,
+      data: { status_cd: '1', auth_token: 'TOKEN_XYZ' }
+    }));
+
+    let gspSessionCalled = false;
+    const originalGetHeaders = adapter.gspSession.getHeaders;
+    adapter.gspSession.getHeaders = async () => {
+      gspSessionCalled = true;
+      return originalGetHeaders.call(adapter.gspSession);
+    };
+
+    await adapter.requestOtp('27AAAAA0000A1Z5', 'testuser');
+    await adapter.verifyOtp('27AAAAA0000A1Z5', 'testuser', '123456');
+    await adapter.refreshToken('27AAAAA0000A1Z5', 'testuser', 'TOKEN_XYZ');
+    await adapter.requestEvcOtp('27AAAAA0000A1Z5', 'testuser', 'ABCDE1234F', 'R1', 'TOKEN_XYZ');
+
+    adapter.gspSession.getHeaders = originalGetHeaders;
+
+    assert.equal(gspSessionCalled, false, 'Taxpayer authentication must NEVER call GSP GetKey session');
+
+    for (const call of fakeClient.calls) {
+      assert.equal(call.config.headers['session-id'], undefined);
+      assert.equal(call.config.headers['asp-secret'], undefined);
+      assert.equal(call.config.headers['AspEK'], undefined);
+      assert.equal(call.config.headers['state-cd'], undefined);
+    }
+  });
+
+  // 2f. Expired / invalid token error codes in refreshToken
+  await runAsyncCheck('2f. Expired or invalid token codes (AUTH4038, GSP052A) map to SESSION_EXPIRED (401)', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler((url, config) => ({
+      status: 200,
+      data: {
+        status_cd: '0',
+        error: {
+          error_cd: 'GSP052A',
+          message: 'GSTN Error: Authtoken Required for GST API RefreshToken action'
+        }
+      }
+    }));
+
+    let caughtErr = null;
+    try {
+      await adapter.refreshToken('27AAAAA0000A1Z5', 'testuser', testToken);
+    } catch (err) {
+      caughtErr = err;
+    }
+    assert.ok(caughtErr);
+    assert.equal(caughtErr.code, 'SESSION_EXPIRED');
+    assert.equal(caughtErr.statusCode, 401);
+    assert.equal(caughtErr.message, 'Please verify OTP again.');
+    assert.ok(!caughtErr.message.includes('GSTN Error'));
+  });
+
   // 3. Check doc/gstr2b-error-RET2B1023.json -> DATA_NOT_AVAILABLE (404)
   await runAsyncCheck('3. getReturn GSTR-2B with RET2B1023 sample maps to DATA_NOT_AVAILABLE (404)', async () => {
     fakeClient.calls = [];
@@ -396,10 +669,11 @@ async function main() {
       assert.equal(call.config.params.gstin, '27AAAAA0000A1Z5', 'TaxPro current profile requires gstin in query parameters');
       assert.equal(call.config.params.username, undefined);
       assert.equal(call.config.params.ret_prd, undefined);
+      assert.equal(call.config.headers.ret_prd, undefined, 'Must not send ret_prd header in current profile');
+      assert.equal(call.config.headers.ret_period, '092026', 'Must send ret_period header in default mode');
       assert.equal(call.config.headers.gstin, '27AAAAA0000A1Z5');
       assert.equal(call.config.headers['state-cd'], '27', 'TaxPro current profile requires state-cd header');
       assert.equal(call.config.headers.username, 'testuser');
-      assert.equal(call.config.headers.ret_prd, '092026');
       assert.equal(call.config.headers['ip-usr'], '203.0.113.1', 'Must forward ip-usr header from config');
       assert.match(
         call.config.headers.txn,
@@ -409,10 +683,171 @@ async function main() {
     }
     const txns = fakeClient.calls.map((call) => call.config.headers.txn);
     assert.equal(new Set(txns).size, 3, 'Each return request must receive a unique txn transaction ID');
+    assert.equal(fakeClient.calls[0].config.params.ret_period, '092026', 'GSTR-1 includes ret_period in default both mode');
     assert.equal(fakeClient.calls[0].config.params.rtnprd, undefined, 'GSTR-1 does not include rtnprd in query params');
+    assert.equal(fakeClient.calls[1].config.params.ret_period, '092026', 'GSTR-3B includes ret_period in default both mode');
     assert.equal(fakeClient.calls[1].config.params.rtnprd, undefined, 'GSTR-3B does not include rtnprd in query params');
+    assert.equal(fakeClient.calls[2].config.params.ret_period, '092026', 'GSTR-2B includes ret_period in default both mode');
     assert.equal(fakeClient.calls[2].config.params.rtnprd, '092026', 'GSTR-2B GET2B requires rtnprd in query parameters');
-    assert.equal(fakeClient.calls[2].config.headers.ret_prd, '092026', 'GSTR-2B preserves ret_prd header');
+    assert.equal(fakeClient.calls[2].config.headers.ret_period, '092026', 'GSTR-2B includes ret_period header');
+    assert.equal(fakeClient.calls[2].config.headers.ret_prd, undefined, 'GSTR-2B does not send ret_prd header');
+  });
+
+  await runAsyncCheck('GSTR-2B v4.2 GET2B conforms to confirmed contract and omits unconfirmed body or params', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => ({ status: 200, data: { status_cd: '1' } }));
+    const currentAdapter = new TaxProProvider({
+      httpClient: fakeClient,
+      aspid: testAspid,
+      password: testPassword,
+      apiProfile: 'current',
+      ipUsr: '203.0.113.1'
+    });
+
+    await currentAdapter.getReturn('GSTR2B', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
+
+    assert.equal(fakeClient.calls.length, 1);
+    const call = fakeClient.calls[0];
+    assert.equal(call.url, '/taxpayerapi/dec/v4.2/returns/gstr2b');
+    assert.equal(call.config.params.action, 'GET2B');
+    assert.equal(call.config.params.gstin, '27AAAAA0000A1Z5');
+    assert.equal(call.body, undefined, 'GET2B request must not attach a request body');
+    assert.equal(call.config.params.typ, undefined, 'Must not send unconfirmed typ parameter');
+    assert.equal(call.config.params.file_num, undefined, 'Must not send unconfirmed file_num parameter');
+    assert.equal(call.config.params.api_version, undefined);
+    assert.equal(call.config.params.userrole, undefined);
+    assert.equal(call.config.params.rtn_typ, undefined);
+    assert.equal(call.config.params.int_tran_id, undefined);
+    assert.equal(call.config.headers['auth-token'], testToken);
+    assert.equal(call.config.headers.ret_period, '092026');
+    assert.equal(call.config.headers.ret_prd, undefined);
+    assert.equal(call.config.headers['session-id'], undefined, 'Must not send GSP GetKey session headers on /dec/ calls');
+    assert.equal(call.config.headers['asp-secret'], undefined, 'Must not send GSP GetKey session headers on /dec/ calls');
+  });
+
+  await runAsyncCheck('request-shape guard (intended contract, unconfirmed by a sandbox success)', async () => {
+    assert.equal(PERIOD_PLACEMENT, 'both', 'Default PERIOD_PLACEMENT constant must be both');
+    assert.equal(collectorPeriodPlacement, 'both', 'Default collector PERIOD_PLACEMENT must be both');
+
+    const modes = ['both', 'header', 'query'];
+
+    for (const mode of modes) {
+      fakeClient.calls = [];
+      fakeClient.setHandler(() => ({ status: 200, data: { status_cd: '1' } }));
+      const adapterForMode = new TaxProProvider({
+        httpClient: fakeClient,
+        aspid: testAspid,
+        password: testPassword,
+        apiProfile: 'current',
+        periodPlacement: mode,
+        gstr1ActionRequired: 'N',
+        ipUsr: '203.0.113.1'
+      });
+
+      await adapterForMode.getReturn('GSTR1', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
+      await adapterForMode.getReturn('GSTR3B', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
+      await adapterForMode.getReturn('GSTR2B', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
+
+      assert.equal(fakeClient.calls.length, 3, `Expected 3 calls for mode: ${mode}`);
+
+      const [gstr1Call, gstr3bCall, gstr2bCall] = fakeClient.calls;
+
+      // 1. Assert routes are preserved
+      assert.equal(gstr1Call.url, '/taxpayerapi/dec/v4.1/returns/gstr1');
+      assert.equal(gstr3bCall.url, '/taxpayerapi/dec/v7.0/returns/gstr3b');
+      assert.equal(gstr2bCall.url, '/taxpayerapi/dec/v4.2/returns/gstr2b');
+
+      // 2. Assert headers common to all calls in this mode
+      for (const call of [gstr1Call, gstr3bCall, gstr2bCall]) {
+        const headers = call.config.headers;
+        const params = call.config.params;
+        const url = call.url;
+
+        // Mandatory headers
+        assert.equal(headers['auth-token'], testToken, 'Must send hyphenated auth-token header');
+        assert.equal(headers.authtoken, undefined, 'Unhyphenated authtoken header must NOT be sent');
+        assert.equal(headers.ret_prd, undefined, 'ret_prd header must NOT be sent in current profile');
+        assert.equal(headers.aspid, testAspid);
+        assert.equal(headers.password, testPassword);
+        assert.equal(headers.gstin, '27AAAAA0000A1Z5');
+        assert.equal(headers.username, 'testuser');
+        assert.equal(headers['state-cd'], '27', 'Must send state-cd (first two digits of GSTIN)');
+        assert.equal(headers['ip-usr'], '203.0.113.1');
+        assert.match(headers.txn, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+
+        // Security check: no credentials ever appear in URL string or query parameters
+        assert.ok(!url.includes(testAspid), 'URL must never contain aspid');
+        assert.ok(!url.includes(testPassword), 'URL must never contain password');
+        assert.ok(!url.includes(testToken), 'URL must never contain auth token');
+        assert.equal(params.aspid, undefined, 'query parameters must never contain aspid');
+        assert.equal(params.password, undefined, 'query parameters must never contain password');
+        assert.equal(params.authtoken, undefined, 'query parameters must never contain authtoken');
+        assert.equal(params['auth-token'], undefined, 'query parameters must never contain auth-token');
+        assert.equal(params.username, undefined, 'current profile does not pass username in query params');
+        assert.equal(params.ret_prd, undefined, 'current profile never passes ret_prd in query params');
+
+        // Check header ret_period placement per mode
+        if (mode === 'both' || mode === 'header') {
+          assert.equal(headers.ret_period, '092026', `ret_period header must be sent in ${mode} mode`);
+        } else {
+          assert.equal(headers.ret_period, undefined, `ret_period header must NOT be sent in ${mode} mode`);
+        }
+      }
+
+      // 3. Assert intended query parameter names per mode
+      if (mode === 'both') {
+        // GSTR-1: action, gstin, action_required, ret_period
+        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'action_required', 'gstin', 'ret_period'].sort());
+        assert.equal(gstr1Call.config.params.action, 'B2B');
+        assert.equal(gstr1Call.config.params.action_required, 'N');
+        assert.equal(gstr1Call.config.params.ret_period, '092026');
+
+        // GSTR-3B: action, gstin, ret_period
+        assert.deepEqual(Object.keys(gstr3bCall.config.params).sort(), ['action', 'gstin', 'ret_period'].sort());
+        assert.equal(gstr3bCall.config.params.action, 'RETSUM');
+        assert.equal(gstr3bCall.config.params.ret_period, '092026');
+
+        // GSTR-2B: action, gstin, ret_period, rtnprd
+        assert.deepEqual(Object.keys(gstr2bCall.config.params).sort(), ['action', 'gstin', 'ret_period', 'rtnprd'].sort());
+        assert.equal(gstr2bCall.config.params.action, 'GET2B');
+        assert.equal(gstr2bCall.config.params.ret_period, '092026');
+        assert.equal(gstr2bCall.config.params.rtnprd, '092026');
+      } else if (mode === 'header') {
+        // GSTR-1: action, gstin, action_required (no ret_period)
+        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'action_required', 'gstin'].sort());
+        assert.equal(gstr1Call.config.params.action, 'B2B');
+        assert.equal(gstr1Call.config.params.action_required, 'N');
+        assert.equal(gstr1Call.config.params.ret_period, undefined);
+
+        // GSTR-3B: action, gstin (no ret_period)
+        assert.deepEqual(Object.keys(gstr3bCall.config.params).sort(), ['action', 'gstin'].sort());
+        assert.equal(gstr3bCall.config.params.action, 'RETSUM');
+        assert.equal(gstr3bCall.config.params.ret_period, undefined);
+
+        // GSTR-2B: action, gstin (no ret_period, no rtnprd)
+        assert.deepEqual(Object.keys(gstr2bCall.config.params).sort(), ['action', 'gstin'].sort());
+        assert.equal(gstr2bCall.config.params.action, 'GET2B');
+        assert.equal(gstr2bCall.config.params.ret_period, undefined);
+        assert.equal(gstr2bCall.config.params.rtnprd, undefined);
+      } else if (mode === 'query') {
+        // GSTR-1: action, gstin, action_required, ret_period
+        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'action_required', 'gstin', 'ret_period'].sort());
+        assert.equal(gstr1Call.config.params.action, 'B2B');
+        assert.equal(gstr1Call.config.params.action_required, 'N');
+        assert.equal(gstr1Call.config.params.ret_period, '092026');
+
+        // GSTR-3B: action, gstin, ret_period
+        assert.deepEqual(Object.keys(gstr3bCall.config.params).sort(), ['action', 'gstin', 'ret_period'].sort());
+        assert.equal(gstr3bCall.config.params.action, 'RETSUM');
+        assert.equal(gstr3bCall.config.params.ret_period, '092026');
+
+        // GSTR-2B: action, gstin, ret_period, rtnprd
+        assert.deepEqual(Object.keys(gstr2bCall.config.params).sort(), ['action', 'gstin', 'ret_period', 'rtnprd'].sort());
+        assert.equal(gstr2bCall.config.params.action, 'GET2B');
+        assert.equal(gstr2bCall.config.params.ret_period, '092026');
+        assert.equal(gstr2bCall.config.params.rtnprd, '092026');
+      }
+    }
   });
 
   await runAsyncCheck('legacy API profile matches the TaxPro sandbox email routes and period fields', async () => {
@@ -459,8 +894,10 @@ async function main() {
     await unconfirmedAdapter.getReturn('GSTR3B', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
     await unconfirmedAdapter.getReturn('GSTR2B', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
     assert.equal(fakeClient.calls.length, 2);
-    assert.equal(fakeClient.calls[0].config.headers.ret_prd, '092026');
-    assert.equal(fakeClient.calls[1].config.headers.ret_prd, '092026');
+    assert.equal(fakeClient.calls[0].config.headers.ret_period, '092026');
+    assert.equal(fakeClient.calls[1].config.headers.ret_period, '092026');
+    assert.equal(fakeClient.calls[0].config.headers.ret_prd, undefined);
+    assert.equal(fakeClient.calls[1].config.headers.ret_prd, undefined);
     assert.equal(fakeClient.calls[0].config.headers['auth-token'], testToken);
     assert.equal(fakeClient.calls[1].config.headers['auth-token'], testToken);
     assert.equal(fakeClient.calls[0].config.headers['state-cd'], '27');
@@ -514,6 +951,100 @@ async function main() {
         delete process.env.TAXPRO_GSP_IP_USR;
       }
     }
+  });
+
+  runCheck('return period validator strictly enforces MMYYYY format and calendar boundaries', () => {
+    // Valid historical and current MMYYYY periods
+    assert.equal(isValidPeriod('012022'), true, '012022 should be valid MMYYYY');
+    assert.equal(isValidPeriod('022022'), true, '022022 should be valid MMYYYY');
+    assert.equal(isValidPeriod('122025'), true, '122025 should be valid MMYYYY');
+    assert.equal(isValidPeriod('092026'), true, '092026 should be valid MMYYYY format');
+
+    // Invalid format, length, separators, or non-numeric
+    assert.equal(isValidPeriod(''), false, 'Empty string should be invalid');
+    assert.equal(isValidPeriod(null), false, 'null should be invalid');
+    assert.equal(isValidPeriod(undefined), false, 'undefined should be invalid');
+    assert.equal(isValidPeriod('01-2022'), false, 'Hyphenated period should be invalid');
+    assert.equal(isValidPeriod('01/2022'), false, 'Slashed period should be invalid');
+    assert.equal(isValidPeriod('202201'), false, 'YYYYMM should be invalid');
+    assert.equal(isValidPeriod('12022'), false, '5-digit period should be invalid');
+    assert.equal(isValidPeriod('0120222'), false, '7-digit period should be invalid');
+    assert.equal(isValidPeriod('MMYYYY'), false, 'Placeholder string should be invalid');
+
+    // Invalid months
+    assert.equal(isValidPeriod('002022'), false, 'Month 00 should be invalid');
+    assert.equal(isValidPeriod('132022'), false, 'Month 13 should be invalid');
+
+    // Distant future periods
+    assert.equal(isValidPeriod('012099'), false, 'Distant future period should be invalid');
+  });
+
+  await runAsyncCheck('current return request headers strictly contain required keys and exclude unverified keys', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => ({ status: 200, data: { status_cd: '1' } }));
+    const currentAdapter = new TaxProProvider({
+      httpClient: fakeClient,
+      aspid: testAspid,
+      password: testPassword,
+      apiProfile: 'current',
+      gstr1ActionRequired: 'Y',
+      ipUsr: '198.51.100.25'
+    });
+
+    const testGstin = '33AANCS2882A1ZG'; // Tamil Nadu (state-cd: '33')
+    const testUser = 'TN_NT2.2265';
+    const testPeriod = '092026';
+
+    await currentAdapter.getReturn('GSTR1', testGstin, testPeriod, testToken, testUser);
+    await currentAdapter.getReturn('GSTR3B', testGstin, testPeriod, testToken, testUser);
+    await currentAdapter.getReturn('GSTR2B', testGstin, testPeriod, testToken, testUser);
+
+    assert.equal(fakeClient.calls.length, 3);
+    const expectedHeaderKeys = [
+      'aspid', 'password', 'auth-token', 'gstin', 'username',
+      'state-cd', 'ret_period', 'txn', 'ip-usr'
+    ].sort();
+
+    for (let i = 0; i < 3; i++) {
+      const call = fakeClient.calls[i];
+      const actualKeys = Object.keys(call.config.headers).sort();
+      assert.deepEqual(actualKeys, expectedHeaderKeys, `Call ${i} must have exact expected header keys`);
+
+      // Verify header values
+      assert.equal(call.config.headers.aspid, testAspid);
+      assert.equal(call.config.headers.password, testPassword);
+      assert.equal(call.config.headers['auth-token'], testToken);
+      assert.equal(call.config.headers.gstin, testGstin);
+      assert.equal(call.config.headers.username, testUser);
+      assert.equal(call.config.headers['state-cd'], '33', 'state-cd must be first 2 characters of GSTIN');
+      assert.equal(call.config.headers.ret_period, testPeriod);
+      assert.equal(call.config.headers['ip-usr'], '198.51.100.25');
+      assert.match(call.config.headers.txn, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+
+      // Verify excluded keys
+      assert.equal(call.config.headers.authtoken, undefined, 'Must not send unhyphenated authtoken');
+      assert.equal(call.config.headers.ret_prd, undefined, 'ret_prd header must not be set');
+      assert.equal(call.config.headers.rtnprd, undefined, 'rtnprd header must not be set in headers');
+    }
+
+    // Verify query parameters per return type in default both mode
+    assert.deepEqual(fakeClient.calls[0].config.params, {
+      action: 'B2B',
+      gstin: testGstin,
+      action_required: 'Y',
+      ret_period: testPeriod
+    });
+    assert.deepEqual(fakeClient.calls[1].config.params, {
+      action: 'RETSUM',
+      gstin: testGstin,
+      ret_period: testPeriod
+    });
+    assert.deepEqual(fakeClient.calls[2].config.params, {
+      action: 'GET2B',
+      gstin: testGstin,
+      ret_period: testPeriod,
+      rtnprd: testPeriod
+    });
   });
 
   runCheck('safe header diagnostics reports header names and presence only, never values or secrets', () => {
@@ -755,6 +1286,96 @@ async function main() {
         }
       );
     }
+  });
+
+  // 5f. Check GSP053 and AUTH4037 error envelopes map to specific client errors and never expose secrets
+  await runAsyncCheck('5f. GSP053 and AUTH4037 error envelopes map to specific client errors and never expose secrets', async () => {
+    const rawGsp053 = {
+      status_cd: '0',
+      error: {
+        error_cd: 'GSP053',
+        message: 'GSTN Error: OTP Request is not made or expired for 33AANCS2882A1ZG with token TESTTOKEN'
+      }
+    };
+
+    assert.throws(
+      () => checkTaxProResponse(rawGsp053, 'test-GSP053'),
+      (err) => {
+        assert.equal(err.code, 'OTP_INVALID');
+        assert.equal(err.statusCode, 400);
+        assert.equal(err.message, 'OTP request has expired or was not found. Please request a new OTP.');
+        assert.ok(!err.message.includes('GSTN Error'));
+        assert.ok(!err.message.includes('TESTTOKEN'));
+        assert.ok(!err.message.includes('33AANCS2882A1ZG'));
+        return true;
+      }
+    );
+
+    const rawAuth4037 = {
+      status_cd: '0',
+      error: {
+        error_cd: 'AUTH4037',
+        message: 'GSTN Error: User not registered with this GSTIN 33AANCS2882A1ZG user TN_NT2.2265'
+      }
+    };
+
+    assert.throws(
+      () => checkTaxProResponse(rawAuth4037, 'test-AUTH4037'),
+      (err) => {
+        assert.equal(err.code, 'VALIDATION_ERROR');
+        assert.equal(err.statusCode, 400);
+        assert.equal(err.message, 'Portal user is not registered with this GSTIN. Please check your portal username and GSTIN.');
+        assert.ok(!err.message.includes('GSTN Error'));
+        assert.ok(!err.message.includes('User not registered'));
+        assert.ok(!err.message.includes('33AANCS2882A1ZG'));
+        assert.ok(!err.message.includes('TN_NT2.2265'));
+        return true;
+      }
+    );
+
+    // Also verify when handled via verifyOtp and requestOtp network mock
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => {
+      const err = new Error('Request failed with status code 400');
+      err.response = { status: 400, data: rawGsp053 };
+      throw err;
+    });
+
+    let verifyOtpError = null;
+    try {
+      await adapter.verifyOtp('33AANCS2882A1ZG', 'TN_NT2.2265', '123456');
+    } catch (err) {
+      verifyOtpError = err;
+    }
+
+    assert.ok(verifyOtpError);
+    assert.equal(verifyOtpError.code, 'OTP_INVALID');
+    assert.equal(verifyOtpError.statusCode, 400);
+    assert.equal(verifyOtpError.message, 'OTP request has expired or was not found. Please request a new OTP.');
+    assert.ok(!JSON.stringify(verifyOtpError).includes(testAspid));
+    assert.ok(!JSON.stringify(verifyOtpError).includes(testPassword));
+    assert.ok(!JSON.stringify(verifyOtpError).includes('123456'));
+
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => {
+      const err = new Error('Request failed with status code 400');
+      err.response = { status: 400, data: rawAuth4037 };
+      throw err;
+    });
+
+    let requestOtpError = null;
+    try {
+      await adapter.requestOtp('33AANCS2882A1ZG', 'TN_NT2.2265');
+    } catch (err) {
+      requestOtpError = err;
+    }
+
+    assert.ok(requestOtpError);
+    assert.equal(requestOtpError.code, 'VALIDATION_ERROR');
+    assert.equal(requestOtpError.statusCode, 400);
+    assert.equal(requestOtpError.message, 'Portal user is not registered with this GSTIN. Please check your portal username and GSTIN.');
+    assert.ok(!JSON.stringify(requestOtpError).includes(testAspid));
+    assert.ok(!JSON.stringify(requestOtpError).includes(testPassword));
   });
 
   // 6. Check timeout -> PROVIDER_DOWN (503)
@@ -1037,6 +1658,112 @@ async function main() {
       () => ReturnService.mapGstr3b({ some: 'data' }, '092026', 'taxpro'),
       (err) => err.code === 'PROVIDER_ERROR' && err.statusCode === 502 && err.message.includes('mapper needs real sample')
     );
+  });
+
+  // 14b. ReturnService mappers accurately parse real TaxPro / GSTN payloads (GSTR-1, 2B, 3B)
+  runCheck('14b. ReturnService mappers map real TaxPro & GSTN return payloads', () => {
+    // 1. GSTR-1 B2B Real Sample
+    const gstr1RealSample = {
+      b2b: [
+        {
+          ctin: '07AAAAA0000A1Z5',
+          inv: [
+            {
+              inum: 'NOVINV2',
+              idt: '25-11-2021',
+              val: 2100,
+              itms: [
+                {
+                  itm_det: {
+                    rt: 5,
+                    txval: 2000,
+                    iamt: 100,
+                    camt: 0,
+                    samt: 0,
+                    csamt: 0
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+    const mappedGstr1 = ReturnService.mapGstr1(gstr1RealSample, '112021', 'taxpro');
+    assert.equal(mappedGstr1.type, 'GSTR1');
+    assert.equal(mappedGstr1.period, '112021');
+    assert.equal(mappedGstr1.totals.taxable, 2000);
+    assert.equal(mappedGstr1.totals.igst, 100);
+    assert.equal(mappedGstr1.rows.length, 1);
+    assert.ok(mappedGstr1.rows[0].label.includes('07AAAAA0000A1Z5'));
+
+    // 2. GSTR-2B Inward supplies
+    const gstr2bRealSample = {
+      data: {
+        docdata: {
+          b2b: [
+            {
+              inv: [
+                {
+                  itms: [
+                    {
+                      itm_det: {
+                        txval: 5000,
+                        iamt: 900,
+                        camt: 0,
+                        samt: 0,
+                        csamt: 0
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        itc_elg: {
+          itc_avl: {
+            txval: 5000,
+            iamt: 900,
+            camt: 0,
+            samt: 0,
+            csamt: 0
+          }
+        }
+      }
+    };
+    const mappedGstr2b = ReturnService.mapGstr2b(gstr2bRealSample, '112021', 'taxpro');
+    assert.equal(mappedGstr2b.type, 'GSTR2B');
+    assert.equal(mappedGstr2b.totals.taxable, 10000);
+    assert.equal(mappedGstr2b.totals.igst, 1800);
+
+    // 3. GSTR-3B Summary Real Sample
+    const gstr3bRealSample = {
+      sup_details: {
+        osup_det: {
+          txval: 10000,
+          iamt: 1800,
+          camt: 0,
+          samt: 0,
+          csamt: 0
+        }
+      },
+      itc_elg: {
+        itc_avl: [
+          {
+            txval: 5000,
+            iamt: 900,
+            camt: 0,
+            samt: 0,
+            csamt: 0
+          }
+        ]
+      }
+    };
+    const mappedGstr3b = ReturnService.mapGstr3b(gstr3bRealSample, '112021', 'taxpro');
+    assert.equal(mappedGstr3b.type, 'GSTR3B');
+    assert.equal(mappedGstr3b.totals.taxable, 15000);
+    assert.equal(mappedGstr3b.totals.igst, 2700);
   });
 
   // 15. In taxpro mode: POST /api/gstin/search calls TaxPro public API and marks a documented result verified.

@@ -26,27 +26,106 @@ class ReturnService {
    * Map raw provider GSTR-1 payload to internal ReturnData shape
    */
   static mapGstr1(raw, period, provider) {
-    if (provider === 'taxpro' || FinaggService.getProviderName() === 'taxpro') {
-      // TODO: mapper needs real sample
-      throw ApiError.providerError('TaxPro GSTR-1 mapper needs real sample', 502);
+    if (!raw || typeof raw !== 'object') {
+      throw ApiError.providerError('TaxPro GSTR-1 mapper received invalid payload', 502);
     }
 
-    const rows = (raw.sections || []).map((sec) => ({
-      label: sec.table || sec.name || 'Outward Supplies',
-      taxable: Number(sec.taxable_value ?? sec.taxable ?? 0),
-      igst: Number(sec.igst_amount ?? sec.igst ?? 0),
-      cgst: Number(sec.cgst_amount ?? sec.cgst ?? 0),
-      sgst: Number(sec.sgst_amount ?? sec.sgst ?? 0),
-      cess: Number(sec.cess_amount ?? sec.cess ?? 0)
-    }));
+    const isTaxPro = provider === 'taxpro' || (!provider && FinaggService.getProviderName() === 'taxpro');
 
-    const totals = ReturnService._calculateTotals(rows);
+    // 1. Real TaxPro B2B Invoices payload (e.g., action=B2B)
+    if (Array.isArray(raw.b2b) && raw.b2b.length > 0) {
+      const rows = [];
+      for (const buyer of raw.b2b) {
+        const ctin = buyer.ctin || 'Registered Buyer';
+        let buyerTaxable = 0;
+        let buyerIgst = 0;
+        let buyerCgst = 0;
+        let buyerSgst = 0;
+        let buyerCess = 0;
+
+        for (const inv of (buyer.inv || [])) {
+          for (const itm of (inv.itms || [])) {
+            const det = itm.itm_det || itm;
+            buyerTaxable += Number(det.txval || 0);
+            buyerIgst += Number(det.iamt || 0);
+            buyerCgst += Number(det.camt || 0);
+            buyerSgst += Number(det.samt || 0);
+            buyerCess += Number(det.csamt || 0);
+          }
+        }
+
+        rows.push({
+          label: `4A - B2B Supplies (${ctin})`,
+          taxable: Math.round(buyerTaxable * 100) / 100,
+          igst: Math.round(buyerIgst * 100) / 100,
+          cgst: Math.round(buyerCgst * 100) / 100,
+          sgst: Math.round(buyerSgst * 100) / 100,
+          cess: Math.round(buyerCess * 100) / 100
+        });
+      }
+
+      const totals = ReturnService._calculateTotals(rows);
+      return {
+        type: 'GSTR1',
+        period,
+        rows,
+        totals,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    // 2. Real TaxPro GSTR-1 Summary payload (action=RETSUM)
+    if (Array.isArray(raw.sec_sum) && raw.sec_sum.length > 0) {
+      const rows = raw.sec_sum.map((sec) => ({
+        label: sec.sec_nm ? `${sec.sec_nm} - Outward Supplies` : (sec.table || 'Outward Supplies'),
+        taxable: Number(sec.ttl_taxable ?? sec.ttl_val ?? 0),
+        igst: Number(sec.ttl_igst ?? 0),
+        cgst: Number(sec.ttl_cgst ?? 0),
+        sgst: Number(sec.ttl_sgst ?? 0),
+        cess: Number(sec.ttl_cess ?? 0)
+      }));
+
+      const totals = ReturnService._calculateTotals(rows);
+      return {
+        type: 'GSTR1',
+        period,
+        rows,
+        totals,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    // 3. Mock mode sections
+    if (Array.isArray(raw.sections)) {
+      const rows = raw.sections.map((sec) => ({
+        label: sec.table || sec.name || 'Outward Supplies',
+        taxable: Number(sec.taxable_value ?? sec.taxable ?? 0),
+        igst: Number(sec.igst_amount ?? sec.igst ?? 0),
+        cgst: Number(sec.cgst_amount ?? sec.cgst ?? 0),
+        sgst: Number(sec.sgst_amount ?? sec.sgst ?? 0),
+        cess: Number(sec.cess_amount ?? sec.cess ?? 0)
+      }));
+
+      const totals = ReturnService._calculateTotals(rows);
+      return {
+        type: 'GSTR1',
+        period,
+        rows,
+        totals,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    // In taxpro mode without recognized return data, fail-closed per Test 14
+    if (isTaxPro) {
+      throw ApiError.providerError('TaxPro GSTR-1 mapper needs real sample', 502);
+    }
 
     return {
       type: 'GSTR1',
       period,
-      rows,
-      totals,
+      rows: [],
+      totals: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
       fetchedAt: new Date().toISOString()
     };
   }
@@ -55,27 +134,99 @@ class ReturnService {
    * Map raw provider GSTR-2B payload to internal ReturnData shape
    */
   static mapGstr2b(raw, period, provider) {
-    if (provider === 'taxpro' || FinaggService.getProviderName() === 'taxpro') {
-      // TODO: mapper needs real sample
-      throw ApiError.providerError('TaxPro GSTR-2B mapper needs real sample', 502);
+    if (!raw || typeof raw !== 'object') {
+      throw ApiError.providerError('TaxPro GSTR-2B mapper received invalid payload', 502);
     }
 
-    const rows = (raw.itc_categories || []).map((cat) => ({
-      label: cat.heading || cat.name || 'Inward Supplies',
-      taxable: Number(cat.taxable_value ?? cat.taxable ?? 0),
-      igst: Number(cat.igst_amount ?? cat.igst ?? 0),
-      cgst: Number(cat.cgst_amount ?? cat.cgst ?? 0),
-      sgst: Number(cat.sgst_amount ?? cat.sgst ?? 0),
-      cess: Number(cat.cess_amount ?? cat.cess ?? 0)
-    }));
+    const isTaxPro = provider === 'taxpro' || (!provider && FinaggService.getProviderName() === 'taxpro');
 
-    const totals = ReturnService._calculateTotals(rows);
+    // 1. Real TaxPro / GSTN GSTR-2B (data.docdata or itc_elg)
+    const docData = raw.data?.docdata || raw.docdata || raw.data;
+    const itcElg = raw.data?.itc_elg || raw.itc_elg;
+
+    if (docData || itcElg) {
+      const rows = [];
+
+      // Inward B2B supplies
+      const b2bSupplies = docData?.b2b || [];
+      if (Array.isArray(b2bSupplies) && b2bSupplies.length > 0) {
+        let b2bTaxable = 0, b2bIgst = 0, b2bCgst = 0, b2bSgst = 0, b2bCess = 0;
+        for (const sup of b2bSupplies) {
+          for (const inv of (sup.inv || [])) {
+            for (const itm of (inv.itms || [])) {
+              const det = itm.itm_det || itm;
+              b2bTaxable += Number(det.txval || 0);
+              b2bIgst += Number(det.iamt || 0);
+              b2bCgst += Number(det.camt || 0);
+              b2bSgst += Number(det.samt || 0);
+              b2bCess += Number(det.csamt || 0);
+            }
+          }
+        }
+        rows.push({
+          label: 'B2B - Inward supplies from registered persons',
+          taxable: Math.round(b2bTaxable * 100) / 100,
+          igst: Math.round(b2bIgst * 100) / 100,
+          cgst: Math.round(b2bCgst * 100) / 100,
+          sgst: Math.round(b2bSgst * 100) / 100,
+          cess: Math.round(b2bCess * 100) / 100
+        });
+      }
+
+      // ITC summary table if present
+      if (itcElg && typeof itcElg === 'object') {
+        const eligible = itcElg.itc_avl || itcElg.itc_available || itcElg;
+        rows.push({
+          label: 'Part A - ITC Available (All other ITC)',
+          taxable: Number(eligible.txval || 0),
+          igst: Number(eligible.iamt || eligible.igst || 0),
+          cgst: Number(eligible.camt || eligible.cgst || 0),
+          sgst: Number(eligible.samt || eligible.sgst || 0),
+          cess: Number(eligible.csamt || eligible.cess || 0)
+        });
+      }
+
+      const totals = ReturnService._calculateTotals(rows);
+      return {
+        type: 'GSTR2B',
+        period,
+        rows,
+        totals,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    // 2. Mock mode categories
+    if (Array.isArray(raw.itc_categories)) {
+      const rows = raw.itc_categories.map((cat) => ({
+        label: cat.heading || cat.name || 'Inward Supplies',
+        taxable: Number(cat.taxable_value ?? cat.taxable ?? 0),
+        igst: Number(cat.igst_amount ?? cat.igst ?? 0),
+        cgst: Number(cat.cgst_amount ?? cat.cgst ?? 0),
+        sgst: Number(cat.sgst_amount ?? cat.sgst ?? 0),
+        cess: Number(cat.cess_amount ?? cat.cess ?? 0)
+      }));
+
+      const totals = ReturnService._calculateTotals(rows);
+      return {
+        type: 'GSTR2B',
+        period,
+        rows,
+        totals,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    // In taxpro mode without recognized return data, fail-closed per Test 14
+    if (isTaxPro) {
+      throw ApiError.providerError('TaxPro GSTR-2B mapper needs real sample', 502);
+    }
 
     return {
       type: 'GSTR2B',
       period,
-      rows,
-      totals,
+      rows: [],
+      totals: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
       fetchedAt: new Date().toISOString()
     };
   }
@@ -84,54 +235,142 @@ class ReturnService {
    * Map raw provider GSTR-3B payload to internal ReturnData shape
    */
   static mapGstr3b(raw, period, provider) {
-    if (provider === 'taxpro' || FinaggService.getProviderName() === 'taxpro') {
-      // TODO: mapper needs real sample
+    if (!raw || typeof raw !== 'object') {
+      throw ApiError.providerError('TaxPro GSTR-3B mapper received invalid payload', 502);
+    }
+
+    const isTaxPro = provider === 'taxpro' || (!provider && FinaggService.getProviderName() === 'taxpro');
+
+    // 1. Real TaxPro / GSTN GSTR-3B structure (sup_details, itc_elg, inter_sup)
+    if (raw.sup_details || raw.itc_elg || raw.inter_sup) {
+      const rows = [];
+
+      if (raw.sup_details?.osup_det) {
+        const o = raw.sup_details.osup_det;
+        rows.push({
+          label: '3.1(a) - Outward Taxable Supplies (other than zero rated, nil and exempted)',
+          taxable: Number(o.txval || 0),
+          igst: Number(o.iamt || 0),
+          cgst: Number(o.camt || 0),
+          sgst: Number(o.samt || 0),
+          cess: Number(o.csamt || 0)
+        });
+      }
+
+      if (raw.sup_details?.osup_zero) {
+        const z = raw.sup_details.osup_zero;
+        rows.push({
+          label: '3.1(b) - Outward Taxable Supplies (zero rated / exports)',
+          taxable: Number(z.txval || 0),
+          igst: Number(z.iamt || 0),
+          cgst: Number(z.camt || 0),
+          sgst: Number(z.samt || 0),
+          cess: Number(z.csamt || 0)
+        });
+      }
+
+      if (raw.sup_details?.isup_rev) {
+        const r = raw.sup_details.isup_rev;
+        rows.push({
+          label: '3.1(d) - Inward Supplies (liable to reverse charge)',
+          taxable: Number(r.txval || 0),
+          igst: Number(r.iamt || 0),
+          cgst: Number(r.camt || 0),
+          sgst: Number(r.samt || 0),
+          cess: Number(r.csamt || 0)
+        });
+      }
+
+      if (raw.itc_elg) {
+        let itcTaxable = 0, itcIgst = 0, itcCgst = 0, itcSgst = 0, itcCess = 0;
+        const itcItems = Array.isArray(raw.itc_elg.itc_avl) ? raw.itc_elg.itc_avl : [raw.itc_elg.itc_avl || raw.itc_elg];
+        for (const item of itcItems) {
+          if (item) {
+            itcTaxable += Number(item.txval || 0);
+            itcIgst += Number(item.iamt || 0);
+            itcCgst += Number(item.camt || 0);
+            itcSgst += Number(item.samt || 0);
+            itcCess += Number(item.csamt || 0);
+          }
+        }
+        rows.push({
+          label: '4 - Eligible ITC (Integrated, Central, State & Cess)',
+          taxable: itcTaxable,
+          igst: itcIgst,
+          cgst: itcCgst,
+          sgst: itcSgst,
+          cess: itcCess
+        });
+      }
+
+      const totals = ReturnService._calculateTotals(rows);
+      return {
+        type: 'GSTR3B',
+        period,
+        rows,
+        totals,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    // 2. Mock mode structure
+    if (raw.outward_supplies || raw.inward_supplies || raw.eligible_itc) {
+      const rows = [];
+
+      if (raw.outward_supplies) {
+        rows.push({
+          label: '3.1 - Outward Taxable Supplies (other than zero rated, nil and exempted)',
+          taxable: Number(raw.outward_supplies.taxable_value || 0),
+          igst: Number(raw.outward_supplies.igst_amount || 0),
+          cgst: Number(raw.outward_supplies.cgst_amount || 0),
+          sgst: Number(raw.outward_supplies.sgst_amount || 0),
+          cess: Number(raw.outward_supplies.cess_amount || 0)
+        });
+      }
+
+      if (raw.inward_supplies) {
+        rows.push({
+          label: '3.2 - Inward supplies (liable to reverse charge)',
+          taxable: Number(raw.inward_supplies.taxable_value || 0),
+          igst: Number(raw.inward_supplies.igst_amount || 0),
+          cgst: Number(raw.inward_supplies.cgst_amount || 0),
+          sgst: Number(raw.inward_supplies.sgst_amount || 0),
+          cess: Number(raw.inward_supplies.cess_amount || 0)
+        });
+      }
+
+      if (raw.eligible_itc) {
+        const itcAmount = Number(raw.eligible_itc.total_itc_available || 0);
+        rows.push({
+          label: '4 - Eligible ITC (Integrated, Central, State & Cess)',
+          taxable: 0,
+          igst: Math.round(itcAmount * 0.5),
+          cgst: Math.round(itcAmount * 0.25),
+          sgst: Math.round(itcAmount * 0.25),
+          cess: 0
+        });
+      }
+
+      const totals = ReturnService._calculateTotals(rows);
+      return {
+        type: 'GSTR3B',
+        period,
+        rows,
+        totals,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    // In taxpro mode without recognized return data, fail-closed per Test 14
+    if (isTaxPro) {
       throw ApiError.providerError('TaxPro GSTR-3B mapper needs real sample', 502);
     }
-
-    const rows = [];
-
-    if (raw.outward_supplies) {
-      rows.push({
-        label: '3.1 - Outward Taxable Supplies (other than zero rated, nil and exempted)',
-        taxable: Number(raw.outward_supplies.taxable_value || 0),
-        igst: Number(raw.outward_supplies.igst_amount || 0),
-        cgst: Number(raw.outward_supplies.cgst_amount || 0),
-        sgst: Number(raw.outward_supplies.sgst_amount || 0),
-        cess: Number(raw.outward_supplies.cess_amount || 0)
-      });
-    }
-
-    if (raw.inward_supplies) {
-      rows.push({
-        label: '3.2 - Inward supplies (liable to reverse charge)',
-        taxable: Number(raw.inward_supplies.taxable_value || 0),
-        igst: Number(raw.inward_supplies.igst_amount || 0),
-        cgst: Number(raw.inward_supplies.cgst_amount || 0),
-        sgst: Number(raw.inward_supplies.sgst_amount || 0),
-        cess: Number(raw.inward_supplies.cess_amount || 0)
-      });
-    }
-
-    if (raw.eligible_itc) {
-      const itcAmount = Number(raw.eligible_itc.total_itc_available || 0);
-      rows.push({
-        label: '4 - Eligible ITC (Integrated, Central, State & Cess)',
-        taxable: 0,
-        igst: Math.round(itcAmount * 0.5),
-        cgst: Math.round(itcAmount * 0.25),
-        sgst: Math.round(itcAmount * 0.25),
-        cess: 0
-      });
-    }
-
-    const totals = ReturnService._calculateTotals(rows);
 
     return {
       type: 'GSTR3B',
       period,
-      rows,
-      totals,
+      rows: [],
+      totals: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
       fetchedAt: new Date().toISOString()
     };
   }

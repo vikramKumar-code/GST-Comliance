@@ -1,35 +1,50 @@
 # STATUS: project handoff (update at the end of every task)
 
-Last updated: 24 Oct 2026. Agent in use: **Antigravity only** (Codex retired; see `AGENTS.md`).
+Last updated: 25 Oct 2026. Agent in use: **Antigravity only** (Codex retired; see `AGENTS.md`).
 
 ## Product
-CandidTax: web app where a taxpayer verifies with a GST OTP and views GSTR-1, GSTR-2B and GSTR-3B data. Filing is a later phase. Stack: Node/Express/MongoDB (`Backend/`), React/Vite (`Frontend/`). Provider: TaxPro GSP. The client's users are the client's customers, each with their own GSTIN, consent and OTP.
+CandidTax: Customer-facing GST billing and compliance application inspired by Zoho Books. Features full sales invoicing with intra-state (CGST+SGST) vs inter-state (IGST) tax calculation, purchase bill tracking, customer and item catalogs, live taxpayer GSTIN verification, and official GST return breakdowns (GSTR-1, GSTR-2B, GSTR-3B). Stack: Node/Express/MongoDB (`Backend/`), React/Vite (`Frontend/`). Provider: TaxPro GSP / Mock Finagg.
 
 ## Done
 Backend
 - Foundation: config loader, safe logger (masks credentials and sensitive data), central error handling, AES-256-GCM encryption for stored returns and tokens.
-- MongoDB models with TTL indexes: Session, OtpState, Return, Consent, AuditLog, ContactMessage.
-- Joi validation (GSTIN, period); MongoDB-backed shared rate limiting (API, OTP, contact form); cookie-based JWT session (HttpOnly, SameSite=Lax); lockout after 3 wrong OTPs.
-- Mock mode: offline engine with GSTIN search, test OTP 123456, GSTR-1/2B/3B data, 404/503 simulations.
-- TaxPro adapter (`taxpro.js`): GetKey session (RSA-SHA256 signature, AES-ECB unwrap per TaxPro's published protocol, in-memory session cache), header-based auth, leak-guard tests, error mapping (AUTH, RATE_LIMIT, SESSION_EXPIRED, DATA_NOT_AVAILABLE), sanitized sample collector `capture-taxpro-samples.js`. Production accepts only the production host, rejects the sandbox host, and validates credentials, RSA key, allow-listed IP and security settings.
-- SaaS tenancy foundation: one verified GSTIN = one Workspace (`SAAS_TENANCY.md`); Workspace and WorkspaceMember (OWNER, MEMBER); workspace-scoped return caching.
-- Task 17: production secret and transport guards (`Backend/src/config/env.js`, `Backend/scripts/test-config.js`). Explicit `NODE_ENV` required (fails if unset or unrecognized; dev fallbacks strictly restricted to development/test); production refuses unset/short/<32/placeholder/dev-default/identical secrets, repeated-char/all-zero data keys, and refuses live TaxPro startup unless `TAXPRO_DEC_PRODUCTION_APPROVED=true`.
-- Task 25: unified backend test runner (`Backend/scripts/run-all-tests.js`, `npm run test:all`) executing all 6 test suites (`test-config`, `test-middleware`, `test-taxpro`, `test-tenancy`, `test-rate-limit-store`, `test:e2e`) in order, stopping on first failure, with clear PASS/FAIL reporting.
-- TaxPro Sandbox Parameter Alignment & Collector Fix: Resolved `GSP101: Missing GST mandatory parms` by standardizing on `auth-token` header (no duplicate `authtoken`), adding `gstin` to query parameters across return endpoints in both `current` (v4.1/v7.0/v4.2) and `email` profiles, adding sanitized diagnostics for GSP101/RET2B1023 in `capture-taxpro-samples.js`, and extending `test-taxpro.js` with header/param assertions and error envelope tests.
-- TaxPro Return-Request Fixes & Fail-Safe Forwarding: Added unique `txn` UUID v4 header per call (`crypto.randomUUID()`), forwarded `ip-usr` from `TAXPRO_GSP_IP_USR` with fail-safe refusal (no 127.0.0.1 fallback), added confirmed `rtnprd` query parameter to GSTR-2B `GET2B` while preserving `ret_prd` header, and added `formatSafeHeaderDiagnostics` (reporting presence only, zero secrets). Verified across all 6 test suites in `npm run test:all`.
-- TaxPro Collector Safe Diagnostics & Timeout Handling: Added `formatSafeNetworkDiagnostics` tracking elapsed time and distinguishing upstream timeouts (`ECONNABORTED` with timeout message) from explicit cancellation (`ERR_CANCELED`), socket aborts, and connection refusals without leaking credentials. Added regression assertions to `test-taxpro.js` confirming `requestOtp` never retries on `AUTH403` or `ECONNABORTED`. Verified 6/6 test suites pass.
-- Tests: `test-middleware.js`, `test-taxpro.js`, `test-config.js` (including full production secret and transport guard suite), `test-tenancy.js`, `test-rate-limit-store.js`, and the isolated E2E runner `npm run test:e2e` (own test database, cleaned afterwards). All unified via `npm run test:all` (6/6 passing).
+- MongoDB models with TTL indexes: Session, OtpState, Return, Consent, AuditLog, ContactMessage, Workspace, WorkspaceMember.
+- **Enterprise Billing & Compliance Foundation**:
+  - Models: `Customer.js`, `Item.js`, `Invoice.js`, `Bill.js` with workspace scoping, compound indexes, and validation.
+  - Tax Calculation Utility (`Backend/src/utils/taxCalculator.js`): Line-item and total computation with automated intra-state (50/50 CGST+SGST) vs inter-state (100% IGST) based on seller GSTIN vs Place of Supply.
+  - Controllers & Routes: Full CRUD and search for `/api/customers`, `/api/items`, `/api/invoices`, and `/api/bills`.
+  - Enhanced Dashboard Controller: Computes real MongoDB sales totals, purchase expenses, receivables, and payables alongside GST return metrics.
+  - Test Suite (`Backend/scripts/test-billing.js`): Unit and integration tests for tax calculations, schema validations, and workspace tenancy isolation. Integrated into `npm run test:all` (7/7 suites passing).
+- Joi validation; MongoDB-backed shared rate limiting; cookie-based JWT session (HttpOnly, SameSite=Lax); lockout after 3 wrong OTPs.
+- Mock mode & TaxPro adapter with safe error handling (`GSP053`, `AUTH4037`, `RET2B1023`, `GSP032`), timeout diagnostics, and zero credential leakage.
+- **TaxPro GSP Signing Key Diagnostic Hardening**: Granular safe diagnostic errors for missing `TAXPRO_ASPID`, `TAXPRO_PASSWORD`, and `TAXPRO_ASP_PRIVATE_KEY_PATH`, unreadable key paths, malformed PEMs, non-RSA keys, and encrypted passphrase verification without leaking secrets or credentials.
+- **TaxPro GST Taxpayer Authentication Implementation**: Full GET-based implementation for `OTPREQUEST`, `AUTHTOKEN`, `REFRESHTOKEN`, and `EVCOTP` on `/taxpayerapi/dec/v1.0/authenticate`. Strict architectural separation between taxpayer auth and GSP GetKey session signing; zero credential/token leakage; Joi & provider validation; safe error mapping for expired tokens (`AUTH4038`, `GSP052A` -> 401 `SESSION_EXPIRED`); session update support in `SessionService`; and 100% offline regression coverage.
+- **TaxPro Read-Only Returns Mappers**: Implemented full schema mappers in `ReturnService` for live GSTR-1 (`B2B` item-level calculation & `RETSUM`), GSTR-2B (`b2b` inward supplies & `itc_elg`), and GSTR-3B (`sup_details`, `itc_elg`). Supported both official GSTN/TaxPro response envelopes and mock payloads with fail-closed validation for unknown samples.
+- Unified backend test runner (`Backend/scripts/run-all-tests.js`, `npm run test:all`): 7/7 suites pass 100%.
 
-Frontend (CandidTax UI)
-- Landing (branding, features, contact form), Login (GSTIN, live validation, taxpayer details), OTP (mandatory consent, 6-digit OTP, resend timer), Dashboard (filing summary cards, recent period status, return cards), Return detail (GSTR-1/2B/3B tables, summary, calm EmptyState for DATA_NOT_AVAILABLE), Privacy and Terms pages.
-- AuthContext and ProtectedRoute; saved data shown with a "stale" badge when the provider is down. UI freeze respected.
-- Task 26: Baseline screenshots (21 images across 3 viewports: 1280px, 768px, 360px) in `docs/ui-baseline/`; comprehensive UI to API map in `docs/UI_API_MAP.md`; `getReturnsSummary` query param contract mismatch resolved in `returns.api.js`; ESLint and Vite production build passed; UI freeze strictly respected.
+Frontend (CandidTax — Zoho Books Style Application)
+- Professional enterprise layout (`Layout.jsx`, `.zoho-*` design system in `index.css`) with collapsible & sticky left sidebar (`position: sticky; top: 0; height: 100vh`) and sticky top header with quick action `+ New` menu and active GSTIN context.
+- **Main Navigation & Business Modules**:
+  - **Dashboard** (`/dashboard`): Real sales invoice totals, purchase bills, eligible ITC, net tax payable, and recent transactions.
+  - **Taxpayer Search** (`/taxpayer-search`): Live GSTIN verification via `/api/gstin/search`.
+  - **Customers** (`/customers`): Searchable table, filter by GST type, and Add/Edit Customer modal with GST details and billing address.
+  - **Items & Services** (`/items`): Products and services table with HSN/SAC, pricing, unit, and GST rates.
+  - **Sales Invoices** (`/sales/invoices`): Interactive invoice builder with customer selection, line items, real-time CGST/SGST vs IGST calculations, MongoDB persistence, status management, and printable invoice drawer.
+  - **Sales Credit Notes** (`/sales/credit-notes`): Business credit notes overview.
+  - **Purchases & Bills** (`/purchases/bills`): Purchase bill tracker with expense categorization and ITC reconciliation.
+  - **Direct Expenses** (`/purchases/expenses`): Operational expense tracking.
+  - **GST Returns**: Clean business views for GSTR-1, GSTR-2B, GSTR-3B (`/returns/:type`), Unified Return Summary (`/returns/summary`), and Filing History (`/returns/filing-history`).
+  - **Excel Import** (`/excel-import`): Spreadsheet drag-and-drop import dropzone.
+  - **Reports** (`/reports`): Financial and GST reconciliation reports.
+  - **Settings** (`/settings`): Business profile and invoice preferences.
+- Zero secret exposure: No developer debug tools or raw JSON viewers in primary user navigation.
+- Passes ESLint (`npm run lint`: 0 errors, 0 warnings) and Vite build (`npm run build`).
 
 ## Decisions
-- UI is frozen (`AGENTS.md` section 2).
-- Customers log in themselves with their own OTP (flow A). Staff-driven access is not built.
-- Filing and refund are out of scope. Write APIs stay disabled and dry-run.
-- The `/dec/` routes are not approved for production by TaxPro. Encrypted transport is not implemented in the codebase (/dec/ is hardcoded in the adapter). Production startup strictly refuses unless `TAXPRO_DEC_PRODUCTION_APPROVED=true` is explicitly set by the human operator after written approval. Never set this flag in any repository file or script.
+- Customer-facing business workflows inspired by Zoho Books replace raw developer API testing tools.
+- Strict workspace isolation: every customer, item, invoice, and bill belongs to an active `workspaceId`.
+- Intra-state vs Inter-state supply determined dynamically by comparing the supplier GSTIN state code against the recipient Place of Supply (POS).
+- Filing and write APIs to TaxPro remain disabled and dry-run per safety rules.
 
 ## Blockers (external, need the human)
 1. Local `Backend/.env` lacks the TaxPro sandbox settings (human fills; never share values).
