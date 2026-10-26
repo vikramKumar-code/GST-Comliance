@@ -45,6 +45,10 @@ const SUITES = [
     args: [path.join(__dirname, 'test-reports.js')]
   },
   {
+    name: 'test-import',
+    args: [path.join(__dirname, 'test-import.js')]
+  },
+  {
     name: 'test:e2e',
     args: [path.join(__dirname, 'run-e2e.js')]
   }

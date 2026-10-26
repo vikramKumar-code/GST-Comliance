@@ -12,6 +12,7 @@ const invoiceRoutes = require('./invoice.routes');
 const billRoutes = require('./bill.routes');
 const reconciliationRoutes = require('./reconciliation.routes');
 const reportRoutes = require('./report.routes');
+const importRoutes = require('./import.routes');
 
 router.use('/gstin', gstinRoutes);
 router.use('/auth', authRoutes);
@@ -24,5 +25,6 @@ router.use('/invoices', invoiceRoutes);
 router.use('/bills', billRoutes);
 router.use('/reconciliation', reconciliationRoutes);
 router.use('/reports', reportRoutes);
+router.use('/import', importRoutes);
 
 module.exports = router;
