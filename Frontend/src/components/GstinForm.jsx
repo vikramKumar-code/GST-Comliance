@@ -30,6 +30,7 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
     setError(null);
     try {
       const data = await searchGstin(cleanGstin);
+
       // Check if legalName is present and verified !== false
       if (data && data.legalName && data.verified !== false) {
         setBusinessInfo(data);
@@ -89,11 +90,10 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
           if (searchData && searchData.legalName && searchData.verified !== false) {
             resolvedLegalName = searchData.legalName;
           }
-        } catch (searchErr) {
-          // If search throws error (e.g. GSTIN ending in 0 or starting in 99), halt and show error
-          setError(searchErr);
-          setSendingOtp(false);
-          return;
+        } catch {
+          // Public search is optional/informational for the legal name banner;
+          // failure to fetch legal name must NOT prevent the taxpayer from dispatching OTP.
+          resolvedLegalName = null;
         }
       }
 
@@ -121,6 +121,41 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
 
   return (
     <form onSubmit={handleSendOtp} noValidate className="gstin-form">
+      {/* Quick Test Presets Toolbar */}
+      <div className="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom">
+        <span className="text-muted small" style={{ fontSize: '0.75rem' }}>
+          Quick Testing Presets:
+        </span>
+        <div className="d-flex gap-1">
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary py-0 px-2 rounded-pill"
+            style={{ fontSize: '0.72rem' }}
+            onClick={() => {
+              setGstin('29ABCDE1234F1Z5');
+              setUsername('demouser');
+              setConsent(true);
+            }}
+          >
+            Mock Sandbox (29ABCDE1234F1Z5)
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-light text-muted border py-0 px-2 rounded-pill"
+            style={{ fontSize: '0.72rem' }}
+            onClick={() => {
+              setGstin('');
+              setUsername('');
+              setConsent(false);
+              setBusinessInfo(null);
+              setError(null);
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
       <ErrorMessage error={error} onRetry={() => setError(null)} />
 
       {/* GSTIN Input Field */}

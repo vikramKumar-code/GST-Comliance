@@ -61,7 +61,7 @@ export const getDashboard = async (period) => {
  * @param {string} period
  */
 export const getReturnByType = async (type, period) => {
-  const normalizedType = String(type).toLowerCase();
+  const normalizedType = String(type).toLowerCase().replace(/[^a-z0-9]/g, '');
   switch (normalizedType) {
     case 'gstr1':
       return getGstr1(period);
@@ -75,4 +75,24 @@ export const getReturnByType = async (type, period) => {
         message: `Unknown return type: ${type}. Expected gstr1, gstr2b, or gstr3b.`,
       };
   }
+};
+
+/**
+ * Prepare GSTR-1 payload from workspace invoices for review
+ * @param {string} period - Required period in MMYYYY format
+ */
+export const prepareGstr1 = async (period) => {
+  return client.get('/returns/gstr1/prepare', {
+    params: { period },
+  });
+};
+
+/**
+ * Save / Upload GSTR-1 payload to GSTN (or execute safe dry-run)
+ * @param {string} period - Required period in MMYYYY format
+ */
+export const saveGstr1 = async (period) => {
+  return client.post('/returns/gstr1/save', null, {
+    params: { period },
+  });
 };
