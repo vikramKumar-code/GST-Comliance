@@ -205,9 +205,10 @@ class TaxProProvider {
     });
     this.aspCallerGstin = options.aspCallerGstin || process.env.TAXPRO_ASP_GSTIN || '';
     this.ipUsr = options.ipUsr !== undefined ? options.ipUsr : (process.env.TAXPRO_GSP_IP_USR || '');
+    const sessionKey = options.gspSecret || process.env.TAXPRO_GSP_SECRET || this.password;
     this.gspSession = options.gspSession || new TaxProGspSession({
       aspid: this.aspid,
-      password: this.password,
+      password: sessionKey,
       privateKeyPath: options.privateKeyPath,
       privateKeyPassphrase: options.privateKeyPassphrase,
       ipUsr: this.ipUsr,
