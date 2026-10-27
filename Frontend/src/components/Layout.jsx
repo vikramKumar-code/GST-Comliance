@@ -79,7 +79,7 @@ export default function Layout({ children }) {
       <aside className={`zoho-sidebar ${sidebarOpen ? 'open' : ''}`}>
         {/* Brand Header */}
         <div className="zoho-sidebar-header">
-          <Link to="/dashboard" className="text-decoration-none d-flex align-items-center gap-2.5">
+          <Link to="/" className="text-decoration-none d-flex align-items-center gap-2.5" title="Go to CandidTax Home">
             <span
               className="d-flex align-items-center justify-content-center text-white fw-bold rounded-2 shadow-xs"
               style={{
@@ -108,6 +108,15 @@ export default function Layout({ children }) {
 
         {/* Navigation Menu */}
         <div className="zoho-sidebar-nav">
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) => `zoho-nav-link ${isActive ? 'active' : ''}`}
+          >
+            <span style={{ fontSize: '1.05rem' }}>🏠</span>
+            <span>Home Page</span>
+          </NavLink>
+
           <NavLink
             to="/dashboard"
             className={({ isActive }) => `zoho-nav-link ${isActive ? 'active' : ''}`}

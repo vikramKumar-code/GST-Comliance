@@ -47,22 +47,37 @@ export default function LandingPage() {
       {/* Navigation */}
       <header className="landing-navbar">
         <div className="container d-flex justify-content-between align-items-center">
-          <Link to="/" className="landing-brand">
-            <span className="brand-mark">GST</span>
-            <span className="brand-copy">CandidTax<small>GST COMPLIANCE</small></span>
+          <Link to="/" className="landing-brand d-flex align-items-center gap-2.5 text-decoration-none">
+            <span
+              className="d-flex align-items-center justify-content-center text-white fw-bold rounded-2 shadow-xs"
+              style={{
+                width: '36px',
+                height: '36px',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                fontSize: '0.95rem'
+              }}
+            >
+              CT
+            </span>
+            <span className="brand-copy">CandidTax<small>GST COMPLIANCE & BILLING</small></span>
           </Link>
-          <nav className="landing-nav-links">
+          <nav className="landing-nav-links d-flex align-items-center gap-3">
             <a href="#features" className="landing-nav-link d-none d-md-inline">Features</a>
             <a href="#workflow" className="landing-nav-link d-none d-md-inline">How it Works</a>
             <a href="#contact" className="landing-nav-link d-none d-md-inline">Contact</a>
             {isAuthenticated ? (
-              <Link to="/dashboard" className="btn btn-outline-primary btn-sm px-3 py-2 fw-semibold">
+              <Link to="/dashboard" className="btn btn-primary btn-sm px-3.5 py-2 fw-semibold shadow-xs">
                 Open Dashboard →
               </Link>
             ) : (
-              <Link to="/login" className="btn btn-primary btn-sm px-3 py-2 fw-semibold">
-                Taxpayer Login
-              </Link>
+              <div className="d-flex align-items-center gap-2">
+                <Link to="/login" className="btn btn-outline-primary btn-sm px-3 py-1.5 fw-semibold">
+                  Sign In
+                </Link>
+                <Link to="/signup" className="btn btn-primary btn-sm px-3.5 py-1.5 fw-semibold shadow-xs">
+                  Get Started Free
+                </Link>
+              </div>
             )}
           </nav>
         </div>
@@ -83,6 +98,21 @@ export default function LandingPage() {
           <p className="hero-subtitle text-secondary mx-auto mb-4 lead fs-6" style={{ maxWidth: '640px' }}>
             Instant identity verification via GSTN OTP. Real-time reconciliation of <strong>GSTR-1</strong> outward sales, <strong>GSTR-2B</strong> eligible ITC, and <strong>GSTR-3B</strong> monthly tax liabilities.
           </p>
+
+          {/* Direct CTA Buttons */}
+          <div className="d-flex align-items-center justify-content-center flex-wrap gap-2.5 mb-4">
+            <Link to="/signup" className="btn btn-primary btn-lg px-4 py-2.5 shadow-sm fw-semibold">
+              Get Started Free →
+            </Link>
+            <Link to="/login" className="btn btn-outline-secondary btn-lg px-4 py-2.5 fw-semibold bg-white">
+              Sign In with Email / Google
+            </Link>
+            {isAuthenticated && (
+              <Link to="/dashboard" className="btn btn-outline-primary btn-lg px-4 py-2.5 fw-semibold bg-white">
+                Go to Dashboard
+              </Link>
+            )}
+          </div>
 
           {/* GSTIN Quick Entry Card */}
           <div className="card shadow-sm border rounded-4 p-3 p-sm-4 mx-auto mb-4 bg-white text-start" style={{ maxWidth: '600px' }}>
