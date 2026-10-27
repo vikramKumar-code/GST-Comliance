@@ -6,3 +6,5 @@ raw*.json
 docs
 doc
 cookies.txt
+scratch/
+AGENTS.md
