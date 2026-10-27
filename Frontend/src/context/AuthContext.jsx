@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getMe, logout as logoutApi } from '../api/auth.api';
+import { getMe, logout as logoutApi, switchWorkspace as switchWorkspaceApi } from '../api/auth.api';
 
 const AuthContext = createContext(null);
 
@@ -8,16 +8,28 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const formatUserData = (data) => {
+    if (!data) return null;
+    return {
+      id: data.user?.id || null,
+      name: data.user?.name || (data.gstin ? `Taxpayer (${data.gstin.slice(0, 5)})` : 'User'),
+      email: data.user?.email || null,
+      avatar: data.user?.avatar || null,
+      authProvider: data.user?.authProvider || 'GSTIN_OTP',
+      gstin: data.gstin || data.currentWorkspace?.gstin || null,
+      workspaceId: data.workspaceId || data.currentWorkspace?.id || null,
+      workspaceRole: data.workspaceRole || data.currentWorkspace?.role || 'MEMBER',
+      expiresAt: data.expiresAt,
+    };
+  };
+
   const checkAuth = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await getMe();
-      if (data && data.gstin) {
-        setUser({
-          gstin: data.gstin,
-          expiresAt: data.expiresAt,
-        });
+      if (data && (data.gstin || data.user)) {
+        setUser(formatUserData(data));
       } else {
         setUser(null);
       }
@@ -39,11 +51,8 @@ export function AuthProvider({ children }) {
     getMe()
       .then((data) => {
         if (isMounted) {
-          if (data && data.gstin) {
-            setUser({
-              gstin: data.gstin,
-              expiresAt: data.expiresAt,
-            });
+          if (data && (data.gstin || data.user)) {
+            setUser(formatUserData(data));
           } else {
             setUser(null);
           }
@@ -69,11 +78,21 @@ export function AuthProvider({ children }) {
   }, []);
 
   const loginSuccess = useCallback((userData) => {
-    setUser({
-      gstin: userData.gstin,
-      expiresAt: userData.expiresAt,
-    });
+    setUser(formatUserData(userData));
     setError(null);
+  }, []);
+
+  const switchActiveWorkspace = useCallback(async (workspaceId) => {
+    const res = await switchWorkspaceApi(workspaceId);
+    if (res?.currentWorkspace) {
+      setUser((prev) => ({
+        ...prev,
+        gstin: res.currentWorkspace.gstin,
+        workspaceId: res.currentWorkspace.id,
+        workspaceRole: res.currentWorkspace.role
+      }));
+    }
+    return res;
   }, []);
 
   const logout = useCallback(async () => {
@@ -91,9 +110,11 @@ export function AuthProvider({ children }) {
     user,
     loading,
     error,
-    isAuthenticated: Boolean(user?.gstin),
+    isAuthenticated: Boolean(user?.id || user?.gstin),
+    hasActiveWorkspace: Boolean(user?.gstin),
     checkAuth,
     loginSuccess,
+    switchActiveWorkspace,
     logout,
   };
 

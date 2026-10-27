@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 import OtpPage from './pages/OtpPage';
 import DashboardPage from './pages/DashboardPage';
 import TaxpayerSearchPage from './pages/TaxpayerSearchPage';
@@ -33,6 +34,8 @@ export default function App() {
           {/* Public Landing & Marketing */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/register" element={<SignupPage />} />
           <Route path="/otp" element={<OtpPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/terms" element={<TermsPage />} />

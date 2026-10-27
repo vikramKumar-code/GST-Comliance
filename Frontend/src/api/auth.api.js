@@ -35,10 +35,59 @@ export const verifyOtp = async ({ gstin, username, otp }) => {
 
 /**
  * Check active session and get current user info
- * @returns {Promise<{ gstin: string, expiresAt: string }>}
+ * @returns {Promise<{ gstin: string, expiresAt: string, user?: Object, workspaceId?: string }>}
  */
 export const getMe = async () => {
   return client.get('/auth/me');
+};
+
+/**
+ * Register a new user with email and password
+ * @param {Object} payload
+ * @param {string} payload.name
+ * @param {string} payload.email
+ * @param {string} payload.password
+ * @returns {Promise<{ success: boolean, user: Object, currentWorkspace: Object|null }>}
+ */
+export const signup = async ({ name, email, password }) => {
+  return client.post('/auth/signup', { name, email, password });
+};
+
+/**
+ * Log in an existing user with email and password
+ * @param {Object} payload
+ * @param {string} payload.email
+ * @param {string} payload.password
+ * @returns {Promise<{ success: boolean, user: Object, currentWorkspace: Object|null }>}
+ */
+export const signin = async ({ email, password }) => {
+  return client.post('/auth/signin', { email, password });
+};
+
+/**
+ * Authenticate with Google OAuth 2.0 credential token
+ * @param {string} idToken
+ * @returns {Promise<{ success: boolean, user: Object, currentWorkspace: Object|null }>}
+ */
+export const googleAuth = async (idToken) => {
+  return client.post('/auth/google', { idToken });
+};
+
+/**
+ * List all workspaces/GSTINs accessible by the authenticated user
+ * @returns {Promise<{ success: boolean, workspaces: Array<{ id: string, gstin: string, role: string, isCurrent: boolean }> }>}
+ */
+export const getWorkspaces = async () => {
+  return client.get('/auth/workspaces');
+};
+
+/**
+ * Switch active session context to another workspace
+ * @param {string} workspaceId
+ * @returns {Promise<{ success: boolean, currentWorkspace: { id: string, gstin: string, role: string } }>}
+ */
+export const switchWorkspace = async (workspaceId) => {
+  return client.post('/auth/switch-workspace', { workspaceId });
 };
 
 /**
@@ -48,3 +97,4 @@ export const getMe = async () => {
 export const logout = async () => {
   return client.post('/auth/logout');
 };
+

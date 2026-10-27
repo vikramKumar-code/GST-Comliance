@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { checkBackendHealth } from '../api/health.api';
+import WorkspaceDropdown from './WorkspaceDropdown';
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
@@ -263,11 +264,7 @@ export default function Layout({ children }) {
             >
               ☰
             </button>
-            <div className="d-flex align-items-center gap-2">
-              <span className="badge bg-light text-secondary border px-2.5 py-1.5 font-monospace" style={{ fontSize: '0.8rem' }}>
-                GSTIN: <span className="text-primary fw-bold">{user?.gstin || 'Taxpayer'}</span>
-              </span>
-            </div>
+            <WorkspaceDropdown />
           </div>
 
           <div className="d-flex align-items-center gap-3">
@@ -343,6 +340,19 @@ export default function Layout({ children }) {
 
             {/* User Profile & Logout */}
             <div className="d-flex align-items-center gap-2 ps-2 border-start">
+              {user?.name && (
+                <div className="d-none d-sm-flex align-items-center gap-1.5" title={user.email || user.name}>
+                  <span
+                    className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold"
+                    style={{ width: '26px', height: '26px', fontSize: '0.75rem' }}
+                  >
+                    {user.name.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="small fw-semibold text-dark text-truncate" style={{ maxWidth: '120px' }}>
+                    {user.name}
+                  </span>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={handleLogout}
