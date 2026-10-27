@@ -115,11 +115,59 @@ const periodQuerySchema = Joi.object({
     })
 });
 
+// 6. Contact Schema
 const contactSchema = Joi.object({
-  name: Joi.string().trim().min(1).max(120).required(),
+  name: Joi.string().trim().min(1).max(100).required(),
   email: Joi.string().trim().email().max(254).required(),
   subject: Joi.string().trim().min(1).max(200).required(),
   message: Joi.string().trim().min(1).max(5000).required()
+});
+
+// 7. User Signup Schema
+const signupSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(100).required().messages({
+    'string.empty': 'Name is required.',
+    'any.required': 'Name is required.'
+  }),
+  email: Joi.string().trim().lowercase().email().max(254).required().messages({
+    'string.email': 'Invalid email address.',
+    'string.empty': 'Email is required.',
+    'any.required': 'Email is required.'
+  }),
+  password: Joi.string().min(8).max(128).required().messages({
+    'string.min': 'Password must be at least 8 characters long.',
+    'string.empty': 'Password is required.',
+    'any.required': 'Password is required.'
+  })
+});
+
+// 8. User Signin Schema
+const signinSchema = Joi.object({
+  email: Joi.string().trim().lowercase().email().required().messages({
+    'string.email': 'Invalid email address.',
+    'string.empty': 'Email is required.',
+    'any.required': 'Email is required.'
+  }),
+  password: Joi.string().required().messages({
+    'string.empty': 'Password is required.',
+    'any.required': 'Password is required.'
+  })
+});
+
+// 9. Google OAuth Schema
+const googleAuthSchema = Joi.object({
+  idToken: Joi.string().trim().required().messages({
+    'string.empty': 'Google ID token is required.',
+    'any.required': 'Google ID token is required.'
+  })
+});
+
+// 10. Switch Workspace Schema
+const switchWorkspaceSchema = Joi.object({
+  workspaceId: Joi.string().trim().required().messages({
+    'string.empty': 'Workspace ID is required.',
+    'any.required': 'Workspace ID is required.'
+  })
 });
 
 /**
@@ -154,5 +202,9 @@ module.exports = {
   verifyOtpSchema,
   evcOtpSchema,
   periodQuerySchema,
-  contactSchema
+  contactSchema,
+  signupSchema,
+  signinSchema,
+  googleAuthSchema,
+  switchWorkspaceSchema
 };

@@ -2,16 +2,21 @@ const mongoose = require('mongoose');
 
 const sessionSchema = new mongoose.Schema(
   {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
     gstin: {
       type: String,
-      required: true,
       trim: true,
-      uppercase: true
+      uppercase: true,
+      default: null
     },
     username: {
       type: String,
-      required: true,
-      trim: true
+      trim: true,
+      default: null
     },
     workspaceId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -25,7 +30,12 @@ const sessionSchema = new mongoose.Schema(
     },
     gstTokenEnc: {
       type: String,
-      required: true
+      default: null
+    },
+    authType: {
+      type: String,
+      enum: ['USER_AUTH', 'GSTIN_OTP'],
+      default: 'GSTIN_OTP'
     },
     expiresAt: {
       type: Date,

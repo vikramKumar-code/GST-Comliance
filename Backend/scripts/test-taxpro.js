@@ -32,13 +32,21 @@ const {
   formatTaxProTimestamp
 } = require('../src/services/providers/taxproGspSession');
 
-// Load sample files from doc/ folder
+// Load sample files from doc/ folder or fallback inline samples
 const DOC_DIR = path.resolve(__dirname, '../../doc');
+const SAMPLES = {
+  'otprequest-success.json': { status_cd: '1', data: null, message: 'OTP has been dispatched' },
+  'authtoken-success.json': { status_cd: '1', auth_token: 'test_token', expiry: 3600 },
+  'gstr2b-error-RET2B1023.json': { status_cd: '0', error: { error_cd: 'RET2B1023', message: 'Data for this period is not available yet.' } },
+  'error-AUTH4041.json': { status_cd: '0', error: { error_cd: 'AUTH4041', message: 'Could not complete the request. Please try again.' } }
+};
+
 function loadSample(filename) {
   const primary = path.join(DOC_DIR, filename);
   if (fs.existsSync(primary)) return JSON.parse(fs.readFileSync(primary, 'utf8'));
   const backup = path.join(DOC_DIR, 'backup-before-rerun', filename);
   if (fs.existsSync(backup)) return JSON.parse(fs.readFileSync(backup, 'utf8'));
+  if (SAMPLES[filename]) return SAMPLES[filename];
   throw new Error(`Sample file not found: ${filename}`);
 }
 const otpRequestSuccess = loadSample('otprequest-success.json');

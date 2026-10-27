@@ -18,6 +18,7 @@ class SessionService {
       workspaceId: tenant.workspaceId || null,
       memberId: tenant.memberId || null,
       gstTokenEnc,
+      authType: 'GSTIN_OTP',
       expiresAt
     });
 
@@ -33,7 +34,37 @@ class SessionService {
   }
 
   /**
-   * Retrieve active session and decrypt GST token
+   * Create a standard user session (Email/Password or OAuth 2.0)
+   */
+  static async createUserSession(user, workspace = null, membership = null, options = {}) {
+    const sessionHours = options.sessionHours || 24;
+    const expiresAt = new Date(Date.now() + sessionHours * 3600 * 1000);
+
+    const session = await Session.create({
+      userId: user._id,
+      username: user.name || user.email,
+      workspaceId: workspace?._id || null,
+      memberId: membership?._id || null,
+      gstin: workspace?.gstin || null,
+      gstTokenEnc: options.gstToken ? encrypt(options.gstToken) : null,
+      authType: 'USER_AUTH',
+      expiresAt
+    });
+
+    const token = jwt.sign(
+      {
+        sessionId: session._id,
+        userId: user._id
+      },
+      JWT_SECRET,
+      { expiresIn: `${sessionHours}h` }
+    );
+
+    return { session, token };
+  }
+
+  /**
+   * Retrieve active session and decrypt GST token (if present)
    */
   static async getSessionWithToken(sessionId) {
     const session = await Session.findById(sessionId);
@@ -41,10 +72,10 @@ class SessionService {
       if (session) {
         await Session.findByIdAndDelete(sessionId).catch(() => {});
       }
-      throw ApiError.sessionExpired('Session has expired. Please verify OTP again.');
+      throw ApiError.sessionExpired('Session has expired. Please verify OTP or log in again.');
     }
 
-    const gstToken = decrypt(session.gstTokenEnc);
+    const gstToken = session.gstTokenEnc ? decrypt(session.gstTokenEnc) : null;
     return { session, gstToken };
   }
 

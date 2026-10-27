@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../config/env');
 const Session = require('../models/Session');
+const User = require('../models/User');
 const Workspace = require('../models/Workspace');
 const WorkspaceMember = require('../models/WorkspaceMember');
 const ApiError = require('../utils/apiError');
@@ -60,8 +61,15 @@ const auth = async (req, res, next) => {
       membership = activeMembership;
     }
 
-    // Attach active session and taxpayer context to the request object
+    // Attach active session, user, and taxpayer context to the request object
+    let user = null;
+    if (session.userId) {
+      user = await User.findById(session.userId).catch(() => null);
+    }
+
     req.session = session;
+    req.user = user;
+    req.userId = session.userId || user?._id || null;
     req.gstin = session.gstin;
     req.username = session.username;
     req.workspaceId = session.workspaceId || null;
