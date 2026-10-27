@@ -10,7 +10,11 @@ const { isProduction } = require('../config/env');
 const errorHandler = (err, req, res, next) => {
   // 1. Handled Operational Errors (ApiError)
   if (err instanceof ApiError) {
-    logger.warn(`ApiError [${err.code}] (${err.statusCode}): ${err.message}`);
+    if (err.code === 'SESSION_EXPIRED') {
+      logger.debug(`Session probe [${err.code}]: ${err.message}`);
+    } else {
+      logger.warn(`ApiError [${err.code}] (${err.statusCode}): ${err.message}`);
+    }
 
     return res.status(err.statusCode).json({
       success: false,
@@ -36,7 +40,18 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
-  // 3. Unhandled Server Errors (Status 500)
+  // 3. MongoDB Duplicate Key Errors (E11000)
+  if (err.name === 'MongoServerError' && err.code === 11000) {
+    const field = Object.keys(err.keyPattern || err.keyValue || {})[0] || 'record';
+    logger.warn(`Database duplicate key conflict on ${field}`);
+    return res.status(409).json({
+      success: false,
+      code: 'DUPLICATE_KEY_ERROR',
+      message: `A record with this ${field} already exists.`
+    });
+  }
+
+  // 4. Unhandled Server Errors (Status 500)
   // Per Section 11 & TAXPRO_ADDENDUM: Errors with status 500 return a generic message; internal details and URLs are not logged.
   logger.error('Unhandled Server Error', { name: err.name });
 
