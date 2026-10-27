@@ -92,44 +92,52 @@ export default function OtpForm({ gstin, username, onSuccess }) {
       )}
 
       <div className="mb-4">
-        <label htmlFor="otp-input" className="form-label text-secondary small fw-semibold text-center d-block">
+        <label htmlFor="otp-input" className="form-label text-center d-block mb-2">
           One-Time Password (OTP)
         </label>
-        <input
-          id="otp-input"
-          type="text"
-          className="form-control form-control-lg text-center font-monospace fs-3 letter-spacing-lg"
-          placeholder="••••••"
-          maxLength={8}
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          value={otp}
-          disabled={isBusy}
-          onChange={(e) => {
-            const val = e.target.value.replace(/\D/g, '');
-            setOtp(val);
-            setError(null);
-          }}
-          required
-          aria-describedby="otp-help"
-        />
-        <div id="otp-help" className="form-text text-center text-muted small mt-1">
-          Enter 4 to 8 digits received via SMS/Email (Mock OTP: <code>123456</code>).
+        <div className="d-flex justify-content-center">
+          <input
+            id="otp-input"
+            type="text"
+            className="form-control text-center font-monospace fs-2 fw-bold tracking-wide"
+            style={{ maxWidth: '280px', letterSpacing: '0.25em', padding: '0.65rem 1rem' }}
+            placeholder="••••••"
+            maxLength={8}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={otp}
+            disabled={isBusy}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, '');
+              setOtp(val);
+              setError(null);
+            }}
+            required
+            aria-describedby="otp-help"
+          />
+        </div>
+        <div id="otp-help" className="form-text text-center text-muted small mt-2">
+          Enter 4-8 digits received on mobile/email (Sandbox Demo: <code className="fw-bold text-dark">123456</code>).
         </div>
       </div>
 
       <button
         type="submit"
-        className="btn btn-primary btn-lg w-100 fw-semibold mb-3"
+        className="btn btn-primary w-100 py-2.5 fw-semibold shadow-xs mb-3"
         disabled={otp.length < 4 || isBusy}
       >
         {verifying ? (
           <>
             <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />
-            Verifying OTP...
+            Verifying Session Handshake...
           </>
         ) : (
-          'Verify & Open Dashboard'
+          <>
+            Verify & Open Dashboard
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="ms-2">
+              <path fillRule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
+            </svg>
+          </>
         )}
       </button>
 
@@ -137,19 +145,19 @@ export default function OtpForm({ gstin, username, onSuccess }) {
         <button
           type="button"
           onClick={handleResend}
-          className="btn btn-outline-secondary btn-sm"
+          className="btn btn-outline-secondary btn-sm py-2"
           disabled={countdown > 0 || isBusy}
           aria-label={countdown > 0 ? `Resend OTP disabled for ${countdown} seconds` : 'Resend OTP'}
         >
           {resending ? (
             <>
               <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" />
-              Sending...
+              Dispatching fresh OTP...
             </>
           ) : countdown > 0 ? (
             `Resend OTP in ${countdown}s`
           ) : (
-            'Resend OTP'
+            '↻ Resend OTP'
           )}
         </button>
       </div>

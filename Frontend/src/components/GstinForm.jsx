@@ -122,14 +122,14 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
   return (
     <form onSubmit={handleSendOtp} noValidate className="gstin-form">
       {/* Quick Test Presets Toolbar */}
-      <div className="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom">
-        <span className="text-muted small" style={{ fontSize: '0.75rem' }}>
-          Quick Testing Presets:
+      <div className="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom" style={{ borderColor: '#e2e8f0' }}>
+        <span className="text-muted small fw-medium" style={{ fontSize: '0.75rem' }}>
+          Testing Preset:
         </span>
-        <div className="d-flex gap-1">
+        <div className="d-flex gap-1.5">
           <button
             type="button"
-            className="btn btn-sm btn-outline-secondary py-0 px-2 rounded-pill"
+            className="btn btn-sm btn-outline-primary py-0.5 px-2.5 rounded-pill"
             style={{ fontSize: '0.72rem' }}
             onClick={() => {
               setGstin('29ABCDE1234F1Z5');
@@ -137,11 +137,11 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
               setConsent(true);
             }}
           >
-            Mock Sandbox (29ABCDE1234F1Z5)
+            Sandbox (29ABCDE1234F1Z5)
           </button>
           <button
             type="button"
-            className="btn btn-sm btn-outline-light text-muted border py-0 px-2 rounded-pill"
+            className="btn btn-sm btn-outline-secondary py-0.5 px-2 rounded-pill"
             style={{ fontSize: '0.72rem' }}
             onClick={() => {
               setGstin('');
@@ -160,14 +160,14 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
 
       {/* GSTIN Input Field */}
       <div className="mb-3">
-        <label htmlFor="gstin-input" className="form-label text-secondary small fw-semibold">
-          GSTIN (Goods and Services Tax Identification Number)
+        <label htmlFor="gstin-input" className="form-label">
+          GSTIN (Goods & Services Tax Identification)
         </label>
         <div className="input-group">
           <input
             id="gstin-input"
             type="text"
-            className="form-control form-control-lg text-uppercase font-monospace"
+            className="form-control text-uppercase font-monospace fs-6"
             placeholder="e.g. 29ABCDE1234F1Z5"
             maxLength={15}
             value={gstin}
@@ -182,7 +182,7 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
           />
           <button
             type="button"
-            className="btn btn-outline-primary"
+            className="btn btn-outline-primary fw-semibold"
             onClick={handleSearch}
             disabled={gstin.length < 15 || isFormBusy}
             aria-label="Verify GSTIN"
@@ -195,7 +195,7 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
           </button>
         </div>
         <div id="gstin-help" className="form-text small text-muted">
-          Must be 15 alphanumeric characters. (Demo: ends in 0 = Not Found, starts with 99 = Provider Down).
+          15-character alphanumeric GSTIN. Click Verify to auto-fetch registered business name.
         </div>
       </div>
 
@@ -218,7 +218,7 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
 
       {/* GST Portal Username Input Field */}
       <div className="mb-3">
-        <label htmlFor="username-input" className="form-label text-secondary small fw-semibold">
+        <label htmlFor="username-input" className="form-label">
           GST Portal Username
         </label>
         <input
@@ -232,7 +232,7 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
           required
         />
         <div className="form-text small text-muted">
-          Your registered username on the GST portal (default: demouser).
+          Your registered username on the official GST portal (default: demouser).
         </div>
       </div>
 
@@ -242,16 +242,21 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
       {/* Submit Button */}
       <button
         type="submit"
-        className="btn btn-primary btn-lg w-100 fw-semibold mt-2"
+        className="btn btn-primary w-100 py-2.5 fw-semibold shadow-xs mt-3"
         disabled={gstin.length < 15 || !consent || isFormBusy}
       >
         {sendingOtp ? (
           <>
             <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />
-            Sending OTP...
+            Requesting GSTN OTP...
           </>
         ) : (
-          'Send OTP'
+          <>
+            Send GSTN Verification OTP
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="ms-2">
+              <path fillRule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
+            </svg>
+          </>
         )}
       </button>
     </form>
