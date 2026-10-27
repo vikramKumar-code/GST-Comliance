@@ -43,106 +43,127 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="container min-vh-100 d-flex align-items-center justify-content-center py-5">
-      <div className="row justify-content-center w-100">
-        <div className="col-12 col-md-8 col-lg-6 col-xl-5">
-          <div className="card shadow-sm border rounded-4 p-2 bg-white">
-            <div className="card-body p-4 p-sm-5">
-              <div className="text-center mb-4">
-                <span className="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 fs-6 rounded-pill mb-3">
-                  Account Registration
-                </span>
-                <h1 className="fw-bold fs-3 text-dark mb-1">Get Started</h1>
-                <p className="text-muted small mb-0">
-                  Create your CandidTax account to manage GST compliance
-                </p>
+    <div
+      className="d-flex align-items-center justify-content-center min-vh-100 py-5 px-3"
+      style={{
+        background: 'radial-gradient(ellipse at 50% 20%, rgba(17, 105, 87, 0.08), transparent 70%), #f8fafc'
+      }}
+    >
+      <div className="w-100" style={{ maxWidth: '460px' }}>
+        {/* Brand Header */}
+        <div className="text-center mb-4">
+          <Link to="/" className="text-decoration-none d-inline-flex align-items-center gap-2 mb-3">
+            <span
+              className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow-sm"
+              style={{
+                width: '42px',
+                height: '42px',
+                background: 'linear-gradient(135deg, #116957 0%, #0d5345 100%)',
+                fontSize: '1.1rem'
+              }}
+            >
+              CT
+            </span>
+            <span className="fs-3 fw-bold tracking-tight text-dark">CandidTax</span>
+          </Link>
+          <h1 className="fs-4 fw-bold text-dark mb-1">Create your account</h1>
+          <p className="text-muted small mb-0">Start managing your GST invoices and automated returns</p>
+        </div>
+
+        {/* Card */}
+        <div className="card shadow-md border-0 rounded-4 overflow-hidden">
+          <div className="card-body p-4 p-sm-4.5">
+            {error && (
+              <div className="alert alert-danger py-2.5 px-3 small rounded-3 mb-3 d-flex align-items-center gap-2" role="alert">
+                <span>⚠️</span>
+                <span>{error}</span>
+              </div>
+            )}
+
+            <GoogleLoginButton onError={(err) => setError(err?.message || 'Google signup failed')} />
+
+            {/* Divider */}
+            <div className="d-flex align-items-center my-3.5">
+              <div className="flex-grow-1 border-bottom" style={{ borderColor: '#e2e8f0' }} />
+              <span
+                className="px-3 text-muted fw-bold text-uppercase text-nowrap"
+                style={{ fontSize: '0.68rem', letterSpacing: '0.08em' }}
+              >
+                Or continue with email
+              </span>
+              <div className="flex-grow-1 border-bottom" style={{ borderColor: '#e2e8f0' }} />
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              <div className="mb-3">
+                <label className="form-label">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Vikram Kumar"
+                  className="form-control"
+                />
               </div>
 
-              {error && (
-                <div className="alert alert-danger py-2 px-3 small rounded-3 mb-3" role="alert">
-                  {error}
-                </div>
-              )}
-
-              <GoogleLoginButton onError={(err) => setError(err?.message || 'Google signup failed')} />
-
-              <div className="position-relative my-4 text-center">
-                <hr className="text-muted" />
-                <span className="position-absolute top-50 start-50 translate-middle bg-white px-3 text-muted small">
-                  OR CONTINUE WITH EMAIL
-                </span>
+              <div className="mb-3">
+                <label className="form-label">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  className="form-control"
+                />
               </div>
 
-              <form onSubmit={handleSubmit}>
-                <div className="mb-3">
-                  <label className="form-label small fw-semibold text-secondary">Full Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Vikram Kumar"
-                    className="form-control py-2"
-                  />
-                </div>
-
-                <div className="mb-3">
-                  <label className="form-label small fw-semibold text-secondary">Email Address</label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@company.com"
-                    className="form-control py-2"
-                  />
-                </div>
-
-                <div className="mb-3">
-                  <label className="form-label small fw-semibold text-secondary">Password</label>
+              <div className="row g-2 mb-3.5">
+                <div className="col-12 col-sm-6">
+                  <label className="form-label">Password</label>
                   <input
                     type="password"
                     required
                     minLength={8}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
-                    className="form-control py-2"
+                    placeholder="Min 8 chars"
+                    className="form-control"
                   />
                 </div>
-
-                <div className="mb-4">
-                  <label className="form-label small fw-semibold text-secondary">Confirm Password</label>
+                <div className="col-12 col-sm-6">
+                  <label className="form-label">Confirm</label>
                   <input
                     type="password"
                     required
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm your password"
-                    className="form-control py-2"
+                    placeholder="Re-enter password"
+                    className="form-control"
                   />
                 </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="btn btn-primary w-100 py-2 fw-semibold rounded-3 shadow-sm"
-                >
-                  {loading ? 'Creating Account...' : 'Create Account'}
-                </button>
-              </form>
-
-              <div className="text-center mt-4 pt-3 border-top small">
-                <p className="text-muted mb-2">
-                  Already have an account?{' '}
-                  <Link to="/login" className="text-decoration-none fw-semibold">
-                    Sign In
-                  </Link>
-                </p>
-                <Link to="/" className="text-muted text-decoration-none">
-                  ← Back to Home
-                </Link>
               </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn btn-primary w-100 py-2.5 fw-semibold shadow-xs"
+              >
+                {loading ? 'Creating Account...' : 'Create Account'}
+              </button>
+            </form>
+
+            <div className="text-center mt-4 pt-3 border-top small" style={{ borderColor: '#e2e8f0' }}>
+              <p className="text-muted mb-2">
+                Already have an account?{' '}
+                <Link to="/login" className="fw-semibold text-primary text-decoration-none">
+                  Sign In
+                </Link>
+              </p>
+              <Link to="/" className="text-secondary text-decoration-none small">
+                ← Back to Home
+              </Link>
             </div>
           </div>
         </div>

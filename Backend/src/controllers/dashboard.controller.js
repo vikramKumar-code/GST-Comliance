@@ -15,7 +15,7 @@ exports.getDashboard = async (req, res, next) => {
       simulateDown,
       username: req.username,
       workspaceId,
-      sessionId: req.session._id
+      sessionId: req.session?._id
     });
 
     // Fetch real business data from MongoDB for this active workspace

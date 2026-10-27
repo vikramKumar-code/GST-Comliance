@@ -42,126 +42,156 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="container min-vh-100 d-flex align-items-center justify-content-center py-5">
-      <div className="row justify-content-center w-100">
-        <div className="col-12 col-md-8 col-lg-6 col-xl-5">
-          <div className="card shadow-sm border rounded-4 p-2 bg-white">
-            <div className="card-body p-4 p-sm-5">
-              <div className="text-center mb-4">
-                <span className="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 fs-6 rounded-pill mb-3">
-                  Authentication Portal
-                </span>
-                <h1 className="fw-bold fs-3 text-dark mb-1">Welcome Back</h1>
-                <p className="text-muted small mb-0">
-                  Access your GST compliance suite and filings
-                </p>
-              </div>
+    <div
+      className="d-flex align-items-center justify-content-center min-vh-100 py-5 px-3"
+      style={{
+        background: 'radial-gradient(ellipse at 50% 20%, rgba(17, 105, 87, 0.08), transparent 70%), #f8fafc'
+      }}
+    >
+      <div className="w-100" style={{ maxWidth: '440px' }}>
+        {/* Brand Header */}
+        <div className="text-center mb-4">
+          <Link to="/" className="text-decoration-none d-inline-flex align-items-center gap-2 mb-3">
+            <span
+              className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow-sm"
+              style={{
+                width: '42px',
+                height: '42px',
+                background: 'linear-gradient(135deg, #116957 0%, #0d5345 100%)',
+                fontSize: '1.1rem'
+              }}
+            >
+              CT
+            </span>
+            <span className="fs-3 fw-bold tracking-tight text-dark">CandidTax</span>
+          </Link>
+          <h1 className="fs-4 fw-bold text-dark mb-1">Welcome back</h1>
+          <p className="text-muted small mb-0">Sign in to your GST billing & compliance suite</p>
+        </div>
 
-              {/* Navigation Tabs */}
-              <ul className="nav nav-pills nav-fill bg-light p-1 rounded-3 mb-4">
-                <li className="nav-item">
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('account'); setError(''); }}
-                    className={`nav-link py-2 small fw-semibold ${activeTab === 'account' ? 'active shadow-sm' : 'text-secondary'}`}
-                  >
-                    Email / Google
-                  </button>
-                </li>
-                <li className="nav-item">
-                  <button
-                    type="button"
-                    onClick={() => { setActiveTab('gstin'); setError(''); }}
-                    className={`nav-link py-2 small fw-semibold ${activeTab === 'gstin' ? 'active shadow-sm' : 'text-secondary'}`}
-                  >
-                    GSTIN OTP
-                  </button>
-                </li>
-              </ul>
-
-              {error && (
-                <div className="alert alert-danger py-2 px-3 small rounded-3 mb-3" role="alert">
-                  {error}
-                </div>
-              )}
-
-              {activeTab === 'account' ? (
-                <div>
-                  <GoogleLoginButton onError={(err) => setError(err?.message || 'Google sign-in failed')} />
-
-                  <div className="position-relative my-4 text-center">
-                    <hr className="text-muted" />
-                    <span className="position-absolute top-50 start-50 translate-middle bg-white px-3 text-muted small">
-                      OR SIGN IN WITH EMAIL
-                    </span>
-                  </div>
-
-                  <form onSubmit={handleAccountSubmit}>
-                    <div className="mb-3">
-                      <label className="form-label small fw-semibold text-secondary">Email Address</label>
-                      <input
-                        type="email"
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="name@company.com"
-                        className="form-control py-2"
-                      />
-                    </div>
-
-                    <div className="mb-4">
-                      <label className="form-label small fw-semibold text-secondary">Password</label>
-                      <input
-                        type="password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Enter your password"
-                        className="form-control py-2"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="btn btn-primary w-100 py-2 fw-semibold rounded-3 shadow-sm"
-                    >
-                      {loading ? 'Signing in...' : 'Sign In'}
-                    </button>
-                  </form>
-
-                  <div className="text-center mt-4 pt-3 border-top small">
-                    <p className="text-muted mb-2">
-                      Don&apos;t have an account?{' '}
-                      <Link to="/signup" className="text-decoration-none fw-semibold">
-                        Create Account
-                      </Link>
-                    </p>
-                    <Link to="/" className="text-muted text-decoration-none">
-                      ← Back to Home
-                    </Link>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <GstinForm key={queryGstin} initialGstin={queryGstin} onOtpSent={handleOtpSent} />
-
-                  <div className="text-center mt-4 pt-3 border-top small">
-                    <p className="text-muted mb-2">
-                      <strong>Sandbox Mock:</strong> GSTIN: <code>29ABCDE1234F1Z5</code> • OTP: <code>123456</code>
-                    </p>
-                    <div className="d-flex justify-content-between">
-                      <Link to="/" className="text-decoration-none">
-                        ← Back to Home
-                      </Link>
-                      <Link to="/otp" className="text-decoration-none">
-                        Already have OTP? Verify →
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              )}
+        {/* Card */}
+        <div className="card shadow-md border-0 rounded-4 overflow-hidden">
+          <div className="card-body p-4 p-sm-4.5">
+            {/* Pill Tabs */}
+            <div className="d-flex p-1 bg-light rounded-3 mb-4 border" style={{ borderColor: '#e2e8f0' }}>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('account'); setError(''); }}
+                className={`btn btn-sm flex-fill fw-semibold py-2 border-0 ${
+                  activeTab === 'account'
+                    ? 'btn-primary shadow-xs'
+                    : 'text-secondary bg-transparent'
+                }`}
+                style={{ borderRadius: '7px' }}
+              >
+                Email / Google
+              </button>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('gstin'); setError(''); }}
+                className={`btn btn-sm flex-fill fw-semibold py-2 border-0 ${
+                  activeTab === 'gstin'
+                    ? 'btn-primary shadow-xs'
+                    : 'text-secondary bg-transparent'
+                }`}
+                style={{ borderRadius: '7px' }}
+              >
+                GSTIN OTP
+              </button>
             </div>
+
+            {error && (
+              <div className="alert alert-danger py-2.5 px-3 small rounded-3 mb-3 d-flex align-items-center gap-2" role="alert">
+                <span>⚠️</span>
+                <span>{error}</span>
+              </div>
+            )}
+
+            {activeTab === 'account' ? (
+              <div>
+                <GoogleLoginButton onError={(err) => setError(err?.message || 'Google sign-in failed')} />
+
+                {/* Divider */}
+                <div className="d-flex align-items-center my-3.5">
+                  <div className="flex-grow-1 border-bottom" style={{ borderColor: '#e2e8f0' }} />
+                  <span
+                    className="px-3 text-muted fw-bold text-uppercase text-nowrap"
+                    style={{ fontSize: '0.68rem', letterSpacing: '0.08em' }}
+                  >
+                    Or sign in with email
+                  </span>
+                  <div className="flex-grow-1 border-bottom" style={{ borderColor: '#e2e8f0' }} />
+                </div>
+
+                <form onSubmit={handleAccountSubmit}>
+                  <div className="mb-3">
+                    <label className="form-label">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="name@company.com"
+                      className="form-control"
+                    />
+                  </div>
+
+                  <div className="mb-3.5">
+                    <div className="d-flex justify-content-between align-items-center mb-1">
+                      <label className="form-label mb-0">Password</label>
+                    </div>
+                    <input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      className="form-control"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="btn btn-primary w-100 py-2.5 fw-semibold shadow-xs"
+                  >
+                    {loading ? 'Signing in...' : 'Sign In'}
+                  </button>
+                </form>
+
+                <div className="text-center mt-4 pt-3 border-top small" style={{ borderColor: '#e2e8f0' }}>
+                  <p className="text-muted mb-2">
+                    Don&apos;t have an account?{' '}
+                    <Link to="/signup" className="fw-semibold text-primary text-decoration-none">
+                      Create Account
+                    </Link>
+                  </p>
+                  <Link to="/" className="text-secondary text-decoration-none small">
+                    ← Back to Home
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <GstinForm key={queryGstin} initialGstin={queryGstin} onOtpSent={handleOtpSent} />
+
+                <div className="text-center mt-4 pt-3 border-top small" style={{ borderColor: '#e2e8f0' }}>
+                  <p className="text-muted mb-2">
+                    Prefer password login?{' '}
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('account')}
+                      className="btn btn-link p-0 fw-semibold text-primary text-decoration-none small"
+                    >
+                      Use Email or Google
+                    </button>
+                  </p>
+                  <Link to="/" className="text-secondary text-decoration-none small">
+                    ← Back to Home
+                  </Link>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

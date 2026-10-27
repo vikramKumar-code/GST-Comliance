@@ -2,12 +2,15 @@ const mongoose = require('mongoose');
 
 const workspaceSchema = new mongoose.Schema(
   {
+    name: {
+      type: String,
+      trim: true,
+      default: 'My Organization'
+    },
     gstin: {
       type: String,
-      required: true,
       trim: true,
-      uppercase: true,
-      unique: true
+      uppercase: true
     },
     ownerUserId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -24,4 +27,13 @@ const workspaceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+workspaceSchema.index(
+  { gstin: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { gstin: { $type: 'string' } }
+  }
+);
+
 module.exports = mongoose.model('Workspace', workspaceSchema);
+

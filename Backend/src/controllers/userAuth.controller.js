@@ -11,6 +11,34 @@ const { isProduction } = require('../config/env');
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 
 /**
+ * Resolves or auto-provisions a default workspace and owner membership for user
+ */
+async function getOrCreateUserWorkspace(user) {
+  let membership = await WorkspaceMember.findOne({
+    userId: user._id,
+    status: 'ACTIVE'
+  });
+  let workspace = null;
+  if (membership) {
+    workspace = await Workspace.findById(membership.workspaceId);
+  }
+  if (!workspace) {
+    workspace = await Workspace.create({
+      name: `${user.name || 'User'}'s Organization`,
+      ownerUserId: user._id,
+      status: 'ACTIVE'
+    });
+    membership = await WorkspaceMember.create({
+      workspaceId: workspace._id,
+      userId: user._id,
+      role: 'OWNER',
+      status: 'ACTIVE'
+    });
+  }
+  return { workspace, membership };
+}
+
+/**
  * Register new user with Email and Password
  * POST /api/auth/register
  */
@@ -33,16 +61,7 @@ exports.signup = async (req, res, next) => {
       isEmailVerified: false
     });
 
-    // Check for any workspaces where user might have been pre-invited
-    const membership = await WorkspaceMember.findOne({
-      userId: user._id,
-      status: 'ACTIVE'
-    });
-    let workspace = null;
-    if (membership) {
-      workspace = await Workspace.findById(membership.workspaceId);
-    }
-
+    const { workspace, membership } = await getOrCreateUserWorkspace(user);
     const { token } = await SessionService.createUserSession(user, workspace, membership);
 
     res.cookie('sid', token, {
@@ -92,16 +111,7 @@ exports.signin = async (req, res, next) => {
       throw ApiError.validationError('Invalid email or password.');
     }
 
-    // Resolve user's primary/active workspace
-    const membership = await WorkspaceMember.findOne({
-      userId: user._id,
-      status: 'ACTIVE'
-    });
-    let workspace = null;
-    if (membership) {
-      workspace = await Workspace.findById(membership.workspaceId);
-    }
-
+    const { workspace, membership } = await getOrCreateUserWorkspace(user);
     const { token } = await SessionService.createUserSession(user, workspace, membership);
 
     res.cookie('sid', token, {
@@ -199,15 +209,7 @@ exports.googleAuth = async (req, res, next) => {
       await user.save();
     }
 
-    const membership = await WorkspaceMember.findOne({
-      userId: user._id,
-      status: 'ACTIVE'
-    });
-    let workspace = null;
-    if (membership) {
-      workspace = await Workspace.findById(membership.workspaceId);
-    }
-
+    const { workspace, membership } = await getOrCreateUserWorkspace(user);
     const { token } = await SessionService.createUserSession(user, workspace, membership);
 
     res.cookie('sid', token, {
@@ -273,7 +275,8 @@ exports.getWorkspaces = async (req, res, next) => {
       const m = memberships.find((mem) => mem.workspaceId.toString() === w._id.toString());
       return {
         id: w._id,
-        gstin: w.gstin,
+        name: w.name || (w.gstin ? `GSTIN: ${w.gstin}` : 'Organization'),
+        gstin: w.gstin || null,
         role: m?.role || 'MEMBER',
         isCurrent: req.workspaceId ? req.workspaceId.toString() === w._id.toString() : false
       };

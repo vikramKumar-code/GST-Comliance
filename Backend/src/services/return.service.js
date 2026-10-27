@@ -519,6 +519,18 @@ class ReturnService {
    * Build consolidated Dashboard data shape from GSTR-1, GSTR-2B, and GSTR-3B
    */
   static async getDashboard(gstin, period, gstToken, options = {}) {
+    if (!gstin) {
+      return {
+        period,
+        sales: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, total: 0 },
+        purchases: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0, total: 0 },
+        itc: { available: 0, claimed: 0 },
+        taxPayable: 0,
+        updatedAt: new Date().toISOString(),
+        noGstin: true
+      };
+    }
+
     const normGstin = gstin.toUpperCase();
 
     const [gstr1, gstr2b, gstr3b] = await Promise.all([
