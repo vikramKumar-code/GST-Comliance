@@ -79,13 +79,13 @@ export default function Layout({ children }) {
       <aside className={`zoho-sidebar ${sidebarOpen ? 'open' : ''}`}>
         {/* Brand Header */}
         <div className="zoho-sidebar-header">
-          <Link to="/" className="text-decoration-none d-flex align-items-center gap-2.5" title="Go to CandidTax Home">
+          <Link to="/dashboard" className="text-decoration-none d-flex align-items-center gap-2.5" title="Go to CandidTax Dashboard">
             <span
               className="d-flex align-items-center justify-content-center text-white fw-bold rounded-2 shadow-xs"
               style={{
                 width: '32px',
                 height: '32px',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
                 fontSize: '0.9rem'
               }}
             >
@@ -108,15 +108,6 @@ export default function Layout({ children }) {
 
         {/* Navigation Menu */}
         <div className="zoho-sidebar-nav">
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) => `zoho-nav-link ${isActive ? 'active' : ''}`}
-          >
-            <span style={{ fontSize: '1.05rem' }}>🏠</span>
-            <span>Home Page</span>
-          </NavLink>
-
           <NavLink
             to="/dashboard"
             className={({ isActive }) => `zoho-nav-link ${isActive ? 'active' : ''}`}
@@ -290,6 +281,28 @@ export default function Layout({ children }) {
               <span style={{ fontSize: '0.95rem' }}>⚙️</span>
               <span>Settings</span>
             </NavLink>
+            <NavLink
+              to="/pricing"
+              className={({ isActive }) => `zoho-nav-link ${isActive ? 'active' : ''}`}
+            >
+              <span style={{ fontSize: '0.95rem' }}>💎</span>
+              <span className="d-flex align-items-center justify-content-between w-100">
+                <span>Plans & Billing</span>
+                <span className="badge bg-warning text-dark font-monospace" style={{ fontSize: '0.62rem' }}>PRO</span>
+              </span>
+            </NavLink>
+          </div>
+
+          {/* External Public Portal Link */}
+          <div className="pt-3 mt-3 border-top" style={{ borderColor: 'rgba(255, 255, 255, 0.08)' }}>
+            <Link
+              to="/"
+              className="zoho-nav-link text-white-50 small"
+              title="Open CandidTax Public Landing Page"
+            >
+              <span style={{ fontSize: '0.9rem' }}>🌐</span>
+              <span style={{ fontSize: '0.78rem' }}>Public Website ↗</span>
+            </Link>
           </div>
         </div>
       </aside>
@@ -311,6 +324,15 @@ export default function Layout({ children }) {
           </div>
 
           <div className="d-flex align-items-center gap-2.5">
+            <Link
+              to="/pricing"
+              className="btn btn-sm btn-outline-success d-none d-sm-flex align-items-center gap-1.5 py-1 px-2.5 rounded-pill shadow-xs text-decoration-none"
+              title="View Subscription & Plans"
+            >
+              <span>⭐</span>
+              <span className="fw-semibold" style={{ fontSize: '0.78rem' }}>Upgrade Plan</span>
+            </Link>
+
             {/* Quick Action + New */}
             <div className="position-relative" ref={quickActionRef}>
               <button
@@ -379,7 +401,7 @@ export default function Layout({ children }) {
               onClick={runHealth}
               disabled={health.checking}
               title={`Backend Connection: ${health.ok ? 'Online' : 'Checking'}${health.latency ? ` (${health.latency}ms)` : ''}`}
-              style={{ fontSize: '0.74rem', borderColor: '#e2e8f0' }}
+              style={{ fontSize: '0.74rem', borderColor: '#e2e8f0', minHeight: '34px' }}
             >
               <span
                 className={`rounded-circle d-inline-block ${
@@ -387,7 +409,7 @@ export default function Layout({ children }) {
                 }`}
                 style={{ width: '7px', height: '7px' }}
               />
-              <span className="fw-medium text-secondary">{health.ok ? 'Online' : 'Checking'}</span>
+              <span className="fw-medium text-secondary d-none d-sm-inline">{health.ok ? 'Online' : 'Checking'}</span>
             </button>
 
             {/* User Profile & Logout */}
@@ -399,10 +421,10 @@ export default function Layout({ children }) {
                 <span
                   className="rounded-circle text-white d-flex align-items-center justify-content-center fw-bold shadow-xs"
                   style={{
-                    width: '30px',
-                    height: '30px',
-                    fontSize: '0.78rem',
-                    background: 'linear-gradient(135deg, #116957 0%, #0d5345 100%)'
+                    width: '32px',
+                    height: '32px',
+                    fontSize: '0.8rem',
+                    background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)'
                   }}
                 >
                   {userInitial}
@@ -415,7 +437,7 @@ export default function Layout({ children }) {
                 type="button"
                 onClick={handleLogout}
                 className="btn btn-outline-danger btn-sm py-1 px-2.5 rounded-2"
-                style={{ fontSize: '0.78rem' }}
+                style={{ fontSize: '0.78rem', minHeight: '34px' }}
               >
                 Logout
               </button>

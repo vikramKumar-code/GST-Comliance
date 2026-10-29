@@ -23,6 +23,14 @@ class ApiError extends Error {
     return new ApiError('SESSION_EXPIRED', message, 401);
   }
 
+  static unauthorized(message = 'Authentication or workspace context required') {
+    return new ApiError('UNAUTHORIZED', message, 401);
+  }
+
+  static notFound(message = 'Requested resource was not found') {
+    return new ApiError('NOT_FOUND', message, 404);
+  }
+
   static rateLimited(message = 'Too many requests, please try again later') {
     return new ApiError('RATE_LIMITED', message, 429);
   }

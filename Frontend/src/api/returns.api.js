@@ -92,7 +92,27 @@ export const prepareGstr1 = async (period) => {
  * @param {string} period - Required period in MMYYYY format
  */
 export const saveGstr1 = async (period) => {
-  return client.post('/returns/gstr1/save', null, {
+  return client.post('/returns/gstr1/save', {}, {
     params: { period },
   });
 };
+
+/**
+ * Check eligibility for Nil Return under CGST Rule 67A
+ * @param {string} period - MMYYYY
+ * @param {string} type - 'GSTR1' or 'GSTR3B'
+ */
+export const checkNilEligibility = async (period, type = 'GSTR1') => {
+  return client.get('/returns/nil-eligibility', {
+    params: { period, type },
+  });
+};
+
+/**
+ * File Nil Return under CGST Rule 67A
+ * @param {Object} data - { period, returnType, declarationAccepted, verificationMode }
+ */
+export const fileNilReturn = async (data) => {
+  return client.post('/returns/nil-file', data);
+};
+

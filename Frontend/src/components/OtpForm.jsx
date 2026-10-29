@@ -117,7 +117,7 @@ export default function OtpForm({ gstin, username, onSuccess }) {
           />
         </div>
         <div id="otp-help" className="form-text text-center text-muted small mt-2">
-          Enter 4-8 digits received on mobile/email (Sandbox Demo: <code className="fw-bold text-dark">123456</code>).
+          Enter the 4-8 digit verification code sent to your GST-registered mobile number or email.
         </div>
       </div>
 

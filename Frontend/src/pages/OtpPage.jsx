@@ -7,9 +7,9 @@ export default function OtpPage() {
   const navigate = useNavigate();
   const { loginSuccess, checkAuth } = useAuth();
 
-  const gstin = location.state?.gstin || '29ABCDE1234F1Z5';
-  const username = location.state?.username || 'demouser';
-  const legalName = location.state?.legalName || 'Shree Ganesh Enterprises Pvt Ltd';
+  const gstin = location.state?.gstin || '';
+  const username = location.state?.username || '';
+  const legalName = location.state?.legalName || '';
 
   const handleSuccess = async (result) => {
     loginSuccess({
@@ -37,7 +37,7 @@ export default function OtpPage() {
               style={{
                 width: '44px',
                 height: '44px',
-                background: 'linear-gradient(135deg, #1fa689 0%, #116957 100%)',
+                background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
                 fontSize: '1.2rem',
                 border: '1px solid rgba(255, 255, 255, 0.25)'
               }}
@@ -164,19 +164,24 @@ export default function OtpPage() {
         {/* Center Auth Form Container */}
         <div className="auth-form-container my-auto py-4">
           {/* Mobile Brand Indicator */}
-          <div className="d-flex d-lg-none align-items-center gap-2 mb-4">
-            <span
-              className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow-sm"
-              style={{
-                width: '38px',
-                height: '38px',
-                background: 'linear-gradient(135deg, #116957 0%, #0d5345 100%)',
-                fontSize: '1rem'
-              }}
-            >
-              CT
+          <div className="d-flex d-lg-none align-items-center justify-content-between mb-4">
+            <div className="d-flex align-items-center gap-2">
+              <span
+                className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow-xs"
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
+                  fontSize: '1rem'
+                }}
+              >
+                CT
+              </span>
+              <span className="fs-4 fw-bold text-dark tracking-tight">CandidTax</span>
+            </div>
+            <span className="badge bg-success-subtle text-success border border-success-subtle small fw-semibold">
+              GSTN Gateway 2FA
             </span>
-            <span className="fs-4 fw-bold text-dark tracking-tight">CandidTax</span>
           </div>
 
           <div className="mb-4">
@@ -206,7 +211,9 @@ export default function OtpPage() {
             </div>
             <div className="d-flex justify-content-between align-items-center">
               <span className="font-monospace fw-bold text-dark fs-5 tracking-wide">{gstin}</span>
-              <span className="badge bg-light text-secondary border font-monospace">{username}</span>
+              {username && (
+                <span className="badge bg-light text-secondary border font-monospace">{username}</span>
+              )}
             </div>
             {legalName && (
               <div className="text-secondary small fw-medium mt-1 pt-1 border-top border-slate-200">

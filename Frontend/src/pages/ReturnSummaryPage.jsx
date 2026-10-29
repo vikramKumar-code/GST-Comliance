@@ -7,12 +7,14 @@ import Loader from '../components/Loader';
 import ErrorMessage from '../components/ErrorMessage';
 import EmptyState from '../components/EmptyState';
 import { formatCurrency, formatPeriod } from '../utils/format';
+import NilReturnModal from '../components/NilReturnModal';
 
 export default function ReturnSummaryPage() {
   const [period, setPeriod] = useState(getLastMonthPeriod());
   const [summaryData, setSummaryData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [nilModalOpen, setNilModalOpen] = useState(false);
 
   const fetchSummary = useCallback(async (p) => {
     setLoading(true);
@@ -50,7 +52,17 @@ export default function ReturnSummaryPage() {
             Combined reconciliation of GSTR-1, GSTR-2B, and GSTR-3B for tax period {formatPeriod(period)}.
           </p>
         </div>
-        <PeriodSelector selectedPeriod={period} onPeriodChange={setPeriod} />
+        <div className="d-flex align-items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            className="btn btn-outline-success btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
+            onClick={() => setNilModalOpen(true)}
+            title="File Nil GSTR-1 or GSTR-3B under CGST Rule 67A"
+          >
+            <span>⚡ File Nil Return</span>
+          </button>
+          <PeriodSelector selectedPeriod={period} onPeriodChange={setPeriod} />
+        </div>
       </div>
 
       <div className="zoho-page-body">
@@ -74,6 +86,13 @@ export default function ReturnSummaryPage() {
                 <Link to={`/returns/gstr2b?period=${period}`} className="btn btn-outline-primary btn-sm">
                   Fetch GSTR-2B →
                 </Link>
+                <button
+                  type="button"
+                  className="btn btn-outline-success btn-sm"
+                  onClick={() => setNilModalOpen(true)}
+                >
+                  ⚡ File Nil Return
+                </button>
               </div>
             }
           />
@@ -179,6 +198,14 @@ export default function ReturnSummaryPage() {
           </div>
         )}
       </div>
+
+      <NilReturnModal
+        isOpen={nilModalOpen}
+        onClose={() => setNilModalOpen(false)}
+        initialPeriod={period}
+        initialType="GSTR1"
+        onSuccess={() => fetchSummary(period)}
+      />
     </div>
   );
 }

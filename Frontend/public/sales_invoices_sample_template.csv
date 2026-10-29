@@ -1,0 +1,5 @@
+﻿Invoice Number,Date,Customer Name,Customer GSTIN,Place of Supply,Item Name,HSN,Quantity,Rate,Discount,GST %,Status
+INV-2026-001,2026-10-10,Acme Maharashtra Corp,27AABCA1234A1Z5,27-Maharashtra,Consulting Services,998311,1,25000,0,18,Sent
+INV-2026-002,2026-10-12,Global Karnataka Ltd,29AABCG5678B1Z2,29-Karnataka,Hardware Server,847130,2,40000,2000,18,Paid
+INV-2026-003,2026-10-15,Zenith Logistics Pvt Ltd,27AABCZ9999Z1Z8,27-Maharashtra,Cloud Storage Subscription,998315,1,15000,500,18,Paid
+INV-2026-004,2026-10-18,Apex Retailers Delhi,07AABCA4321D1Z1,07-Delhi,Wireless Barcode Scanner,847160,5,4500,0,18,Sent

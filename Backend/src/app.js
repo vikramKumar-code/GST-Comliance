@@ -42,7 +42,7 @@ app.use(
 );
 
 // Body parsers & Cookie parser
-app.use(express.json({ limit: '32kb' }));
+app.use(express.json({ limit: '32kb', strict: false }));
 app.use(express.urlencoded({ extended: true, limit: '32kb', parameterLimit: 100 }));
 app.use(cookieParser());
 

@@ -32,5 +32,5 @@ if (require.main === module) {
   process.once('SIGINT', () => stopServer('SIGINT').finally(() => process.exit(0)));
 }
 
-// Configured for CandidTax enterprise GST suite
+// Configured for CandidTax enterprise GST suite v2.4
 module.exports = { startServer, stopServer };

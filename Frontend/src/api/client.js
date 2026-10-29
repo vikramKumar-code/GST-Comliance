@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -63,9 +64,9 @@ client.interceptors.response.use(
       }
     }
 
-    // Per rules: Never show raw backend or provider messages for PROVIDER_*
+    // Per rules: Never show raw backend or provider messages for PROVIDER_* unless specific message returned
     if (code === 'PROVIDER_AUTH' || code === 'PROVIDER_ERROR') {
-      message = 'Could not complete the request. Please try again.';
+      message = errorData?.message || 'Could not complete the request. Please try again.';
     } else if (code === 'PROVIDER_DOWN') {
       message = 'GST service is unavailable. Please try again later.';
     } else if (!message) {
@@ -73,8 +74,8 @@ client.interceptors.response.use(
       message = FRIENDLY_ERROR_MESSAGES[code] || error.message || 'An unexpected error occurred.';
     }
 
-    // Redirect to /login on SESSION_EXPIRED unless already on a public page
-    if (code === 'SESSION_EXPIRED') {
+    // Redirect to /login only if the core auth check (/auth/me) itself has expired
+    if (code === 'SESSION_EXPIRED' && error.config?.url?.includes('/auth/me')) {
       const publicPaths = ['/login', '/otp', '/', '/privacy', '/terms'];
       if (typeof window !== 'undefined' && !publicPaths.includes(window.location.pathname)) {
         window.location.href = '/login';

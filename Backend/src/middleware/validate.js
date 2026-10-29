@@ -170,6 +170,31 @@ const switchWorkspaceSchema = Joi.object({
   })
 });
 
+// 11. Link GSTIN to Workspace Schema
+const linkGstinSchema = Joi.object({
+  gstin: Joi.string()
+    .trim()
+    .uppercase()
+    .pattern(GSTIN_REGEX)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid GSTIN format. Must be 15 alphanumeric characters.',
+      'any.required': 'GSTIN is required.'
+    }),
+  name: Joi.string().trim().max(100).optional().allow('')
+});
+
+// 12. Switch Member Role Schema
+const switchRoleSchema = Joi.object({
+  role: Joi.string()
+    .valid('OWNER', 'ADMIN', 'MEMBER', 'VIEWER')
+    .required()
+    .messages({
+      'any.only': 'Role must be OWNER, ADMIN, MEMBER, or VIEWER.',
+      'any.required': 'Role is required.'
+    })
+});
+
 /**
  * Generic Joi validation middleware generator
  * @param {Joi.ObjectSchema} schema - The Joi schema to validate against
@@ -206,5 +231,9 @@ module.exports = {
   signupSchema,
   signinSchema,
   googleAuthSchema,
-  switchWorkspaceSchema
+  switchWorkspaceSchema,
+  linkGstinSchema,
+  switchRoleSchema
 };
+
+

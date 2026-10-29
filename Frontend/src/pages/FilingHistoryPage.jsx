@@ -8,6 +8,7 @@ import Loader from '../components/Loader';
 import ErrorMessage from '../components/ErrorMessage';
 import EmptyState from '../components/EmptyState';
 import { formatPeriod } from '../utils/format';
+import NilReturnModal from '../components/NilReturnModal';
 
 export default function FilingHistoryPage() {
   const { user } = useAuth();
@@ -15,6 +16,7 @@ export default function FilingHistoryPage() {
   const [filings, setFilings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [nilModalOpen, setNilModalOpen] = useState(false);
 
   const fetchHistory = useCallback(async (p) => {
     setLoading(true);
@@ -49,7 +51,17 @@ export default function FilingHistoryPage() {
             Official Application Reference Numbers (ARN) and filing acknowledgments for GSTIN {user?.gstin}.
           </p>
         </div>
-        <PeriodSelector selectedPeriod={period} onPeriodChange={setPeriod} />
+        <div className="d-flex align-items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            className="btn btn-outline-success btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
+            onClick={() => setNilModalOpen(true)}
+            title="File Nil Return under CGST Rule 67A"
+          >
+            <span>⚡ File Nil Return</span>
+          </button>
+          <PeriodSelector selectedPeriod={period} onPeriodChange={setPeriod} />
+        </div>
       </div>
 
       <div className="zoho-page-body">
@@ -97,7 +109,14 @@ export default function FilingHistoryPage() {
                     const cleanType = String(f.type || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                     return (
                       <tr key={f.arn || idx}>
-                        <td className="ps-3.5 fw-bold text-dark">{f.type}</td>
+                        <td className="ps-3.5 fw-bold text-dark">
+                          {f.type}
+                          {f.isNil && (
+                            <span className="badge bg-info-subtle text-info border border-info-subtle ms-1.5 font-monospace">
+                              NIL
+                            </span>
+                          )}
+                        </td>
                         <td className="font-monospace">{formatPeriod(f.period)}</td>
                         <td className="font-monospace fw-semibold text-primary">{f.arn}</td>
                         <td className="text-muted">{f.date}</td>
@@ -124,6 +143,14 @@ export default function FilingHistoryPage() {
           </div>
         )}
       </div>
+
+      <NilReturnModal
+        isOpen={nilModalOpen}
+        onClose={() => setNilModalOpen(false)}
+        initialPeriod={period}
+        initialType="GSTR1"
+        onSuccess={() => fetchHistory(period)}
+      />
     </div>
   );
 }

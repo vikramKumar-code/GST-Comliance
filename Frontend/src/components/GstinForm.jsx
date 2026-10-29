@@ -6,7 +6,7 @@ import ErrorMessage from './ErrorMessage';
 
 export default function GstinForm({ initialGstin = '', onOtpSent }) {
   const [gstin, setGstin] = useState(initialGstin.toUpperCase());
-  const [username, setUsername] = useState('demouser');
+  const [username, setUsername] = useState('');
   const [consent, setConsent] = useState(false);
   const [businessInfo, setBusinessInfo] = useState(null);
   const [searching, setSearching] = useState(false);
@@ -39,9 +39,14 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
         setBusinessInfo({ legalName: null, status: data?.status || 'Active' });
       }
       return data;
-    } catch (err) {
+    } catch {
       setBusinessInfo(null);
-      setError(err);
+      // Public search is optional and not enabled on TaxPro Sandbox for this test account.
+      // Provide actionable guidance so user knows they can proceed directly to OTP.
+      setError({
+        code: 'LOOKUP_UNAVAILABLE',
+        message: 'Public business lookup is currently unavailable. You can proceed directly to enter your GST Portal username and click "Send GSTN Verification OTP".',
+      });
       return null;
     } finally {
       setSearching(false);
@@ -82,20 +87,7 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
     setError(null);
 
     try {
-      // If business hasn't been searched yet, attempt quick search (non-blocking)
-      let resolvedLegalName = businessInfo?.legalName;
-      if (!businessInfo) {
-        try {
-          const searchData = await searchGstin(cleanGstin);
-          if (searchData && searchData.legalName && searchData.verified !== false) {
-            resolvedLegalName = searchData.legalName;
-          }
-        } catch {
-          // Public search is optional/informational for the legal name banner;
-          // failure to fetch legal name must NOT prevent the taxpayer from dispatching OTP.
-          resolvedLegalName = null;
-        }
-      }
+      const resolvedLegalName = businessInfo?.legalName || null;
 
       await requestOtp({
         gstin: cleanGstin,
@@ -111,7 +103,15 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
         });
       }
     } catch (err) {
-      setError(err);
+      if (err?.code === 'PROVIDER_ERROR' || err?.status === 502) {
+        setError({
+          code: 'PROVIDER_ERROR',
+          status: 502,
+          message: 'GSTN Gateway notice: Maximum active sessions exceeded for this taxpayer account. Please wait a few moments before trying again, or sign in using your verified Email / Google account.',
+        });
+      } else {
+        setError(err);
+      }
     } finally {
       setSendingOtp(false);
     }
@@ -121,41 +121,6 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
 
   return (
     <form onSubmit={handleSendOtp} noValidate className="gstin-form">
-      {/* Quick Test Presets Toolbar */}
-      <div className="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom" style={{ borderColor: '#e2e8f0' }}>
-        <span className="text-muted small fw-medium" style={{ fontSize: '0.75rem' }}>
-          Testing Preset:
-        </span>
-        <div className="d-flex gap-1.5">
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-primary py-0.5 px-2.5 rounded-pill"
-            style={{ fontSize: '0.72rem' }}
-            onClick={() => {
-              setGstin('29ABCDE1234F1Z5');
-              setUsername('demouser');
-              setConsent(true);
-            }}
-          >
-            Sandbox (29ABCDE1234F1Z5)
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-secondary py-0.5 px-2 rounded-pill"
-            style={{ fontSize: '0.72rem' }}
-            onClick={() => {
-              setGstin('');
-              setUsername('');
-              setConsent(false);
-              setBusinessInfo(null);
-              setError(null);
-            }}
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-
       <ErrorMessage error={error} onRetry={() => setError(null)} />
 
       {/* GSTIN Input Field */}
@@ -225,14 +190,14 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
           id="username-input"
           type="text"
           className="form-control"
-          placeholder="e.g. demouser"
+          placeholder="Enter GST Portal username"
           value={username}
           disabled={isFormBusy}
           onChange={(e) => setUsername(e.target.value)}
           required
         />
         <div className="form-text small text-muted">
-          Your registered username on the official GST portal (default: demouser).
+          Your registered username on the official GST portal.
         </div>
       </div>
 

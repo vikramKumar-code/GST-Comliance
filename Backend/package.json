@@ -10,7 +10,9 @@
     "test:tenancy": "node --require ./scripts/e2e-no-dotenv.js scripts/test-tenancy.js",
     "test:config": "node scripts/test-config.js",
     "test:rate-limit-store": "node scripts/test-rate-limit-store.js",
-    "test:all": "node scripts/run-all-tests.js"
+    "test:all": "node scripts/run-all-tests.js",
+    "role:list": "node scripts/set-role.js --list",
+    "role:set": "node scripts/set-role.js"
   },
   "keywords": [],
   "author": "",

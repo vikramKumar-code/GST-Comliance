@@ -12,7 +12,9 @@ const {
   signupSchema,
   signinSchema,
   googleAuthSchema,
-  switchWorkspaceSchema
+  switchWorkspaceSchema,
+  linkGstinSchema,
+  switchRoleSchema
 } = require('../middleware/validate');
 
 // Taxpayer GSTIN OTP Authentication (Existing)
@@ -31,9 +33,14 @@ router.post('/google', validate(googleAuthSchema), userAuthController.googleAuth
 // Authenticated User Context & Workspaces
 router.get('/workspaces', auth, userAuthController.getWorkspaces);
 router.post('/switch-workspace', auth, validate(switchWorkspaceSchema), userAuthController.switchWorkspace);
+router.post('/workspace/link-gstin', auth, validate(linkGstinSchema), userAuthController.linkGstin);
+router.post('/workspace/create', auth, userAuthController.createWorkspace);
+router.post('/workspace/switch-role', auth, validate(switchRoleSchema), userAuthController.switchRole);
 
 // Current Session Profile
 router.get('/me', auth, userAuthController.getMe);
+
 router.post('/logout', auth, authController.logout);
+
 
 module.exports = router;

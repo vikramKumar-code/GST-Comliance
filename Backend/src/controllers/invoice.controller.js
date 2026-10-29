@@ -2,6 +2,8 @@ const Invoice = require('../models/Invoice');
 const ApiError = require('../utils/apiError');
 const { calculateInvoiceTotals, extractStateCode } = require('../utils/taxCalculator');
 const { resolveWorkspaceId } = require('../utils/workspaceHelper');
+const { isValidGstin } = require('../utils/gstin');
+const einvoiceService = require('../services/einvoice.service');
 
 /**
  * Generates the next sequential invoice number for a workspace
@@ -130,6 +132,10 @@ exports.createInvoice = async (req, res, next) => {
 
     const sellerGstin = req.gstin || '';
     const cleanCustomerGstin = customerGstin ? String(customerGstin).trim().toUpperCase() : '';
+
+    if (cleanCustomerGstin && !isValidGstin(cleanCustomerGstin)) {
+      throw ApiError.validationError('Customer GSTIN is invalid. According to GST rules, a GSTIN must be exactly 15 alphanumeric characters (e.g. 29ABCDE1234F1Z5) or left blank for unregistered (B2C) sales.');
+    }
     
     // Resolve Place of Supply (POS)
     let resolvedPos = placeOfSupply ? String(placeOfSupply).trim() : '';
@@ -144,13 +150,16 @@ exports.createInvoice = async (req, res, next) => {
     const calculation = calculateInvoiceTotals(lineItems, sellerGstin, resolvedPos);
 
     let finalInvoiceNumber = customNumber ? String(customNumber).trim().toUpperCase() : '';
-    if (!finalInvoiceNumber) {
-      finalInvoiceNumber = await generateNextInvoiceNumber(workspaceId);
-    } else {
+    if (finalInvoiceNumber) {
+      if (finalInvoiceNumber.length > 16) {
+        throw ApiError.validationError('Invoice number cannot exceed 16 characters as per Rule 46(b) of CGST Rules.');
+      }
       const existing = await Invoice.findOne({ workspaceId, invoiceNumber: finalInvoiceNumber });
       if (existing) {
         throw ApiError.validationError(`Invoice number "${finalInvoiceNumber}" already exists.`);
       }
+    } else {
+      finalInvoiceNumber = await generateNextInvoiceNumber(workspaceId);
     }
 
     const invoice = await Invoice.create({
@@ -195,6 +204,8 @@ exports.updateInvoice = async (req, res, next) => {
     }
 
     const {
+      invoiceNumber: customNumber,
+      customerId,
       customerName,
       customerGstin,
       placeOfSupply,
@@ -207,8 +218,27 @@ exports.updateInvoice = async (req, res, next) => {
       terms
     } = req.body;
 
+    if (customNumber && customNumber.trim().toUpperCase() !== invoice.invoiceNumber) {
+      const newNum = customNumber.trim().toUpperCase();
+      if (newNum.length > 16) {
+        throw ApiError.validationError('Invoice number cannot exceed 16 characters as per Rule 46(b) of CGST Rules.');
+      }
+      const existing = await Invoice.findOne({ workspaceId, invoiceNumber: newNum, _id: { $ne: invoice._id } });
+      if (existing) {
+        throw ApiError.validationError(`Invoice number "${newNum}" already exists.`);
+      }
+      invoice.invoiceNumber = newNum;
+    }
+
     if (customerName) invoice.customerName = customerName.trim();
-    if (customerGstin !== undefined) invoice.customerGstin = String(customerGstin).trim().toUpperCase();
+    if (customerGstin !== undefined) {
+      const cleanGstin = String(customerGstin).trim().toUpperCase();
+      if (cleanGstin && !isValidGstin(cleanGstin)) {
+        throw ApiError.validationError('Customer GSTIN is invalid. According to GST rules, a GSTIN must be exactly 15 alphanumeric characters (e.g. 29ABCDE1234F1Z5) or left blank for unregistered (B2C) sales.');
+      }
+      invoice.customerGstin = cleanGstin;
+    }
+    if (customerId !== undefined) invoice.customerId = customerId || null;
     if (invoiceDate) invoice.invoiceDate = new Date(invoiceDate);
     if (dueDate !== undefined) invoice.dueDate = dueDate ? new Date(dueDate) : null;
     if (billingAddress) invoice.billingAddress = billingAddress;
@@ -230,6 +260,11 @@ exports.updateInvoice = async (req, res, next) => {
       invoice.totalIgst = calculation.totalIgst;
       invoice.totalTax = calculation.totalTax;
       invoice.grandTotal = calculation.grandTotal;
+    }
+
+    if (invoice.einvoiceStatus === 'Failed') {
+      invoice.einvoiceStatus = 'Not Generated';
+      invoice.einvoiceError = '';
     }
 
     await invoice.save();
@@ -261,3 +296,56 @@ exports.deleteInvoice = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.generateEInvoice = async (req, res, next) => {
+  try {
+    const workspaceId = await resolveWorkspaceId(req);
+    if (!workspaceId) throw ApiError.unauthorized('Workspace context is required.');
+
+    const updatedInvoice = await einvoiceService.generateIrn(req.params.id, workspaceId);
+
+    res.status(200).json({
+      success: true,
+      message: 'E-Invoice (IRN) generated successfully.',
+      data: updatedInvoice
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.cancelEInvoice = async (req, res, next) => {
+  try {
+    const workspaceId = await resolveWorkspaceId(req);
+    if (!workspaceId) throw ApiError.unauthorized('Workspace context is required.');
+
+    const { reasonCode = '1', remarks = 'Order cancelled' } = req.body;
+    const updatedInvoice = await einvoiceService.cancelIrn(req.params.id, workspaceId, { reasonCode, remarks });
+
+    res.status(200).json({
+      success: true,
+      message: 'E-Invoice (IRN) cancelled successfully.',
+      data: updatedInvoice
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.generateEwayBill = async (req, res, next) => {
+  try {
+    const workspaceId = await resolveWorkspaceId(req);
+    if (!workspaceId) throw ApiError.unauthorized('Workspace context is required.');
+
+    const updatedInvoice = await einvoiceService.generateEwayBill(req.params.id, workspaceId, req.body);
+
+    res.status(200).json({
+      success: true,
+      message: 'E-Way Bill generated successfully.',
+      data: updatedInvoice
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

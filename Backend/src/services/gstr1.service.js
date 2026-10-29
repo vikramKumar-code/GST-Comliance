@@ -318,6 +318,7 @@ class Gstr1Service {
     return {
       success: true,
       dryRun: false,
+      message: 'GSTR-1 successfully uploaded and saved to GSTN Portal!',
       ref_id: result.ref_id,
       period,
       gstin: prepared.gstin,

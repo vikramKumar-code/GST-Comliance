@@ -91,10 +91,44 @@ export const switchWorkspace = async (workspaceId) => {
 };
 
 /**
+ * Link or update GSTIN for active organization workspace
+ * @param {Object} payload
+ * @param {string} payload.gstin - 15-character GSTIN
+ * @param {string} [payload.name] - Organization name
+ * @returns {Promise<{ success: boolean, message: string, workspace: Object }>}
+ */
+export const linkGstin = async ({ gstin, name }) => {
+  return client.post('/auth/workspace/link-gstin', { gstin, name });
+};
+
+/**
+ * Create a new workspace/organization
+ * @param {Object} payload
+ * @param {string} payload.name - Organization name
+ * @param {string} [payload.gstin] - 15-character GSTIN
+ * @returns {Promise<{ success: boolean, message: string, workspace: Object }>}
+ */
+export const createWorkspace = async ({ name, gstin }) => {
+  return client.post('/auth/workspace/create', { name, gstin });
+};
+
+
+/**
+ * Switch or update active member role (OWNER, ADMIN, MEMBER, VIEWER)
+ * @param {string} role
+ * @returns {Promise<{ success: boolean, message: string, role: string }>}
+ */
+export const switchRole = async (role) => {
+  return client.post('/auth/workspace/switch-role', { role });
+};
+
+/**
  * Invalidate current session and clear auth cookie
  * @returns {Promise<{ ok: boolean }>}
  */
 export const logout = async () => {
   return client.post('/auth/logout');
 };
+
+
 

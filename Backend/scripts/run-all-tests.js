@@ -53,6 +53,14 @@ const SUITES = [
     args: [path.join(__dirname, 'test-user-auth.js')]
   },
   {
+    name: 'test-einvoice',
+    args: [path.join(__dirname, 'test-einvoice.js')]
+  },
+  {
+    name: 'test-nil-return',
+    args: [path.join(__dirname, 'test-nil-return.js')]
+  },
+  {
     name: 'test:e2e',
     args: [path.join(__dirname, 'run-e2e.js')]
   }

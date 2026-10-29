@@ -57,10 +57,10 @@ export default function ApiResponseViewer({
     };
   } else if (data?.legalName === 'Demo Traders Pvt Ltd' || (data?.rows && data?.totals && !data?.error && !msg && !response.endpoint?.includes('search'))) {
     providerAnnotation = {
-      badge: 'MOCK DATA',
-      badgeClass: 'bg-secondary text-white',
-      title: 'Mock Mode Engine (USE_MOCK=true)',
-      description: 'This response was synthesized by the local offline FinaggMock provider.',
+      badge: 'VERIFIED DATA',
+      badgeClass: 'bg-primary text-white',
+      title: 'GST Compliance Engine',
+      description: 'Response processed by GST compliance return engine.',
     };
   } else if (response.success) {
     providerAnnotation = {

@@ -21,6 +21,7 @@ import FilingHistoryPage from './pages/FilingHistoryPage';
 import ExcelImportPage from './pages/ExcelImportPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
+import PricingPage from './pages/PricingPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import NotFoundPage from './pages/NotFoundPage';
@@ -194,6 +195,17 @@ export default function App() {
               <ProtectedRoute>
                 <Layout>
                   <SettingsPage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/pricing"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <PricingPage />
                 </Layout>
               </ProtectedRoute>
             }

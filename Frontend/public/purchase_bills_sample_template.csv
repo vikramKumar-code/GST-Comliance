@@ -1,0 +1,5 @@
+﻿Bill Number,Date,Vendor Name,Vendor GSTIN,Category,Description,HSN,Quantity,Rate,GST %,Status
+BILL-2026-001,2026-10-05,Tech Supplies Ltd,27AABCV1111V1Z1,Inventory,Network Routers,851762,5,3000,18,Paid
+BILL-2026-002,2026-10-08,Cloud Hosting Inc,07AABCC2222C1Z2,Expense,Server Hosting,998315,1,12000,18,Paid
+BILL-2026-003,2026-10-14,Office Furniture Works,27AABCO3333W1Z3,Fixed Assets,Ergonomic Chairs,940310,4,8500,18,Paid
+BILL-2026-004,2026-10-19,Secure Backup Corp,29AABCS4444B1Z4,Software,Data Backup Licenses,998316,2,6500,18,Paid

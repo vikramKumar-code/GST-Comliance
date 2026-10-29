@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { searchGstin } from '../api/auth.api';
 import { isValidGstin } from '../utils/validators';
 import ErrorMessage from '../components/ErrorMessage';
@@ -45,6 +46,16 @@ export default function TaxpayerSearchPage() {
       </div>
 
       <div className="zoho-page-body" style={{ maxWidth: '900px' }}>
+        {/* Guidance banner for users wanting to link their own GSTIN */}
+        <div className="alert alert-info py-2.5 px-3 mb-4 rounded-3 d-flex align-items-center justify-content-between flex-wrap gap-2 shadow-xs">
+          <div className="small">
+            🏢 <strong>Need to link your organization GSTIN?</strong> Taxpayer Search is for looking up third-party clients and vendors. To link your own GSTIN to this workspace, please visit <strong>Organization Settings</strong>.
+          </div>
+          <Link to="/settings" className="btn btn-sm btn-primary py-1 px-3 text-nowrap shadow-xs">
+            Link in Settings ⚙️
+          </Link>
+        </div>
+
         <div className="card border shadow-sm p-4 bg-white mb-4">
           <form onSubmit={handleSearch}>
             <label htmlFor="taxpayer-gstin-input" className="form-label text-secondary small fw-semibold">
@@ -81,7 +92,7 @@ export default function TaxpayerSearchPage() {
               </button>
             </div>
             <div className="form-text small text-muted">
-              Quick test demo: <code>29ABCDE1234F1Z5</code>
+              Enter any 15-character Goods and Services Tax Identification Number (GSTIN) to verify registration status.
             </div>
           </form>
         </div>

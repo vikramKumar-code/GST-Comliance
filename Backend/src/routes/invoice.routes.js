@@ -12,4 +12,10 @@ router.post('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.cr
 router.put('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.updateInvoice);
 router.delete('/:id', workspaceRole('OWNER', 'ADMIN'), invoiceController.deleteInvoice);
 
+// E-Invoice (IRN) & E-Way Bill operations
+router.post('/:id/einvoice/generate', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.generateEInvoice);
+router.post('/:id/einvoice/cancel', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.cancelEInvoice);
+router.post('/:id/ewaybill/generate', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.generateEwayBill);
+
+
 module.exports = router;

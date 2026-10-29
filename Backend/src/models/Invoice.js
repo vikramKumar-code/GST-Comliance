@@ -157,6 +157,90 @@ const invoiceSchema = new mongoose.Schema(
       default: 'Draft',
       index: true
     },
+    // E-Invoice (IRN) fields
+    irn: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true
+    },
+    ackNo: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    ackDate: {
+      type: Date,
+      default: null
+    },
+    signedInvoice: {
+      type: String,
+      default: ''
+    },
+    signedQrCode: {
+      type: String,
+      default: ''
+    },
+    qrCodeImage: {
+      type: String,
+      default: ''
+    },
+    einvoiceStatus: {
+      type: String,
+      enum: ['Not Generated', 'Generated', 'Cancelled', 'Failed'],
+      default: 'Not Generated',
+      index: true
+    },
+    einvoiceError: {
+      type: String,
+      default: ''
+    },
+    cancelReason: {
+      type: String,
+      default: ''
+    },
+    cancelRemarks: {
+      type: String,
+      default: ''
+    },
+    cancelledAt: {
+      type: Date,
+      default: null
+    },
+    // E-Way Bill fields
+    ewayBillNo: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true
+    },
+    ewayBillDate: {
+      type: Date,
+      default: null
+    },
+    ewayBillValidUpto: {
+      type: Date,
+      default: null
+    },
+    transporterId: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    transporterName: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    vehicleNo: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    transportMode: {
+      type: String,
+      default: '1'
+    },
     notes: {
       type: String,
       trim: true,
@@ -174,5 +258,6 @@ const invoiceSchema = new mongoose.Schema(
 invoiceSchema.index({ workspaceId: 1, invoiceNumber: 1 }, { unique: true });
 invoiceSchema.index({ workspaceId: 1, invoiceDate: -1 });
 invoiceSchema.index({ workspaceId: 1, status: 1 });
+invoiceSchema.index({ workspaceId: 1, einvoiceStatus: 1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

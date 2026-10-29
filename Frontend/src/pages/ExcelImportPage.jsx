@@ -1,61 +1,90 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import { importInvoices, importBills } from '../api/import.api';
 import Loader from '../components/Loader';
 import ErrorMessage from '../components/ErrorMessage';
 
-function parseCsv(text) {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-  if (lines.length < 2) return [];
-
-  const parseLine = (line) => {
-    const row = [];
-    let insideQuote = false;
-    let entry = '';
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (insideQuote && line[i + 1] === '"') {
-          entry += '"';
-          i++;
-        } else {
-          insideQuote = !insideQuote;
-        }
-      } else if (char === ',' && !insideQuote) {
-        row.push(entry.trim());
-        entry = '';
-      } else {
-        entry += char;
-      }
-    }
-    row.push(entry.trim());
-    return row;
-  };
-
-  const headers = parseLine(lines[0]);
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseLine(lines[i]);
-    const obj = {};
-    headers.forEach((h, idx) => {
-      obj[h] = values[idx] ?? '';
-    });
-    rows.push(obj);
+const SAMPLE_SALES = [
+  {
+    'Invoice Number': 'INV-2026-001',
+    'Date': '2026-10-25',
+    'Customer Name': 'Reliance Retail Ltd',
+    'Customer GSTIN': '27AAACR7197Q1ZV',
+    'Place of Supply': '27-Maharashtra',
+    'Item Name': 'Industrial Steel Coil',
+    'HSN': '7208',
+    'Quantity': 10,
+    'Rate': 5000,
+    'Discount Amount': 500,
+    'Tax Rate': 18
+  },
+  {
+    'Invoice Number': 'INV-2026-002',
+    'Date': '2026-10-26',
+    'Customer Name': 'Tata Motors Ltd',
+    'Customer GSTIN': '27AAAAT1234A1Z5',
+    'Place of Supply': '27-Maharashtra',
+    'Item Name': 'Auto Engine Parts',
+    'HSN': '8407',
+    'Quantity': 5,
+    'Rate': 12000,
+    'Discount Amount': 0,
+    'Tax Rate': 28
+  },
+  {
+    'Invoice Number': 'INV-2026-003',
+    'Date': '2026-10-27',
+    'Customer Name': 'Infosys BPM',
+    'Customer GSTIN': '29AAACI4567B1Z8',
+    'Place of Supply': '29-Karnataka',
+    'Item Name': 'IT Cloud Software Setup',
+    'HSN': '9983',
+    'Quantity': 1,
+    'Rate': 75000,
+    'Discount Amount': 2500,
+    'Tax Rate': 18
   }
-  return rows;
-}
+];
 
-function downloadCsvBlob(filename, text) {
-  const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
+const SAMPLE_PURCHASES = [
+  {
+    'Bill Number': 'BILL-9801',
+    'Date': '2026-10-20',
+    'Vendor Name': 'Godrej Supplies Ltd',
+    'Vendor GSTIN': '27AAACG1234D1Z9',
+    'Place of Supply': '27-Maharashtra',
+    'Item Name': 'Raw Metal Sheets',
+    'HSN': '7208',
+    'Quantity': 20,
+    'Rate': 3500,
+    'Tax Rate': 18
+  },
+  {
+    'Bill Number': 'BILL-9802',
+    'Date': '2026-10-22',
+    'Vendor Name': 'Havells Power Cables',
+    'Vendor GSTIN': '07AAAAP4321E1Z3',
+    'Place of Supply': '07-Delhi',
+    'Item Name': 'Electrical Copper Wires',
+    'HSN': '8544',
+    'Quantity': 15,
+    'Rate': 4200,
+    'Tax Rate': 18
+  },
+  {
+    'Bill Number': 'BILL-9803',
+    'Date': '2026-10-24',
+    'Vendor Name': 'Apex Packaging',
+    'Vendor GSTIN': '27AAACA5678F1Z2',
+    'Place of Supply': '27-Maharashtra',
+    'Item Name': 'Corrugated Shipping Boxes',
+    'HSN': '4819',
+    'Quantity': 100,
+    'Rate': 65,
+    'Tax Rate': 12
+  }
+];
 
 export default function ExcelImportPage() {
   const [importType, setImportType] = useState('sales'); // 'sales' | 'bills'
@@ -91,21 +120,27 @@ export default function ExcelImportPage() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target.result;
-        const rows = parseCsv(text);
-        if (rows.length === 0) {
-          setError(new Error('The uploaded CSV file is empty or missing data rows.'));
+        const data = new Uint8Array(event.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+          throw new Error('Workbook contains no sheets or readable data.');
+        }
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        if (!rows || rows.length === 0) {
+          setError(new Error('The uploaded file is empty or missing data rows.'));
         } else {
           setParsedRows(rows);
         }
       } catch (err) {
-        setError(new Error('Failed to parse CSV file: ' + err.message));
+        setError(new Error('Failed to read spreadsheet: ' + err.message));
       }
     };
     reader.onerror = () => {
       setError(new Error('Failed to read file from disk.'));
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const handleDrop = (e) => {
@@ -144,21 +179,36 @@ export default function ExcelImportPage() {
     }
   };
 
-  const handleDownloadTemplate = (type) => {
-    if (type === 'sales') {
-      const csv = [
-        'Invoice Number,Date,Customer Name,Customer GSTIN,Place of Supply,Item Name,HSN,Quantity,Rate,Discount,GST %,Status',
-        'INV-2026-001,2026-10-10,Acme Maharashtra Corp,27AABCA1234A1Z5,27-Maharashtra,Consulting Services,998311,1,25000,0,18,Sent',
-        'INV-2026-002,2026-10-12,Global Karnataka Ltd,29AABCG5678B1Z2,29-Karnataka,Hardware Server,847130,2,40000,2000,18,Paid'
-      ].join('\n');
-      downloadCsvBlob('sales_invoices_sample_template.csv', csv);
-    } else {
-      const csv = [
-        'Bill Number,Date,Vendor Name,Vendor GSTIN,Category,Description,HSN,Quantity,Rate,GST %,Status',
-        'BILL-2026-001,2026-10-05,Tech Supplies Ltd,27AABCV1111V1Z1,Inventory,Network Routers,851762,5,3000,18,Paid',
-        'BILL-2026-002,2026-10-08,Cloud Hosting Inc,07AABCC2222C1Z2,Expense,Server Hosting,998315,1,12000,18,Paid'
-      ].join('\n');
-      downloadCsvBlob('purchase_bills_sample_template.csv', csv);
+  const handleDownload = (format = 'xlsx') => {
+    try {
+      const isSales = importType === 'sales';
+      const filename = isSales
+        ? `sales_invoices_sample_template.${format}`
+        : `purchase_bills_sample_template.${format}`;
+      const data = isSales ? SAMPLE_SALES : SAMPLE_PURCHASES;
+      const sheetName = isSales ? 'Sales Invoices' : 'Purchase Bills';
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      if (format === 'xlsx') {
+        ws['!cols'] = isSales
+          ? [
+              { wch: 18 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 18 },
+              { wch: 26 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 10 }
+            ]
+          : [
+              { wch: 18 }, { wch: 14 }, { wch: 26 }, { wch: 18 }, { wch: 18 },
+              { wch: 26 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 10 }
+            ];
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, filename, { bookType: format });
+    } catch {
+      // Fallback to backend download endpoint if client-side write encounters any sandbox issue
+      const isSales = importType === 'sales';
+      const fallbackUrl = `/api/import/template/${isSales ? 'sales' : 'bills'}?format=${format}`;
+      window.location.href = fallbackUrl;
     }
   };
 
@@ -167,7 +217,7 @@ export default function ExcelImportPage() {
       <div className="zoho-page-header">
         <h1 className="fw-bold fs-4 text-dark mb-1">Excel & CSV Data Import</h1>
         <p className="text-secondary small mb-0">
-          Bulk import your sales invoices and purchase bills from CSV spreadsheets with automated GST tax calculation.
+          Bulk import your sales invoices and purchase bills from Excel or CSV spreadsheets with automated GST tax calculation.
         </p>
       </div>
 
@@ -200,20 +250,33 @@ export default function ExcelImportPage() {
                 </button>
               </div>
             </div>
-            <button
-              type="button"
-              className="btn btn-outline-primary btn-sm"
-              onClick={() => handleDownloadTemplate(importType)}
-            >
-              ⬇️ Download {importType === 'sales' ? 'Sales' : 'Purchase'} CSV Template
-            </button>
+            <div className="d-flex align-items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm d-inline-flex align-items-center gap-1.5 shadow-xs"
+                onClick={() => handleDownload('xlsx')}
+                title="Download Microsoft Excel Spreadsheet (.xlsx)"
+              >
+                <span>📗</span>
+                <span>Download Excel (.xlsx)</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1.5 shadow-xs"
+                onClick={() => handleDownload('csv')}
+                title="Download CSV spreadsheet (.csv)"
+              >
+                <span>📄</span>
+                <span>CSV (.csv)</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Upload Box */}
         <div className="card border shadow-sm bg-white p-4 mb-4">
           <h2 className="fs-6 fw-bold text-dark mb-3">
-            Upload {importType === 'sales' ? 'Sales Invoices' : 'Purchase Bills'} Spreadsheet (.CSV)
+            Upload {importType === 'sales' ? 'Sales Invoices' : 'Purchase Bills'} Spreadsheet (.xlsx, .xls, .csv)
           </h2>
 
           <div
@@ -227,15 +290,15 @@ export default function ExcelImportPage() {
           >
             <div className="fs-1 mb-2">📊</div>
             <div className="fw-semibold text-dark mb-1">
-              {selectedFile ? selectedFile.name : 'Choose a .csv file or drag and drop it here'}
+              {selectedFile ? selectedFile.name : 'Choose an Excel (.xlsx, .xls) or CSV (.csv) file or drag and drop it here'}
             </div>
             <div className="text-muted small mb-3">
-              Standard UTF-8 CSV with column headers. Auto-calculates CGST, SGST, IGST based on Place of Supply.
+              Supports Microsoft Excel (.xlsx, .xls) & standard CSV with column headers. Auto-calculates GST.
             </div>
             <input
               id="excelFileInput"
               type="file"
-              accept=".csv"
+              accept=".xlsx, .xls, .csv"
               className="d-none"
               onChange={handleFileChange}
             />

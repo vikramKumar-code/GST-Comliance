@@ -11,5 +11,7 @@ router.get('/gstr1/prepare', auth, workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VI
 router.post('/gstr1/save', auth, workspaceRole('OWNER', 'ADMIN'), validate(periodQuerySchema, 'query'), returnsController.saveGstr1);
 router.get('/gstr2b', auth, workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), validate(periodQuerySchema, 'query'), returnsController.getGstr2b);
 router.get('/gstr3b', auth, workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), validate(periodQuerySchema, 'query'), returnsController.getGstr3b);
+router.get('/nil-eligibility', auth, workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), returnsController.checkNilEligibility);
+router.post('/nil-file', auth, workspaceRole('OWNER', 'ADMIN'), returnsController.fileNilReturn);
 
 module.exports = router;

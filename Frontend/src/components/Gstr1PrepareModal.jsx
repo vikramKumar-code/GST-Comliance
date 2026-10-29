@@ -4,7 +4,7 @@ import { formatCurrency, formatPeriod } from '../utils/format';
 import Loader from './Loader';
 import ErrorMessage from './ErrorMessage';
 
-export default function Gstr1PrepareModal({ isOpen, onClose, period }) {
+export default function Gstr1PrepareModal({ isOpen, onClose, period, onOpenNilModal }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [data, setData] = useState(null);
@@ -125,6 +125,32 @@ export default function Gstr1PrepareModal({ isOpen, onClose, period }) {
               </div>
             ) : data ? (
               <>
+                {summary.totalInvoices === 0 && (
+                  <div className="alert alert-info border border-info-subtle d-flex align-items-center justify-content-between p-3 mb-4 rounded-3 flex-wrap gap-2">
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="fs-5">ℹ️</span>
+                      <div>
+                        <strong className="d-block text-dark">Zero Sales Invoices for {formatPeriod(period)}</strong>
+                        <span className="small text-secondary">
+                          No outward sales recorded for this period. You qualify for instant 1-Click Nil GSTR-1 filing under CGST Rule 67A.
+                        </span>
+                      </div>
+                    </div>
+                    {typeof onOpenNilModal === 'function' && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-success fw-semibold"
+                        onClick={() => {
+                          handleClose();
+                          onOpenNilModal();
+                        }}
+                      >
+                        ⚡ File Nil GSTR-1
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Metrics Cards */}
                 <div className="row g-3 mb-4">
                   <div className="col-6 col-md-3">
@@ -402,23 +428,36 @@ export default function Gstr1PrepareModal({ isOpen, onClose, period }) {
               >
                 Close
               </button>
-              <button
-                type="button"
-                className="btn btn-success btn-sm fw-semibold px-4 d-flex align-items-center gap-1.5"
-                onClick={handleSave}
-                disabled={loading || saving || !data || summary.totalInvoices === 0}
-              >
-                {saving ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                    <span>Uploading to GSTN...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>🚀 Save / Upload GSTR-1</span>
-                  </>
-                )}
-              </button>
+              {summary.totalInvoices === 0 && typeof onOpenNilModal === 'function' ? (
+                <button
+                  type="button"
+                  className="btn btn-success btn-sm fw-semibold px-4 d-flex align-items-center gap-1.5"
+                  onClick={() => {
+                    handleClose();
+                    onOpenNilModal();
+                  }}
+                >
+                  <span>⚡ File Nil GSTR-1</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-success btn-sm fw-semibold px-4 d-flex align-items-center gap-1.5"
+                  onClick={handleSave}
+                  disabled={loading || saving || !data || summary.totalInvoices === 0}
+                >
+                  {saving ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                      <span>Uploading to GSTN...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🚀 Save / Upload GSTR-1</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

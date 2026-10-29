@@ -13,6 +13,7 @@ const billRoutes = require('./bill.routes');
 const reconciliationRoutes = require('./reconciliation.routes');
 const reportRoutes = require('./report.routes');
 const importRoutes = require('./import.routes');
+const subscriptionRoutes = require('./subscription.routes');
 
 router.use('/gstin', gstinRoutes);
 router.use('/auth', authRoutes);
@@ -26,5 +27,6 @@ router.use('/bills', billRoutes);
 router.use('/reconciliation', reconciliationRoutes);
 router.use('/reports', reportRoutes);
 router.use('/import', importRoutes);
+router.use('/subscription', subscriptionRoutes);
 
 module.exports = router;

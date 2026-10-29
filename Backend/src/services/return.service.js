@@ -1,9 +1,11 @@
 const FinaggService = require('./finagg.service');
 const Return = require('../models/Return');
+const Filing = require('../models/Filing');
 const { encrypt, decrypt } = require('../utils/crypto');
 const ApiError = require('../utils/apiError');
 const logger = require('../utils/logger');
 const SessionService = require('./session.service');
+const Session = require('../models/Session');
 
 class ReturnService {
   /**
@@ -33,7 +35,7 @@ class ReturnService {
     const isTaxPro = provider === 'taxpro' || (!provider && FinaggService.getProviderName() === 'taxpro');
 
     // 1. Real TaxPro B2B Invoices payload (e.g., action=B2B)
-    if (Array.isArray(raw.b2b) && raw.b2b.length > 0) {
+    if (Array.isArray(raw.b2b)) {
       const rows = [];
       for (const buyer of raw.b2b) {
         const ctin = buyer.ctin || 'Registered Buyer';
@@ -64,6 +66,22 @@ class ReturnService {
         });
       }
 
+      // Map Table 7 B2CS supplies if present
+      if (Array.isArray(raw.b2cs)) {
+        for (const item of raw.b2cs) {
+          const pos = item.pos ? ` (POS: ${item.pos})` : '';
+          const rt = item.rt !== undefined ? ` @${item.rt}%` : '';
+          rows.push({
+            label: `7 - B2C Supplies${pos}${rt}`,
+            taxable: Math.round(Number(item.txval || 0) * 100) / 100,
+            igst: Math.round(Number(item.iamt || 0) * 100) / 100,
+            cgst: Math.round(Number(item.camt || 0) * 100) / 100,
+            sgst: Math.round(Number(item.samt || 0) * 100) / 100,
+            cess: Math.round(Number(item.csamt || 0) * 100) / 100
+          });
+        }
+      }
+
       const totals = ReturnService._calculateTotals(rows);
       return {
         type: 'GSTR1',
@@ -75,7 +93,7 @@ class ReturnService {
     }
 
     // 2. Real TaxPro GSTR-1 Summary payload (action=RETSUM)
-    if (Array.isArray(raw.sec_sum) && raw.sec_sum.length > 0) {
+    if (Array.isArray(raw.sec_sum)) {
       const rows = raw.sec_sum.map((sec) => ({
         label: sec.sec_nm ? `${sec.sec_nm} - Outward Supplies` : (sec.table || 'Outward Supplies'),
         taxable: Number(sec.ttl_taxable ?? sec.ttl_val ?? 0),
@@ -379,8 +397,32 @@ class ReturnService {
    * Fetch return data, encrypt and persist to MongoDB, or return cached with stale: true on downtime
    */
   static async getReturn(type, gstin, period, gstToken, options = {}) {
-    const normType = type.toUpperCase();
-    const normGstin = gstin.toUpperCase();
+    const normType = (type || '').toUpperCase();
+    const normGstin = (gstin || '').toUpperCase();
+
+    // If workspace does not have a linked GSTIN, return cached return or clean empty shape
+    if (!normGstin) {
+      if (options.workspaceId) {
+        const cached = await Return.findOne({ workspaceId: options.workspaceId, type: normType, period });
+        if (cached && cached.dataEnc) {
+          try {
+            const data = decrypt(cached.dataEnc, true);
+            return data;
+          } catch (decErr) {
+            logger.error('Failed to decrypt cached return data');
+          }
+        }
+      }
+      return {
+        type: normType,
+        period,
+        rows: [],
+        totals: { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 },
+        unlinked: true,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
     // Each workspace owns exactly one GSTIN. Missing workspaceId matches legacy
     // rows for that same GSTIN so rollout does not orphan encrypted cache data.
     const scope = options.workspaceId
@@ -413,10 +455,16 @@ class ReturnService {
       return mapped;
     } catch (error) {
       if (error.code === 'SESSION_EXPIRED' && options.sessionId) {
-        await SessionService.destroySession(options.sessionId);
+        await Session.findByIdAndUpdate(options.sessionId, { $set: { gstTokenEnc: null } }).catch(() => {});
       }
-      // If provider is down, check for cached copy in MongoDB
-      if (error.code === 'PROVIDER_DOWN' || error.statusCode === 503) {
+      // If provider is down or upstream error occurs, check for cached copy in MongoDB
+      if (
+        error.code === 'PROVIDER_DOWN' ||
+        error.statusCode === 503 ||
+        error.code === 'PROVIDER_ERROR' ||
+        error.statusCode === 502 ||
+        error.statusCode === 504
+      ) {
         const cached = await Return.findOne({ ...scope, type: normType, period });
         if (cached && cached.dataEnc) {
           try {
@@ -430,6 +478,23 @@ class ReturnService {
             logger.error('Failed to decrypt cached return data');
           }
         }
+
+        // When upstream portal has no return filed or returns error, synthesize GSTR-1 from workspace sales invoices
+        if (normType === 'GSTR1' && options.workspaceId) {
+          try {
+            const Gstr1Service = require('./gstr1.service');
+            const prepared = await Gstr1Service.preparePayload(options.workspaceId, normGstin, period);
+            if (prepared && prepared.payload) {
+              const mapped = ReturnService.mapGstr1(prepared.payload, period);
+              return {
+                ...mapped,
+                source: 'local_invoices'
+              };
+            }
+          } catch (prepErr) {
+            logger.warn('Failed to synthesize GSTR-1 from workspace invoices', prepErr);
+          }
+        }
       }
       throw error;
     }
@@ -439,13 +504,37 @@ class ReturnService {
    * Fetch returns summary (available periods and filing status), fallback to stale cache if down
    */
   static async getReturnsSummary(gstin, period, gstToken, options = {}) {
-    const normGstin = gstin.toUpperCase();
+    const normGstin = (gstin || '').toUpperCase();
+    if (!normGstin) {
+      return {
+        gstin: 'UNLINKED',
+        availablePeriods: [],
+        filings: [],
+        returns: [],
+        unlinked: true
+      };
+    }
     const scope = options.workspaceId
       ? { gstin: normGstin, $or: [{ workspaceId: options.workspaceId }, { workspaceId: null }] }
       : { gstin: normGstin };
 
+    let summary = {
+      gstin: normGstin,
+      availablePeriods: [],
+      filings: [],
+      returns: []
+    };
+
     try {
-      const summary = await FinaggService.getReturnsSummary(normGstin, period, gstToken, options.username, options);
+      const upstream = await FinaggService.getReturnsSummary(normGstin, period, gstToken, options.username, options);
+      if (upstream && typeof upstream === 'object') {
+        summary = {
+          ...summary,
+          ...upstream,
+          filings: Array.isArray(upstream.filings) ? upstream.filings : [],
+          availablePeriods: Array.isArray(upstream.availablePeriods) ? upstream.availablePeriods : []
+        };
+      }
 
       // Attach return breakdown comparison for the requested period if available
       if (period) {
@@ -486,33 +575,77 @@ class ReturnService {
           // Non-blocking: summary continues even if return fetching fails
         }
       }
-
-      return summary;
     } catch (error) {
       if (error.code === 'SESSION_EXPIRED' && options.sessionId) {
-        await SessionService.destroySession(options.sessionId);
+        await Session.findByIdAndUpdate(options.sessionId, { $set: { gstTokenEnc: null } }).catch(() => {});
       }
-      if (error.code === 'PROVIDER_DOWN' || error.statusCode === 503) {
+      if (
+        error.code === 'PROVIDER_DOWN' ||
+        error.statusCode === 503 ||
+        error.code === 'PROVIDER_ERROR' ||
+        error.statusCode === 502 ||
+        error.statusCode === 504 ||
+        error.statusCode === 400
+      ) {
+        summary.stale = true;
         const cachedReturns = await Return.find(scope).sort({ period: -1 });
         if (cachedReturns && cachedReturns.length > 0) {
           const periodsSet = new Set(cachedReturns.map((r) => r.period));
-          const availablePeriods = Array.from(periodsSet).map((p) => ({
+          summary.availablePeriods = Array.from(periodsSet).map((p) => ({
             period: p,
             financialYear: `20${p.slice(4)}-${Number(p.slice(4)) + 1}`,
             gstr1: 'FILED',
             gstr2b: 'GENERATED',
             gstr3b: 'FILED'
           }));
-
-          return {
-            gstin: normGstin,
-            availablePeriods,
-            stale: true
-          };
         }
+      } else {
+        throw error;
       }
-      throw error;
     }
+
+    // Merge local filing records (e.g. Nil returns or recorded filings)
+    if (options.workspaceId) {
+      try {
+        const localFilings = await Filing.find({ workspaceId: options.workspaceId }).sort({ filingDate: -1 });
+        if (localFilings && localFilings.length > 0) {
+          const localFormatted = localFilings.map((f) => ({
+            type: f.type,
+            period: f.period,
+            arn: f.arn,
+            date: f.dateStr || (f.filingDate ? f.filingDate.toLocaleDateString('en-GB') : ''),
+            status: f.status || 'Filed',
+            mode: f.mode || (f.isNil ? 'NIL_ONLINE' : 'ONLINE'),
+            isNil: f.isNil
+          }));
+          const localArns = new Set(localFormatted.map((f) => f.arn));
+          summary.filings = [
+            ...localFormatted,
+            ...(summary.filings || []).filter((f) => !localArns.has(f.arn))
+          ];
+
+          // Also ensure availablePeriods contains all filed periods
+          const existingPeriods = new Set((summary.availablePeriods || []).map((p) => p.period));
+          for (const f of localFilings) {
+            if (!existingPeriods.has(f.period)) {
+              existingPeriods.add(f.period);
+              const p = f.period;
+              summary.availablePeriods.push({
+                period: p,
+                financialYear: `20${p.slice(4)}-${Number(p.slice(4)) + 1}`,
+                gstr1: f.type === 'GSTR1' ? 'FILED' : 'NOT_FILED',
+                gstr2b: 'GENERATED',
+                gstr3b: f.type === 'GSTR3B' ? 'FILED' : 'NOT_FILED'
+              });
+            }
+          }
+        }
+      } catch (localErr) {
+        logger.warn('Failed to load local filings', localErr);
+      }
+    }
+
+    return summary;
   }
 
   /**
@@ -533,54 +666,60 @@ class ReturnService {
 
     const normGstin = gstin.toUpperCase();
 
-    const [gstr1, gstr2b, gstr3b] = await Promise.all([
+    const results = await Promise.allSettled([
       ReturnService.getReturn('GSTR1', normGstin, period, gstToken, options),
       ReturnService.getReturn('GSTR2B', normGstin, period, gstToken, options),
       ReturnService.getReturn('GSTR3B', normGstin, period, gstToken, options)
     ]);
 
-    const isStale = Boolean(gstr1.stale || gstr2b.stale || gstr3b.stale);
+    const defaultTotals = { taxable: 0, igst: 0, cgst: 0, sgst: 0, cess: 0 };
+    const gstr1 = results[0].status === 'fulfilled' && results[0].value ? results[0].value : { totals: defaultTotals, stale: true };
+    const gstr2b = results[1].status === 'fulfilled' && results[1].value ? results[1].value : { totals: defaultTotals, stale: true };
+    const gstr3b = results[2].status === 'fulfilled' && results[2].value ? results[2].value : { totals: defaultTotals, stale: true };
+
+    const hasFailed = results.some((r) => r.status === 'rejected');
+    const isStale = Boolean(hasFailed || gstr1.stale || gstr2b.stale || gstr3b.stale);
 
     const salesTotal =
-      gstr1.totals.taxable +
-      gstr1.totals.igst +
-      gstr1.totals.cgst +
-      gstr1.totals.sgst +
-      gstr1.totals.cess;
+      (gstr1.totals?.taxable || 0) +
+      (gstr1.totals?.igst || 0) +
+      (gstr1.totals?.cgst || 0) +
+      (gstr1.totals?.sgst || 0) +
+      (gstr1.totals?.cess || 0);
 
     const purchasesTotal =
-      gstr2b.totals.taxable +
-      gstr2b.totals.igst +
-      gstr2b.totals.cgst +
-      gstr2b.totals.sgst +
-      gstr2b.totals.cess;
+      (gstr2b.totals?.taxable || 0) +
+      (gstr2b.totals?.igst || 0) +
+      (gstr2b.totals?.cgst || 0) +
+      (gstr2b.totals?.sgst || 0) +
+      (gstr2b.totals?.cess || 0);
 
     const itcAmount =
-      gstr2b.totals.igst +
-      gstr2b.totals.cgst +
-      gstr2b.totals.sgst +
-      gstr2b.totals.cess;
+      (gstr2b.totals?.igst || 0) +
+      (gstr2b.totals?.cgst || 0) +
+      (gstr2b.totals?.sgst || 0) +
+      (gstr2b.totals?.cess || 0);
 
     const outwardTax =
-      gstr1.totals.igst + gstr1.totals.cgst + gstr1.totals.sgst + gstr1.totals.cess;
+      (gstr1.totals?.igst || 0) + (gstr1.totals?.cgst || 0) + (gstr1.totals?.sgst || 0) + (gstr1.totals?.cess || 0);
     const taxPayable = Math.max(0, outwardTax - itcAmount);
 
     const dashboard = {
       period,
       sales: {
-        taxable: gstr1.totals.taxable,
-        igst: gstr1.totals.igst,
-        cgst: gstr1.totals.cgst,
-        sgst: gstr1.totals.sgst,
-        cess: gstr1.totals.cess,
+        taxable: gstr1.totals?.taxable || 0,
+        igst: gstr1.totals?.igst || 0,
+        cgst: gstr1.totals?.cgst || 0,
+        sgst: gstr1.totals?.sgst || 0,
+        cess: gstr1.totals?.cess || 0,
         total: salesTotal
       },
       purchases: {
-        taxable: gstr2b.totals.taxable,
-        igst: gstr2b.totals.igst,
-        cgst: gstr2b.totals.cgst,
-        sgst: gstr2b.totals.sgst,
-        cess: gstr2b.totals.cess,
+        taxable: gstr2b.totals?.taxable || 0,
+        igst: gstr2b.totals?.igst || 0,
+        cgst: gstr2b.totals?.cgst || 0,
+        sgst: gstr2b.totals?.sgst || 0,
+        cess: gstr2b.totals?.cess || 0,
         total: purchasesTotal
       },
       itc: {

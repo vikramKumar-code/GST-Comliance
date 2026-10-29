@@ -298,7 +298,17 @@ exports.getWorkspaces = async (req, res, next) => {
 exports.switchWorkspace = async (req, res, next) => {
   try {
     const { workspaceId } = req.body;
-    const userId = req.userId || req.session.userId;
+    let userId = req.userId || req.session?.userId || req.membership?.userId;
+
+    if (!userId && req.session) {
+      const user = await User.create({
+        name: req.username || (req.gstin ? `Taxpayer (${req.gstin.slice(0, 5)})` : 'User'),
+        authProvider: 'GSTIN_OTP'
+      });
+      userId = user._id;
+      req.session.userId = user._id;
+      await req.session.save();
+    }
 
     if (!userId) {
       throw ApiError.validationError('Workspace switching requires an authenticated user account.');
@@ -318,6 +328,7 @@ exports.switchWorkspace = async (req, res, next) => {
       _id: workspaceId,
       status: 'ACTIVE'
     });
+
 
     if (!workspace) {
       throw ApiError.notFound('Workspace not found or inactive.');
@@ -373,3 +384,173 @@ exports.getMe = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Update active workspace profile and link/update registered GSTIN
+ * POST /api/auth/workspace/link-gstin
+ */
+exports.linkGstin = async (req, res, next) => {
+  try {
+    const { gstin, name } = req.body;
+    const workspaceId = req.workspaceId;
+    const userId = req.userId || req.session?.userId;
+
+    if (!workspaceId) {
+      throw ApiError.validationError('No active workspace session found.');
+    }
+
+    if (req.workspaceRole && req.workspaceRole !== 'OWNER' && req.workspaceRole !== 'ADMIN') {
+      throw ApiError.forbidden('Only workspace Owner or Admin can link or modify the organization GSTIN.');
+    }
+
+    const normGstin = gstin.trim().toUpperCase();
+
+    // Check if another workspace already uses this GSTIN
+    const conflict = await Workspace.findOne({
+      gstin: normGstin,
+      _id: { $ne: workspaceId }
+    });
+    if (conflict) {
+      throw ApiError.conflict(`GSTIN ${normGstin} is already linked to another workspace (${conflict.name}).`);
+    }
+
+    const updateFields = { gstin: normGstin };
+    if (name && typeof name === 'string' && name.trim()) {
+      updateFields.name = name.trim();
+    }
+
+    const updatedWorkspace = await Workspace.findByIdAndUpdate(
+      workspaceId,
+      { $set: updateFields },
+      { new: true }
+    );
+
+    if (req.session) {
+      req.session.gstin = normGstin;
+      await req.session.save();
+    }
+
+    await AuditLog.create({
+      workspaceId,
+      userId,
+      gstin: normGstin,
+      action: 'LINK_GSTIN',
+      status: 'SUCCESS'
+    }).catch(() => {});
+
+    res.status(200).json({
+      success: true,
+      message: `GSTIN ${normGstin} linked to organization successfully.`,
+      workspace: {
+        id: updatedWorkspace._id,
+        name: updatedWorkspace.name,
+        gstin: updatedWorkspace.gstin,
+        role: req.workspaceRole || 'OWNER'
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Create a new workspace/organization for user
+ * POST /api/auth/workspace/create
+ */
+exports.createWorkspace = async (req, res, next) => {
+  try {
+    const { name, gstin } = req.body;
+    let userId = req.userId || req.session?.userId || req.membership?.userId;
+
+    if (!userId && req.session) {
+      const user = await User.create({
+        name: req.username || (req.gstin ? `Taxpayer (${req.gstin.slice(0, 5)})` : 'User'),
+        authProvider: 'GSTIN_OTP'
+      });
+      userId = user._id;
+      req.session.userId = user._id;
+      await req.session.save();
+    }
+
+    if (!userId) {
+      throw ApiError.validationError('Workspace creation requires an authenticated user account.');
+    }
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      throw ApiError.validationError('Organization name is required.');
+    }
+
+
+    let normGstin = undefined;
+    if (gstin && typeof gstin === 'string' && gstin.trim()) {
+      normGstin = gstin.trim().toUpperCase();
+      const { isValidGstin } = require('../utils/gstin');
+      if (!isValidGstin(normGstin)) {
+        throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+      }
+      const existing = await Workspace.findOne({ gstin: normGstin });
+      if (existing) {
+        throw ApiError.conflict('A workspace with this GSTIN already exists.');
+      }
+    }
+
+    const workspace = await Workspace.create({
+      name: name.trim(),
+      gstin: normGstin,
+      ownerUserId: userId,
+      status: 'ACTIVE'
+    });
+
+    const membership = await WorkspaceMember.create({
+      workspaceId: workspace._id,
+      userId,
+      role: 'OWNER',
+      status: 'ACTIVE'
+    });
+
+    // Auto-switch to newly created workspace
+    if (req.session) {
+      req.session.workspaceId = workspace._id;
+      req.session.memberId = membership._id;
+      req.session.gstin = workspace.gstin;
+      await req.session.save();
+    }
+
+    await AuditLog.create({
+      workspaceId: workspace._id,
+      userId,
+      action: 'CREATE_WORKSPACE',
+      status: 'SUCCESS'
+    }).catch(() => {});
+
+    res.status(201).json({
+      success: true,
+      message: `Organization "${workspace.name}" created successfully.`,
+      workspace: {
+        id: workspace._id,
+        name: workspace.name,
+        gstin: workspace.gstin,
+        role: 'OWNER'
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Switch or update active member role
+ * POST /api/auth/workspace/switch-role
+ */
+exports.switchRole = async (req, res, next) => {
+  try {
+    throw ApiError.forbidden(
+      'Role changes via UI or API are disabled for security. Workspace roles are strictly managed directly in the MongoDB database.'
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+

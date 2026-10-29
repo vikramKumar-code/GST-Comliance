@@ -10,6 +10,7 @@ import EmptyState from '../components/EmptyState';
 import { formatDate, formatPeriod } from '../utils/format';
 import Gstr1PrepareModal from '../components/Gstr1PrepareModal';
 import ItcReconciliationModal from '../components/ItcReconciliationModal';
+import NilReturnModal from '../components/NilReturnModal';
 
 export default function ReturnDetailPage() {
   const { type } = useParams();
@@ -25,6 +26,7 @@ export default function ReturnDetailPage() {
   const [isDataNotAvailable, setIsDataNotAvailable] = useState(false);
   const [isPrepareOpen, setIsPrepareOpen] = useState(false);
   const [isReconcileOpen, setIsReconcileOpen] = useState(false);
+  const [isNilModalOpen, setIsNilModalOpen] = useState(false);
 
   // Counter to ignore stale responses on fast period changes
   const requestIdRef = useRef(0);
@@ -120,8 +122,18 @@ export default function ReturnDetailPage() {
             Official line items, tax slabs, and liabilities for {formattedType}.
           </p>
         </div>
-        <div className="d-flex align-items-center gap-2">
+        <div className="d-flex align-items-center gap-2 flex-wrap">
           <PeriodSelector selectedPeriod={period} onPeriodChange={handlePeriodChange} />
+          {(formattedType === 'GSTR1' || formattedType === 'GSTR3B') && (
+            <button
+              type="button"
+              className="btn btn-outline-success btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
+              onClick={() => setIsNilModalOpen(true)}
+              title={`File Nil ${formattedType} return under CGST Rule 67A`}
+            >
+              <span>⚡ File Nil Return</span>
+            </button>
+          )}
           {formattedType === 'GSTR1' && (
             <button
               type="button"
@@ -164,6 +176,23 @@ export default function ReturnDetailPage() {
       </div>
 
       <div className="zoho-page-body">
+        {/* Nil Return Filed Banner */}
+        {returnData?.isNil && (
+          <div className="alert alert-success border border-success-subtle py-2.5 px-3.5 mb-4 rounded-3 d-flex align-items-center justify-content-between flex-wrap gap-2 shadow-xs">
+            <div className="d-flex align-items-center gap-2">
+              <span className="fs-5">✅</span>
+              <div>
+                <strong className="d-block text-dark">
+                  Nil {formattedType} Return Filed Successfully (CGST Rule 67A)
+                </strong>
+                <span className="text-secondary small">
+                  Application Reference Number (ARN): <strong className="font-monospace text-primary">{returnData.arn}</strong> • Status: <strong>FILED</strong> • Mode: {returnData.filingMode || 'ONLINE'}
+                </span>
+              </div>
+            </div>
+            <span className="badge bg-success font-monospace px-2.5 py-1.5">ARN: {returnData.arn}</span>
+          </div>
+        )}
         {/* Stale Cache Notice */}
         {isStale && returnData && (
           <div
@@ -175,6 +204,56 @@ export default function ReturnDetailPage() {
             <span>
               Showing cached return data from <strong>{formatDate(timestamp)}</strong>. Live GST service is currently unavailable.
             </span>
+          </div>
+        )}
+
+        {/* Workspace Unlinked Notice */}
+        {returnData?.unlinked && (
+          <div className="alert alert-info border border-info-subtle py-2.5 px-3 mb-4 rounded-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div className="d-flex align-items-center gap-2">
+              <span className="fs-5">ℹ️</span>
+              <div>
+                <strong className="d-block text-dark">Workspace GSTIN Unlinked</strong>
+                <span className="text-secondary small">
+                  This workspace has not linked a GSTIN yet. To download official returns from the GST Portal, link your GSTIN in Settings or sign in via GSTIN OTP.
+                </span>
+              </div>
+            </div>
+            {formattedType === 'GSTR1' && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-primary fw-semibold"
+                onClick={() => setIsPrepareOpen(true)}
+              >
+                📋 Prepare GSTR-1 from Invoices
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Empty Line Items Notice */}
+        {!loading && returnData && !returnData.unlinked && (returnData.rows?.length === 0) && (
+          <div className="alert alert-light border py-2.5 px-3 mb-4 rounded-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div className="d-flex align-items-center gap-2">
+              <span className="fs-5">📋</span>
+              <div>
+                <strong className="d-block text-dark">No Return Records for {formatPeriod(period)}</strong>
+                <span className="text-muted small">
+                  {formattedType === 'GSTR1'
+                    ? 'No line items saved for this period yet. Create Sales Invoices and click "Prepare GSTR-1" to generate, or click "Fetch Return" to sync from the GST portal.'
+                    : 'No return line items found for this period. Click "Fetch Return" to sync directly from the GST portal.'}
+                </span>
+              </div>
+            </div>
+            {formattedType === 'GSTR1' && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary fw-semibold"
+                onClick={() => setIsPrepareOpen(true)}
+              >
+                📋 Prepare GSTR-1
+              </button>
+            )}
           </div>
         )}
 
@@ -232,6 +311,7 @@ export default function ReturnDetailPage() {
           isOpen={isPrepareOpen}
           onClose={() => setIsPrepareOpen(false)}
           period={period}
+          onOpenNilModal={() => setIsNilModalOpen(true)}
         />
       )}
 
@@ -242,6 +322,14 @@ export default function ReturnDetailPage() {
           initialPeriod={period}
         />
       )}
+
+      <NilReturnModal
+        isOpen={isNilModalOpen}
+        onClose={() => setIsNilModalOpen(false)}
+        initialPeriod={period}
+        initialType={formattedType}
+        onSuccess={() => executeFetch(type, period)}
+      />
     </div>
   );
 }

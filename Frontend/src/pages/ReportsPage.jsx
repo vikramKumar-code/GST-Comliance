@@ -13,17 +13,21 @@ function downloadCsv(filename, headers, rows) {
   const csvContent = [
     headers.map(escapeCsv).join(','),
     ...rows.map((row) => row.map(escapeCsv).join(','))
-  ].join('\n');
+  ].join('\r\n');
 
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
   link.setAttribute('download', filename);
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    if (link.parentNode) {
+      document.body.removeChild(link);
+    }
+    URL.revokeObjectURL(url);
+  }, 1500);
 }
 
 export default function ReportsPage() {

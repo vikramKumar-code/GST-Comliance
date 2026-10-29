@@ -14,9 +14,9 @@ const { decrypt } = require('../utils/crypto');
  */
 const auth = async (req, res, next) => {
   try {
-    const token = req.cookies?.sid;
+    const token = req.cookies?.sid || req.headers?.authorization?.replace(/^Bearer\s+/i, '') || req.query?.token;
     if (!token) {
-      throw ApiError.sessionExpired('Authentication required. No session cookie found.');
+      throw ApiError.sessionExpired('Authentication required. No session cookie or token found.');
     }
 
     let decoded;
@@ -62,17 +62,19 @@ const auth = async (req, res, next) => {
     }
 
     // Attach active session, user, and taxpayer context to the request object
+    const targetUserId = session.userId || membership?.userId || null;
     let user = null;
-    if (session.userId) {
-      user = await User.findById(session.userId).catch(() => null);
+    if (targetUserId) {
+      user = await User.findById(targetUserId).catch(() => null);
     }
 
     req.session = session;
     req.user = user;
-    req.userId = session.userId || user?._id || null;
+    req.userId = targetUserId || user?._id || null;
     req.gstin = session.gstin;
     req.username = session.username;
     req.workspaceId = session.workspaceId || null;
+
     req.membership = membership;
     // Legacy sessions remain scoped to their verified GSTIN and keep read access.
     req.workspaceRole = membership?.role || 'MEMBER';

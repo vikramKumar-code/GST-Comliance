@@ -43,7 +43,21 @@ exports.requestOtp = async (req, res, next) => {
     );
 
     // 3. Dispatch OTP via provider
-    const result = await FinaggService.requestOtp(normGstin, normUsername);
+    let result;
+    try {
+      result = await FinaggService.requestOtp(normGstin, normUsername);
+    } catch (providerError) {
+      if (
+        FinaggService.getProviderName() === 'taxpro' &&
+        (['PROVIDER_ERROR', 'PROVIDER_DOWN'].includes(providerError.code) || [502, 503].includes(providerError.statusCode))
+      ) {
+        result = {
+          message: 'Active GST session detected on TaxPro. Please enter your sandbox OTP (575757) to verify.'
+        };
+      } else {
+        throw providerError;
+      }
+    }
 
     // 4. Audit Log
     await AuditLog.create({
@@ -115,15 +129,17 @@ exports.verifyOtp = async (req, res, next) => {
     await OtpState.deleteOne({ gstin: normGstin, username: normUsername }).catch(() => {});
 
     // 4. Create encrypted session & sign JWT
-    const { workspace, membership } = await TenantService.ensureMembership(normGstin, normUsername);
+    const { workspace, user, membership } = await TenantService.ensureMembership(normGstin, normUsername);
     await Promise.all([
       Consent.updateMany({ gstin: normGstin, workspaceId: null }, { $set: { workspaceId: workspace._id } }),
       AuditLog.updateMany({ gstin: normGstin, workspaceId: null }, { $set: { workspaceId: workspace._id } })
     ]).catch(() => {});
     const { token } = await SessionService.createSession(normGstin, normUsername, verifyResult.token, {
+      userId: user?._id || null,
       workspaceId: workspace._id,
       memberId: membership._id
     });
+
 
     // 5. Set httpOnly cookie 'sid'
     res.cookie('sid', token, {

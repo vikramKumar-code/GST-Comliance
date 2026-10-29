@@ -63,7 +63,7 @@ export default function SignupPage() {
               style={{
                 width: '44px',
                 height: '44px',
-                background: 'linear-gradient(135deg, #1fa689 0%, #116957 100%)',
+                background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
                 fontSize: '1.2rem',
                 border: '1px solid rgba(255, 255, 255, 0.25)'
               }}
@@ -190,19 +190,24 @@ export default function SignupPage() {
         {/* Center Auth Form Container */}
         <div className="auth-form-container my-auto py-4">
           {/* Mobile Brand Indicator */}
-          <div className="d-flex d-lg-none align-items-center gap-2 mb-4">
-            <span
-              className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow-sm"
-              style={{
-                width: '38px',
-                height: '38px',
-                background: 'linear-gradient(135deg, #116957 0%, #0d5345 100%)',
-                fontSize: '1rem'
-              }}
-            >
-              CT
+          <div className="d-flex d-lg-none align-items-center justify-content-between mb-4">
+            <div className="d-flex align-items-center gap-2">
+              <span
+                className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow-xs"
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
+                  fontSize: '1rem'
+                }}
+              >
+                CT
+              </span>
+              <span className="fs-4 fw-bold text-dark tracking-tight">CandidTax</span>
+            </div>
+            <span className="badge bg-success-subtle text-success border border-success-subtle small fw-semibold">
+              14-Day Free Trial
             </span>
-            <span className="fs-4 fw-bold text-dark tracking-tight">CandidTax</span>
           </div>
 
           <div className="mb-4">
