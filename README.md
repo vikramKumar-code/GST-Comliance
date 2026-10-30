@@ -21,8 +21,7 @@
 9. [Security, Encryption & Statutory Compliance](#-security-encryption--statutory-compliance)
 10. [Local Development & Setup Guide](#-local-development--setup-guide)
 11. [Automated Testing Suite (14/14 Suites)](#-automated-testing-suite)
-12. [Troubleshooting & FAQ](#-troubleshooting--faq)
-13. [License & Attribution](#-license--attribution)
+12. [License & Attribution](#-license--attribution)
 
 ---
 
@@ -659,22 +658,6 @@ npm run test:all
 12. **`test-einvoice`**: Validates NIC Schema v1.1 compliance, SHA-256 IRN hashing, and cancellation rules.
 13. **`test-nil-return`**: Validates CGST Rule 67A statutory compliance and ARN receipt generation.
 14. **`test:e2e`**: End-to-end integration test against an isolated test server instance.
-
----
-
-## ❓ Troubleshooting & FAQ
-
-### Q1: Why does the GST Portal return `RET01203: GSTIN in request doesnt match with session`?
-**Cause**: The Government GST Portal requires taxpayers to whitelist the GSP and ASP before API requests are permitted.  
-**Resolution**:
-1. Log in to the official [GST Portal](https://services.gst.gov.in).
-2. Go to **My Profile > Manage API Access**.
-3. Set **Enable API Access** to **Yes**.
-4. Whitelist **GSP**: *Chartered Information Systems Private Limited* and **ASP**: *Chartered Information - TaxPro ASP*.
-5. Set duration to **30 days** and save.
-
-### Q2: How do I switch back to local mock data without live GST credentials?
-Set `PROVIDER=mock` and `USE_MOCK=true` in `Backend/.env`. The backend will automatically simulate all GSTN and NIC operations locally with realistic sample data.
 
 ---
 
