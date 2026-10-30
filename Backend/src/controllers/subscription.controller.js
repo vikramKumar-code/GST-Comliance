@@ -155,11 +155,41 @@ exports.verifyPayment = async (req, res, next) => {
     const workspaceId = await resolveWorkspaceId(req);
     if (!workspaceId) throw ApiError.unauthorized('Workspace context is required.');
 
-    const { planId, billingCycle = 'MONTHLY', paymentId, orderId } = req.body;
+    const { planId, billingCycle = 'MONTHLY', paymentId, orderId, signature } = req.body;
     const plan = PLANS_CATALOG.find((p) => p.id === planId);
-    if (!plan) throw ApiError.validationError('Invalid plan ID.');
+    if (!plan || plan.id === 'FREE') throw ApiError.validationError('Invalid plan ID.');
 
-    const finalPaymentId = paymentId || `pay_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    if (!paymentId || !orderId) {
+      throw ApiError.validationError('Both paymentId and orderId are required for payment verification.');
+    }
+
+    const ws = await Workspace.findById(workspaceId);
+    if (!ws) throw ApiError.notFound('Workspace not found.');
+
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (secret && secret !== 'your_secret_key_here') {
+      if (!signature) {
+        throw ApiError.validationError('Payment signature is required.');
+      }
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(`${orderId}|${paymentId}`)
+        .digest('hex');
+
+      const sigBuffer = Buffer.from(signature);
+      const expectedBuffer = Buffer.from(expectedSignature);
+      if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+        throw ApiError.validationError('Payment verification failed: invalid signature.');
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      throw ApiError.serverError('Payment gateway secret is not configured in production.');
+    } else {
+      // In dev/test when secret is not configured, verify that orderId matches active workspace order
+      if (ws.subscription?.orderId && ws.subscription.orderId !== orderId) {
+        throw ApiError.validationError('orderId does not match current pending workspace order.');
+      }
+    }
+
     const daysToAdd = billingCycle === 'YEARLY' ? 365 : 30;
     const validUntil = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
 
@@ -171,8 +201,8 @@ exports.verifyPayment = async (req, res, next) => {
           'subscription.status': 'ACTIVE',
           'subscription.billingCycle': billingCycle,
           'subscription.validUntil': validUntil,
-          'subscription.paymentId': finalPaymentId,
-          'subscription.orderId': orderId || ''
+          'subscription.paymentId': paymentId,
+          'subscription.orderId': orderId
         }
       },
       { new: true }

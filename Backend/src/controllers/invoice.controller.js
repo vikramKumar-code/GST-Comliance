@@ -1,7 +1,7 @@
 const Invoice = require('../models/Invoice');
 const ApiError = require('../utils/apiError');
 const { calculateInvoiceTotals, extractStateCode } = require('../utils/taxCalculator');
-const { resolveWorkspaceId } = require('../utils/workspaceHelper');
+const { resolveWorkspaceId, escapeRegex } = require('../utils/workspaceHelper');
 const { isValidGstin } = require('../utils/gstin');
 const einvoiceService = require('../services/einvoice.service');
 
@@ -15,7 +15,7 @@ async function generateNextInvoiceNumber(workspaceId) {
   
   const lastInvoice = await Invoice.findOne({
     workspaceId,
-    invoiceNumber: new RegExp(`^${prefix}`)
+    invoiceNumber: new RegExp(`^${escapeRegex(prefix)}`)
   }).sort({ invoiceNumber: -1 }).lean();
 
   let nextSeq = 1;
@@ -38,8 +38,8 @@ exports.listInvoices = async (req, res, next) => {
     const { status, customerId, startDate, endDate, q, page = 1, limit = 50 } = req.query;
     const filter = { workspaceId };
 
-    if (status) filter.status = status;
-    if (customerId) filter.customerId = customerId;
+    if (status) filter.status = String(status).trim();
+    if (customerId) filter.customerId = String(customerId).trim();
 
     if (startDate || endDate) {
       filter.invoiceDate = {};
@@ -48,7 +48,8 @@ exports.listInvoices = async (req, res, next) => {
     }
 
     if (q) {
-      const regex = new RegExp(String(q).trim(), 'i');
+      const escaped = escapeRegex(String(q).trim());
+      const regex = new RegExp(escaped, 'i');
       filter.$or = [
         { invoiceNumber: regex },
         { customerName: regex },

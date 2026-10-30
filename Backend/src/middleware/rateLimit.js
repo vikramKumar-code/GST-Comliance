@@ -54,9 +54,25 @@ const apiLimiter = rateLimit({
   }
 });
 
+/**
+ * Authentication credential limiter
+ * Limits login and registration attempts to 15 per 15 minutes per IP
+ */
+const authLimiter = rateLimit({
+  store: new MongoRateLimitStore('auth-credentials'),
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res, next) => {
+    next(ApiError.rateLimited('Too many authentication attempts from this IP. Please try again after 15 minutes.'));
+  }
+});
+
 module.exports = {
   otpLimiter,
   otpVerifyLimiter,
   apiLimiter,
-  contactLimiter
+  contactLimiter,
+  authLimiter
 };

@@ -19,7 +19,7 @@
 7. [Database Schema & Data Models](#-database-schema--data-models)
 8. [API Endpoints Reference](#-api-endpoints-reference)
 9. [Local Development & Setup Guide](#-local-development--setup-guide)
-10. [Automated Testing Suite (14/14 Suites)](#-automated-testing-suite)
+10. [Automated Testing Suite (15/15 Suites)](#-automated-testing-suite)
 11. [License & Attribution](#-license--attribution)
 
 ---
@@ -630,14 +630,14 @@ Visit **`http://localhost:5173`** in your browser.
 
 ## 🧪 Automated Testing Suite
 
-The repository contains an automated offline and mock-integration testing framework covering **14 test suites**:
+The repository contains an automated offline and mock-integration testing framework covering **15 test suites**:
 
 ```bash
 cd Backend
 npm run test:all
 ```
 
-### Test Suite Coverage (14/14 Suites Passing):
+### Test Suite Coverage (15/15 Suites Passing):
 
 1. **`test-config`**: Validates fail-closed production assertions, RSA keys, and environment parsing.
 2. **`test-middleware`**: Validates rate-limiting, error handling, session cookies, and request validation.
@@ -652,7 +652,8 @@ npm run test:all
 11. **`test-user-auth`**: Asserts bcrypt password hashing, Google token provisioning, and workspace switches.
 12. **`test-einvoice`**: Validates NIC Schema v1.1 compliance, SHA-256 IRN hashing, and cancellation rules.
 13. **`test-nil-return`**: Validates CGST Rule 67A statutory compliance and ARN receipt generation.
-14. **`test:e2e`**: End-to-end integration test against an isolated test server instance.
+14. **`test-security`**: Validates protection against OAuth token bypass, URL token leakage, and ReDoS regex attacks.
+15. **`test:e2e`**: End-to-end integration test against an isolated test server instance.
 
 ---
 

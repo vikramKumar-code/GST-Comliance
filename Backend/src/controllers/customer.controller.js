@@ -1,6 +1,6 @@
 const Customer = require('../models/Customer');
 const ApiError = require('../utils/apiError');
-const { resolveWorkspaceId } = require('../utils/workspaceHelper');
+const { resolveWorkspaceId, escapeRegex } = require('../utils/workspaceHelper');
 
 exports.listCustomers = async (req, res, next) => {
   try {
@@ -11,11 +11,12 @@ exports.listCustomers = async (req, res, next) => {
     const filter = { workspaceId };
 
     if (status) {
-      filter.status = status;
+      filter.status = String(status).trim();
     }
 
     if (q) {
-      const regex = new RegExp(String(q).trim(), 'i');
+      const escaped = escapeRegex(String(q).trim());
+      const regex = new RegExp(escaped, 'i');
       filter.$or = [
         { name: regex },
         { companyName: regex },

@@ -61,6 +61,10 @@ const SUITES = [
     args: [path.join(__dirname, 'test-nil-return.js')]
   },
   {
+    name: 'test-security',
+    args: [path.join(__dirname, 'test-security.js')]
+  },
+  {
     name: 'test:e2e',
     args: [path.join(__dirname, 'run-e2e.js')]
   }

@@ -14,7 +14,7 @@ const { decrypt } = require('../utils/crypto');
  */
 const auth = async (req, res, next) => {
   try {
-    const token = req.cookies?.sid || req.headers?.authorization?.replace(/^Bearer\s+/i, '') || req.query?.token;
+    const token = req.cookies?.sid || req.headers?.authorization?.replace(/^Bearer\s+/i, '');
     if (!token) {
       throw ApiError.sessionExpired('Authentication required. No session cookie or token found.');
     }

@@ -1,6 +1,6 @@
 const Bill = require('../models/Bill');
 const ApiError = require('../utils/apiError');
-const { resolveWorkspaceId } = require('../utils/workspaceHelper');
+const { resolveWorkspaceId, escapeRegex } = require('../utils/workspaceHelper');
 
 exports.listBills = async (req, res, next) => {
   try {
@@ -10,8 +10,8 @@ exports.listBills = async (req, res, next) => {
     const { category, status, startDate, endDate, q, page = 1, limit = 50 } = req.query;
     const filter = { workspaceId };
 
-    if (category) filter.category = category;
-    if (status) filter.status = status;
+    if (category) filter.category = String(category).trim();
+    if (status) filter.status = String(status).trim();
 
     if (startDate || endDate) {
       filter.billDate = {};
@@ -20,7 +20,8 @@ exports.listBills = async (req, res, next) => {
     }
 
     if (q) {
-      const regex = new RegExp(String(q).trim(), 'i');
+      const escaped = escapeRegex(String(q).trim());
+      const regex = new RegExp(escaped, 'i');
       filter.$or = [
         { billNumber: regex },
         { vendorName: regex },

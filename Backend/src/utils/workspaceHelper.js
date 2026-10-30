@@ -23,7 +23,12 @@ async function resolveWorkspaceId(req) {
   return null;
 }
 
+function escapeRegex(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 module.exports = {
-  resolveWorkspaceId
+  resolveWorkspaceId,
+  escapeRegex
 };
 

@@ -51,6 +51,15 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // 4. Mongoose CastError (Malformed ObjectIds)
+  if (err.name === 'CastError') {
+    return res.status(400).json({
+      success: false,
+      code: 'VALIDATION_ERROR',
+      message: `Invalid format for resource identifier.`
+    });
+  }
+
   // 4. Unhandled Server Errors (Status 500)
   // Per Section 11 & TAXPRO_ADDENDUM: Errors with status 500 return a generic message; internal details and URLs are not logged.
   logger.error('Unhandled Server Error', { name: err.name });

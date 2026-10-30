@@ -160,8 +160,8 @@ exports.googleAuth = async (req, res, next) => {
       });
       payload = ticket.getPayload();
     } else {
-      // Testing / Sandbox support without external Google client ID credentials
-      if (process.env.NODE_ENV === 'test' || idToken.startsWith('mock-google-token:')) {
+      // Testing support strictly when NODE_ENV === 'test'
+      if (process.env.NODE_ENV === 'test' && idToken.startsWith('mock-google-token:')) {
         const parts = idToken.split(':');
         payload = {
           sub: parts[1] || 'google-test-id-12345',
@@ -170,9 +170,7 @@ exports.googleAuth = async (req, res, next) => {
           picture: null
         };
       } else {
-        const client = new OAuth2Client();
-        const ticket = await client.verifyIdToken({ idToken });
-        payload = ticket.getPayload();
+        throw ApiError.serverError('Google OAuth is not configured on this server.');
       }
     }
 

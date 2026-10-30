@@ -1,6 +1,6 @@
 const Item = require('../models/Item');
 const ApiError = require('../utils/apiError');
-const { resolveWorkspaceId } = require('../utils/workspaceHelper');
+const { resolveWorkspaceId, escapeRegex } = require('../utils/workspaceHelper');
 
 exports.listItems = async (req, res, next) => {
   try {
@@ -10,11 +10,12 @@ exports.listItems = async (req, res, next) => {
     const { q, type, status } = req.query;
     const filter = { workspaceId };
 
-    if (type) filter.type = type;
-    if (status) filter.status = status;
+    if (type) filter.type = String(type).trim();
+    if (status) filter.status = String(status).trim();
 
     if (q) {
-      const regex = new RegExp(String(q).trim(), 'i');
+      const escaped = escapeRegex(String(q).trim());
+      const regex = new RegExp(escaped, 'i');
       filter.$or = [
         { name: regex },
         { hsnSac: regex },
