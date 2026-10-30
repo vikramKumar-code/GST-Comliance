@@ -54,6 +54,9 @@ function mapTaxProErrorCode(errorCd) {
   if (errorCd === 'AUTH4037') {
     return ApiError.validationError('Portal user is not registered with this GSTIN. Please check your portal username and GSTIN.');
   }
+  if (errorCd === 'RET01203' || errorCd === 'RET2B1013' || errorCd === 'RT-3BGV1003') {
+    return ApiError.validationError('GST Portal Error: The username does not match or is not authorized for this GSTIN on the portal. Please ensure API Access is enabled under My Profile > Manage API Access on gst.gov.in.');
+  }
   if (['GSP014', 'GSP018', 'GSP020', 'GSP020A', 'GSP021', 'GSP022', 'GSP023', 'GSP024', 'GSP024A', 'GSP061'].includes(errorCd)) {
     return ApiError.providerAuth('Could not complete the request. Please try again.');
   }
@@ -154,6 +157,28 @@ function checkTaxProResponse(data, operation) {
   }
 
   if (data.status_cd !== '1') {
+    if (
+      (data.gstin && data.lgnm) ||
+      Array.isArray(data.EFiledlist) ||
+      Array.isArray(data.b2b) ||
+      Array.isArray(data.sec_sum) ||
+      Array.isArray(data.b2cs) ||
+      Array.isArray(data.cdnr) ||
+      Array.isArray(data.exp) ||
+      Array.isArray(data.hsn) ||
+      data.sup_details ||
+      data.itc_elg ||
+      data.inter_sup ||
+      data.inward_sup ||
+      data.docdata ||
+      data.data ||
+      data.itcsumm ||
+      Array.isArray(data.itc_categories) ||
+      Array.isArray(data.sections) ||
+      (data.status_cd === undefined && !data.error && operation && operation.startsWith('getReturn'))
+    ) {
+      return data;
+    }
     // Do not put data.status_cd into any log message. Log a fixed message plus typeof data.status_cd.
     logger.error(`TaxPro returned unexpected status_cd during [${operation}] (type: ${typeof data.status_cd})`, {
       code: 'PROVIDER_ERROR',
@@ -206,7 +231,7 @@ class TaxProProvider {
     if (!['header', 'query', 'both'].includes(this.periodPlacement)) {
       throw new Error('TAXPRO_PERIOD_PLACEMENT must be header, query, or both');
     }
-    this.gstr1ActionRequired = (options.gstr1ActionRequired || process.env.TAXPRO_GSTR1_ACTION_REQUIRED || '').trim().toUpperCase();
+    this.gstr1ActionRequired = (options.gstr1ActionRequired !== undefined ? options.gstr1ActionRequired : (process.env.TAXPRO_GSTR1_ACTION_REQUIRED || '')).trim().toUpperCase();
 
     // Injectable HTTP client for network-free testing
     this.httpClient = options.httpClient || axios.create({
@@ -265,7 +290,7 @@ class TaxProProvider {
     return {
       gstin: gstin.toUpperCase(),
       legalName: response.lgnm,
-      tradeName: null,
+      tradeName: typeof response.tradeNam === 'string' ? response.tradeNam : (response.tradeName || null),
       status: typeof response.sts === 'string' ? response.sts : null,
       businessType: typeof response.ctb === 'string' ? response.ctb : null,
       registeredDate: typeof response.rgdt === 'string' ? response.rgdt : null,
@@ -562,6 +587,10 @@ class TaxProProvider {
    * Uses headers for ASP credentials and taxpayer auth token to avoid putting them in URLs.
    */
   async getReturn(type, gstin, period, token, username = '') {
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      throw ApiError.sessionExpired('Please verify OTP again to fetch live GST returns.');
+    }
+
     const normType = (type || '').toUpperCase();
     let path;
     let action;
@@ -606,12 +635,6 @@ class TaxProProvider {
         break;
 
       case 'GSTR2B':
-        // TaxPro GSTR-2B v4.2 GET2B endpoint.
-        // Optional parameters: 'typ' (section/type) and 'file_num' (chunking/pagination) are documented
-        // in TaxPro UCL docs but omitted here until supported values and pagination thresholds are confirmed.
-        // Companion APIs: GEN2B (PUT /taxpayerapi/dec/v4.1/returns/gstr2b) and GENSTS2B
-        // (GET /taxpayerapi/dec/v4.1/returns/gstr2b) provide on-demand generation and tracking (e.g. on RET2B1023),
-        // but remain unintegrated pending provider confirmation on parameter placement (query vs JSON body).
         path = this.apiProfile === 'current'
           ? '/taxpayerapi/dec/v4.2/returns/gstr2b'
           : '/taxpayerapi/dec/v1.0/returns/gstr2b';
@@ -674,6 +697,24 @@ class TaxProProvider {
       const data = checkTaxProResponse(response.data, `getReturn:${normType}`);
       return data;
     } catch (error) {
+      if (normType === 'GSTR1' && action === 'B2B') {
+        const errorCd = error.response?.data?.error?.error_cd;
+        if (errorCd === 'RET13509' || errorCd === 'RET13510') {
+          // No B2B invoices found for period; try fetching GSTR-1 summary (RETSUM)
+          try {
+            const sumParams = { ...params, action: 'RETSUM' };
+            logger.debug(`TaxPro GSTR-1 B2B empty (${errorCd}); attempting RETSUM`);
+            const sumRes = await this.httpClient.get(path, { params: sumParams, headers });
+            const sumData = checkTaxProResponse(sumRes.data, `getReturn:${normType}:RETSUM`);
+            return sumData;
+          } catch (sumErr) {
+            const sumErrorCd = sumErr.response?.data?.error?.error_cd;
+            if (sumErrorCd === 'RET13509' || sumErrorCd === 'RET13510') {
+              return { gstin, fp: period, b2b: [], sec_sum: [] };
+            }
+          }
+        }
+      }
       throw handleTaxProError(error, `getReturn:${normType}`);
     }
   }

@@ -323,70 +323,75 @@ export default function Layout({ children }) {
             <WorkspaceDropdown />
           </div>
 
-          <div className="d-flex align-items-center gap-2.5">
+          <div className="d-flex align-items-center gap-3 gap-lg-3.5">
             <Link
               to="/pricing"
-              className="btn btn-sm btn-outline-success d-none d-sm-flex align-items-center gap-1.5 py-1 px-2.5 rounded-pill shadow-xs text-decoration-none"
-              title="View Subscription & Plans"
+              className="ct-topbar-upgrade-btn d-none d-sm-inline-flex"
+              title="View Subscription & Upgrade Plan"
             >
-              <span>⭐</span>
-              <span className="fw-semibold" style={{ fontSize: '0.78rem' }}>Upgrade Plan</span>
+              <span className="star-icon">⭐</span>
+              <span>Upgrade Plan</span>
             </Link>
 
             {/* Quick Action + New */}
             <div className="position-relative" ref={quickActionRef}>
               <button
-                className="btn btn-primary btn-sm px-3 shadow-xs"
+                className="ct-topbar-new-btn"
                 type="button"
                 id="quickActionDropdown"
                 onClick={() => setQuickActionOpen(!quickActionOpen)}
                 aria-expanded={quickActionOpen}
               >
-                + New
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>New</span>
+                <span className="chevron-icon" style={{ transform: quickActionOpen ? 'rotate(180deg)' : 'none' }}>▼</span>
               </button>
               {quickActionOpen && (
                 <ul
-                  className="dropdown-menu dropdown-menu-end shadow-lg show position-absolute end-0 mt-1 py-1 rounded-3 border"
-                  style={{ minWidth: '190px', zIndex: 1050, borderColor: '#e2e8f0' }}
+                  className="dropdown-menu dropdown-menu-end shadow-lg show position-absolute end-0 mt-2 py-1.5 rounded-3 border"
+                  style={{ minWidth: '200px', zIndex: 1050, borderColor: '#e2e8f0' }}
                   aria-labelledby="quickActionDropdown"
                 >
                   <li>
                     <Link
                       to="/sales/invoices?action=new"
-                      className="dropdown-item py-2 px-3 small d-flex align-items-center gap-2"
+                      className="dropdown-item py-2 px-3 small d-flex align-items-center gap-2.5"
                       onClick={() => setQuickActionOpen(false)}
                     >
-                      <span>📄</span>
+                      <span style={{ fontSize: '1.05rem' }}>📄</span>
                       <span className="fw-medium">New Invoice</span>
                     </Link>
                   </li>
                   <li>
                     <Link
                       to="/purchases/bills?action=new"
-                      className="dropdown-item py-2 px-3 small d-flex align-items-center gap-2"
+                      className="dropdown-item py-2 px-3 small d-flex align-items-center gap-2.5"
                       onClick={() => setQuickActionOpen(false)}
                     >
-                      <span>🧾</span>
+                      <span style={{ fontSize: '1.05rem' }}>🧾</span>
                       <span className="fw-medium">New Purchase Bill</span>
                     </Link>
                   </li>
                   <li>
                     <Link
                       to="/customers?action=new"
-                      className="dropdown-item py-2 px-3 small d-flex align-items-center gap-2"
+                      className="dropdown-item py-2 px-3 small d-flex align-items-center gap-2.5"
                       onClick={() => setQuickActionOpen(false)}
                     >
-                      <span>👥</span>
+                      <span style={{ fontSize: '1.05rem' }}>👥</span>
                       <span className="fw-medium">New Customer</span>
                     </Link>
                   </li>
                   <li>
                     <Link
                       to="/items?action=new"
-                      className="dropdown-item py-2 px-3 small d-flex align-items-center gap-2"
+                      className="dropdown-item py-2 px-3 small d-flex align-items-center gap-2.5"
                       onClick={() => setQuickActionOpen(false)}
                     >
-                      <span>📦</span>
+                      <span style={{ fontSize: '1.05rem' }}>📦</span>
                       <span className="fw-medium">New Item / Service</span>
                     </Link>
                   </li>
@@ -397,49 +402,45 @@ export default function Layout({ children }) {
             {/* Health Status Indicator */}
             <button
               type="button"
-              className="btn btn-sm btn-light border d-flex align-items-center gap-1.5 py-1 px-2.5 rounded-pill shadow-xs"
+              className="ct-topbar-health-btn"
               onClick={runHealth}
               disabled={health.checking}
               title={`Backend Connection: ${health.ok ? 'Online' : 'Checking'}${health.latency ? ` (${health.latency}ms)` : ''}`}
-              style={{ fontSize: '0.74rem', borderColor: '#e2e8f0', minHeight: '34px' }}
             >
               <span
                 className={`rounded-circle d-inline-block ${
                   health.ok === true ? 'bg-success' : health.ok === false ? 'bg-danger' : 'bg-warning'
                 }`}
-                style={{ width: '7px', height: '7px' }}
+                style={{ width: '8px', height: '8px' }}
               />
-              <span className="fw-medium text-secondary d-none d-sm-inline">{health.ok ? 'Online' : 'Checking'}</span>
+              <span className="fw-medium d-none d-sm-inline">{health.ok ? 'Online' : 'Checking'}</span>
             </button>
 
             {/* User Profile & Logout */}
-            <div className="d-flex align-items-center gap-2 ps-2 border-start" style={{ borderColor: '#e2e8f0' }}>
+            <div className="d-flex align-items-center gap-2.5 ps-3 ms-1 border-start" style={{ borderColor: '#e2e8f0' }}>
               <div
-                className="d-flex align-items-center gap-1.5 cursor-pointer"
+                className="ct-topbar-user-capsule"
                 title={user?.email || userName}
               >
-                <span
-                  className="rounded-circle text-white d-flex align-items-center justify-content-center fw-bold shadow-xs"
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    fontSize: '0.8rem',
-                    background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)'
-                  }}
-                >
+                <span className="ct-topbar-user-avatar">
                   {userInitial}
                 </span>
-                <span className="small fw-semibold text-dark text-truncate d-none d-md-inline" style={{ maxWidth: '120px' }}>
+                <span className="ct-topbar-user-name d-none d-md-inline">
                   {userName}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="btn btn-outline-danger btn-sm py-1 px-2.5 rounded-2"
-                style={{ fontSize: '0.78rem', minHeight: '34px' }}
+                className="ct-topbar-logout-btn"
+                title="Sign out of CandidTax"
               >
-                Logout
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                <span>Logout</span>
               </button>
             </div>
           </div>

@@ -454,9 +454,6 @@ class ReturnService {
 
       return mapped;
     } catch (error) {
-      if (error.code === 'SESSION_EXPIRED' && options.sessionId) {
-        await Session.findByIdAndUpdate(options.sessionId, { $set: { gstTokenEnc: null } }).catch(() => {});
-      }
       // If provider is down or upstream error occurs, check for cached copy in MongoDB
       if (
         error.code === 'PROVIDER_DOWN' ||
@@ -479,12 +476,16 @@ class ReturnService {
           }
         }
 
-        // When upstream portal has no return filed or returns error, synthesize GSTR-1 from workspace sales invoices
+        // When upstream portal has error and workspace has recorded sales invoices, synthesize GSTR-1 from local invoices
         if (normType === 'GSTR1' && options.workspaceId) {
           try {
             const Gstr1Service = require('./gstr1.service');
             const prepared = await Gstr1Service.preparePayload(options.workspaceId, normGstin, period);
-            if (prepared && prepared.payload) {
+            const hasLocalInvoices = prepared?.payload && (
+              (Array.isArray(prepared.payload.b2b) && prepared.payload.b2b.length > 0) ||
+              (Array.isArray(prepared.payload.b2cs) && prepared.payload.b2cs.length > 0)
+            );
+            if (hasLocalInvoices) {
               const mapped = ReturnService.mapGstr1(prepared.payload, period);
               return {
                 ...mapped,
@@ -576,9 +577,6 @@ class ReturnService {
         }
       }
     } catch (error) {
-      if (error.code === 'SESSION_EXPIRED' && options.sessionId) {
-        await Session.findByIdAndUpdate(options.sessionId, { $set: { gstTokenEnc: null } }).catch(() => {});
-      }
       if (
         error.code === 'PROVIDER_DOWN' ||
         error.statusCode === 503 ||

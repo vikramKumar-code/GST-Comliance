@@ -858,5 +858,345 @@ body {
       margin: 8mm 6mm;
     }
   }
+}
 
+/* ==========================================================================
+   Modern Table Action Buttons & Badges (CandidTax UI)
+   ========================================================================== */
+
+.ct-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: nowrap;
+}
+
+.ct-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.38rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background-color: transparent;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ct-action-btn:focus-visible {
+  outline: 2px solid var(--primary-accent);
+  outline-offset: 2px;
+}
+
+/* 1. View / Preview Button */
+.ct-action-btn-view {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+.ct-action-btn-view:hover {
+  background: #15803d;
+  color: #ffffff;
+  border-color: #15803d;
+  box-shadow: 0 4px 12px -2px rgba(21, 128, 61, 0.35);
+  transform: translateY(-1px);
+}
+.ct-action-btn-view:active {
+  transform: translateY(0);
+}
+
+/* 2. Edit Button */
+.ct-action-btn-edit {
+  background: #f8fafc;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+.ct-action-btn-edit:hover {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+  box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.25);
+  transform: translateY(-1px);
+}
+.ct-action-btn-edit:active {
+  transform: translateY(0);
+}
+
+/* 3. Mark Paid Button */
+.ct-action-btn-paid {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+.ct-action-btn-paid:hover {
+  background: #059669;
+  color: #ffffff;
+  border-color: #059669;
+  box-shadow: 0 4px 12px -2px rgba(5, 150, 105, 0.35);
+  transform: translateY(-1px);
+}
+.ct-action-btn-paid:active {
+  transform: translateY(0);
+}
+
+/* 4. Delete Button */
+.ct-action-btn-delete {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+  padding: 0.38rem 0.55rem;
+}
+.ct-action-btn-delete:hover {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
+  box-shadow: 0 4px 12px -2px rgba(220, 38, 38, 0.35);
+  transform: translateY(-1px);
+}
+.ct-action-btn-delete:active {
+  transform: translateY(0);
+}
+
+/* 5. E-Invoice Table Interactive Badges */
+.ct-badge-irn-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+  font-weight: 600;
+  font-size: 0.74rem;
+  padding: 0.32rem 0.65rem;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.15);
+}
+
+.ct-badge-irn-pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: ct-pulse 2s infinite;
+}
+
+@keyframes ct-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+.ct-btn-irn-quick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #f5f3ff;
+  color: #6d28d9;
+  border: 1px solid #ddd6fe;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.32rem 0.65rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ct-btn-irn-quick:hover {
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: #7c3aed;
+  box-shadow: 0 4px 12px -2px rgba(124, 58, 237, 0.35);
+  transform: translateY(-1px);
+}
+.ct-btn-irn-quick:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ==========================================================================
+   Modern Topbar Header Buttons & Controls (CandidTax UI)
+   ========================================================================== */
+
+/* 1. Upgrade Plan CTA Button */
+.ct-topbar-upgrade-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  color: #92400e !important;
+  border: 1px solid #fde68a !important;
+  font-size: 0.78rem !important;
+  font-weight: 600;
+  padding: 0.42rem 0.95rem;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgba(245, 158, 11, 0.12);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ct-topbar-upgrade-btn:hover {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #78350f !important;
+  border-color: #f59e0b !important;
+  box-shadow: 0 4px 14px -2px rgba(245, 158, 11, 0.35);
+  transform: translateY(-1px);
+}
+.ct-topbar-upgrade-btn:active {
+  transform: translateY(0);
+}
+.ct-topbar-upgrade-btn .star-icon {
+  font-size: 0.88rem;
+  transition: transform 0.25s ease;
+}
+.ct-topbar-upgrade-btn:hover .star-icon {
+  transform: rotate(15deg) scale(1.15);
+}
+
+/* 2. Primary + New Button */
+.ct-topbar-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: linear-gradient(135deg, #10b981 0%, #0d6e59 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  font-size: 0.8rem !important;
+  font-weight: 600;
+  padding: 0.44rem 1.05rem;
+  border-radius: 9999px;
+  box-shadow: 0 3px 12px -1px rgba(16, 185, 129, 0.38);
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  line-height: 1;
+}
+.ct-topbar-new-btn:hover {
+  background: linear-gradient(135deg, #059669 0%, #09473a 100%) !important;
+  box-shadow: 0 5px 16px -2px rgba(16, 185, 129, 0.55);
+  transform: translateY(-1px);
+}
+.ct-topbar-new-btn:active {
+  transform: translateY(0);
+}
+.ct-topbar-new-btn .chevron-icon {
+  font-size: 0.65rem;
+  transition: transform 0.2s ease;
+}
+
+/* 3. Online Health Status Indicator */
+.ct-topbar-health-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #e2e8f0 !important;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.42rem 0.85rem;
+  border-radius: 9999px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  line-height: 1;
+}
+.ct-topbar-health-btn:hover {
+  background: #ffffff;
+  color: #1e293b;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 3px 8px -1px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+.ct-topbar-health-btn:active {
+  transform: translateY(0);
+}
+
+/* 4. User Profile Capsule */
+.ct-topbar-user-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0.6rem 0.2rem 0.25rem;
+  border-radius: 9999px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.ct-topbar-user-capsule:hover {
+  background: #f1f5f9;
+}
+.ct-topbar-user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #10b981 0%, #0d6e59 100%);
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
+  flex-shrink: 0;
+}
+.ct-topbar-user-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #1e293b;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 5. Logout Button */
+.ct-topbar-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #fff1f2;
+  color: #e11d48 !important;
+  border: 1px solid #fecdd3 !important;
+  font-size: 0.77rem;
+  font-weight: 600;
+  padding: 0.42rem 0.85rem;
+  border-radius: 9999px;
+  box-shadow: 0 1px 2px rgba(225, 29, 72, 0.08);
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+  white-space: nowrap;
+  line-height: 1;
+}
+.ct-topbar-logout-btn:hover {
+  background: #e11d48;
+  color: #ffffff !important;
+  border-color: #e11d48 !important;
+  box-shadow: 0 4px 14px -2px rgba(225, 29, 72, 0.35);
+  transform: translateY(-1px);
+}
+.ct-topbar-logout-btn:active {
+  transform: translateY(0);
 }

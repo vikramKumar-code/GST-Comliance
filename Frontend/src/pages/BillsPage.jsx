@@ -241,23 +241,36 @@ export default function BillsPage() {
                           {b.status}
                         </span>
                       </td>
-                      <td className="text-end pe-3.5">
-                        {b.status !== 'Paid' && (
+                      <td className="text-end pe-3.5" style={{ minWidth: '160px', whiteSpace: 'nowrap' }}>
+                        <div className="ct-action-group">
+                          {b.status !== 'Paid' && (
+                            <button
+                              type="button"
+                              className="ct-action-btn ct-action-btn-paid"
+                              onClick={() => handleStatusChange(b._id, 'Paid')}
+                              title="Mark as Paid"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              <span>Paid</span>
+                            </button>
+                          )}
                           <button
                             type="button"
-                            className="btn btn-sm btn-link text-success text-decoration-none p-1 me-1"
-                            onClick={() => handleStatusChange(b._id, 'Paid')}
+                            className="ct-action-btn ct-action-btn-delete"
+                            onClick={() => handleDelete(b._id)}
+                            title="Delete Bill"
                           >
-                            Mark Paid
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-link text-danger text-decoration-none p-1"
-                          onClick={() => handleDelete(b._id)}
-                        >
-                          Delete
-                        </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

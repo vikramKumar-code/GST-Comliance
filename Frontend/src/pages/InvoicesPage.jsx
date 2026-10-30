@@ -53,6 +53,7 @@ export default function InvoicesPage() {
 
   // E-Invoice & E-Way Bill state
   const [eInvLoading, setEInvLoading] = useState(false);
+  const [generatingInvoiceId, setGeneratingInvoiceId] = useState(null);
   const [ewbLoading, setEwbLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [eInvError, setEInvError] = useState(null);
@@ -375,6 +376,7 @@ export default function InvoicesPage() {
   };
 
   const handleGenerateEInvoice = async (invoiceId) => {
+    setGeneratingInvoiceId(invoiceId);
     setEInvLoading(true);
     setEInvError(null);
     setEInvSuccess(null);
@@ -382,7 +384,9 @@ export default function InvoicesPage() {
       const res = await generateEInvoice(invoiceId);
       const updated = res.data || res;
       if (updated && updated._id) {
-        setViewingInvoice(updated);
+        if (viewingInvoice && viewingInvoice._id === updated._id) {
+          setViewingInvoice(updated);
+        }
         setInvoices((prev) => prev.map((inv) => (inv._id === updated._id ? updated : inv)));
         setEInvSuccess('E-Invoice (IRN) generated successfully!');
       }
@@ -394,6 +398,7 @@ export default function InvoicesPage() {
       }
     } finally {
       setEInvLoading(false);
+      setGeneratingInvoiceId(null);
     }
   };
 
@@ -1006,7 +1011,7 @@ export default function InvoicesPage() {
                         <th>Grand Total (₹)</th>
                         <th>Status</th>
                         <th>E-Invoice (IRN)</th>
-                        <th className="text-end pe-3.5">Actions</th>
+                        <th className="text-end pe-3.5" style={{ minWidth: '220px', whiteSpace: 'nowrap' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1042,62 +1047,122 @@ export default function InvoicesPage() {
                           <td>
                             {inv.einvoiceStatus === 'Generated' ? (
                               <div>
-                                <span className="badge bg-success-subtle text-success border border-success-subtle fw-semibold d-inline-flex align-items-center gap-1">
-                                  <span>⚡</span> IRN Active
+                                <span className="ct-badge-irn-active" title={`IRN: ${inv.irn || ''}`}>
+                                  <span className="ct-badge-irn-pulse" />
+                                  <span>IRN Active</span>
                                 </span>
                                 {inv.ewayBillNo && (
-                                  <div className="small text-secondary font-monospace mt-1" style={{ fontSize: '0.72rem' }}>
-                                    🚚 EWB: {inv.ewayBillNo}
+                                  <div className="small text-secondary font-monospace mt-1 d-flex align-items-center gap-1" style={{ fontSize: '0.72rem' }}>
+                                    <span>🚚</span>
+                                    <span>EWB: {inv.ewayBillNo}</span>
                                   </div>
                                 )}
                               </div>
                             ) : inv.einvoiceStatus === 'Cancelled' ? (
-                              <span className="badge bg-danger-subtle text-danger border border-danger-subtle">
+                              <span className="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1 rounded-pill fw-semibold" style={{ fontSize: '0.74rem' }}>
                                 ✕ Cancelled
                               </span>
                             ) : inv.einvoiceStatus === 'Failed' ? (
-                              <span className="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" title={inv.einvoiceError}>
-                                ⚠️ Failed
-                              </span>
-                            ) : (
-                              <span className="badge bg-light text-muted border">
-                                — Not Generated
-                              </span>
-                            )}
-                          </td>
-                          <td className="text-end pe-3.5">
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-link text-primary text-decoration-none p-1 me-1"
-                              onClick={() => setViewingInvoice(inv)}
-                              title="View & Print Invoice"
-                            >
-                              View
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-link text-secondary text-decoration-none p-1 me-1 fw-semibold"
-                              onClick={() => handleOpenEdit(inv)}
-                              title="Edit invoice details"
-                            >
-                              ✏️ Edit
-                            </button>
-                            {inv.status !== 'Paid' && (
                               <button
                                 type="button"
-                                className="btn btn-sm btn-link text-success text-decoration-none p-1 me-1"
-                                onClick={() => handleStatusChange(inv._id, 'Paid')}
+                                className="ct-btn-irn-quick text-danger border-danger-subtle bg-danger-subtle"
+                                onClick={() => handleGenerateEInvoice(inv._id)}
+                                disabled={generatingInvoiceId === inv._id}
+                                title={inv.einvoiceError || 'Click to retry generation'}
                               >
-                                Mark Paid
+                                {generatingInvoiceId === inv._id ? (
+                                  <>
+                                    <span className="spinner-border spinner-border-sm" style={{ width: '0.7rem', height: '0.7rem' }} />
+                                    <span>Retrying...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>⚠️</span>
+                                    <span>Retry IRN</span>
+                                  </>
+                                )}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="ct-btn-irn-quick"
+                                onClick={() => handleGenerateEInvoice(inv._id)}
+                                disabled={generatingInvoiceId === inv._id}
+                                title="Generate Government E-Invoice (IRN) & Signed QR Code"
+                              >
+                                {generatingInvoiceId === inv._id ? (
+                                  <>
+                                    <span className="spinner-border spinner-border-sm" style={{ width: '0.7rem', height: '0.7rem' }} />
+                                    <span>Generating...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                                    </svg>
+                                    <span>Generate IRN</span>
+                                  </>
+                                )}
                               </button>
                             )}
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-link text-danger text-decoration-none p-1"
-                              onClick={() => handleDelete(inv._id)}
-                            >
-                              Delete
-                            </button>
+                          </td>
+                          <td className="text-end pe-3.5" style={{ minWidth: '220px', whiteSpace: 'nowrap' }}>
+                            <div className="ct-action-group">
+                              <button
+                                type="button"
+                                className="ct-action-btn ct-action-btn-view"
+                                onClick={() => setViewingInvoice(inv)}
+                                title="View & Print Invoice"
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                                <span>View</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                className="ct-action-btn ct-action-btn-edit"
+                                onClick={() => handleOpenEdit(inv)}
+                                title="Edit invoice details"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                                  <path d="m15 5 4 4" />
+                                </svg>
+                                <span>Edit</span>
+                              </button>
+
+                              {inv.status !== 'Paid' && (
+                                <button
+                                  type="button"
+                                  className="ct-action-btn ct-action-btn-paid"
+                                  onClick={() => handleStatusChange(inv._id, 'Paid')}
+                                  title="Mark as Paid"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                  <span>Paid</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                className="ct-action-btn ct-action-btn-delete"
+                                onClick={() => handleDelete(inv._id)}
+                                title="Delete Invoice"
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M3 6h18" />
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                  <line x1="10" y1="11" x2="10" y2="17" />
+                                  <line x1="14" y1="11" x2="14" y2="17" />
+                                </svg>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

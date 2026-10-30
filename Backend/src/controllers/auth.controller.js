@@ -47,7 +47,10 @@ exports.requestOtp = async (req, res, next) => {
     try {
       result = await FinaggService.requestOtp(normGstin, normUsername);
     } catch (providerError) {
+      const isSandboxHost = (process.env.TAXPRO_BASE_URL || '').includes('sandbox');
       if (
+        isSandboxHost &&
+        !isProduction &&
         FinaggService.getProviderName() === 'taxpro' &&
         (['PROVIDER_ERROR', 'PROVIDER_DOWN'].includes(providerError.code) || [502, 503].includes(providerError.statusCode))
       ) {

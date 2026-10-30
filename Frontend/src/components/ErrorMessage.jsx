@@ -162,6 +162,15 @@ export default function ErrorMessage({ error, onRetry }) {
 
             {/* Quick Actions: Retry and Dismiss */}
             <div className="d-flex align-items-center gap-2">
+              {(code === 'SESSION_EXPIRED' || status === 401) && (
+                <a
+                  href="/login"
+                  className="btn btn-sm btn-danger py-0.5 px-2.5 rounded-pill fw-semibold shadow-xs d-flex align-items-center gap-1 text-decoration-none"
+                  style={{ fontSize: '0.75rem', minHeight: '26px' }}
+                >
+                  🔑 Verify OTP Again
+                </a>
+              )}
               {onRetry && (
                 <button
                   type="button"
