@@ -20,10 +20,9 @@
 8. [API Endpoints Reference](#-api-endpoints-reference)
 9. [Security, Encryption & Statutory Compliance](#-security-encryption--statutory-compliance)
 10. [Local Development & Setup Guide](#-local-development--setup-guide)
-11. [Configuration & Environment Variables](#-configuration--environment-variables)
-12. [Automated Testing Suite (14/14 Suites)](#-automated-testing-suite)
-13. [Troubleshooting & FAQ](#-troubleshooting--faq)
-14. [License & Attribution](#-license--attribution)
+11. [Automated Testing Suite (14/14 Suites)](#-automated-testing-suite)
+12. [Troubleshooting & FAQ](#-troubleshooting--faq)
+13. [License & Attribution](#-license--attribution)
 
 ---
 
@@ -632,53 +631,6 @@ npm run dev
 ```
 
 Visit **`http://localhost:5173`** in your browser.
-
----
-
-## 🔧 Configuration & Environment Variables
-
-### `Backend/.env` Configuration Guide
-
-```ini
-# Server Configuration
-PORT=4000
-NODE_ENV=development
-FRONTEND_URL=http://localhost:5173
-TRUST_PROXY_HOPS=0
-
-# Database Configuration
-MONGO_URI=mongodb://localhost:27017/gstapp
-
-# Cryptographic Keys (Use 64-char hex strings)
-DATA_ENCRYPTION_KEY=afa57e9b1714aa759905d447a3838f745d50c0d9252b33cfa6a2b2f9d748f5c5
-JWT_SECRET=1ee4df648883d76deaee6d7b79341564d936ec0902710d00ae7cf0c97a9b23af
-TENANT_IDENTITY_SECRET=2a1e495913b0bd673fd76ca979aaf8976cd3e6f6f940379980ed40c8bcd41e7c
-SESSION_HOURS=1
-
-# GST Provider Mode: 'mock' (offline development) or 'taxpro' (production GST portal)
-PROVIDER=taxpro
-USE_MOCK=false
-
-# TaxPro Production / Sandbox GSP Credentials
-TAXPRO_BASE_URL=https://gstapi.charteredinfo.com
-TAXPRO_ASPID=your_aspid_here
-TAXPRO_PASSWORD=your_password_here
-TAXPRO_ASP_GSTIN=your_asp_caller_gstin
-TAXPRO_GSP_SECRET=your_gsp_signing_secret
-TAXPRO_GSP_IP_USR=157.49.116.83
-TAXPRO_ASP_PRIVATE_KEY_PATH=C:/TaxProCert/AspDsc_matching.pem
-TAXPRO_API_PROFILE=legacy
-TAXPRO_DEC_PRODUCTION_APPROVED=true
-
-# NIC E-Invoicing Credentials
-TAXPRO_EINV_USER=your_einv_username
-TAXPRO_EINV_PASSWORD=your_einv_password
-TAXPRO_EINV_GSTIN=your_einv_gstin
-
-# Razorpay Subscriptions (Optional)
-RAZORPAY_KEY_ID=rzp_live_xxxxxxxx
-RAZORPAY_KEY_SECRET=your_secret_key_here
-```
 
 ---
 
