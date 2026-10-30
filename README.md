@@ -18,10 +18,9 @@
 6. [Project Directory Structure](#-project-directory-structure)
 7. [Database Schema & Data Models](#-database-schema--data-models)
 8. [API Endpoints Reference](#-api-endpoints-reference)
-9. [Security, Encryption & Statutory Compliance](#-security-encryption--statutory-compliance)
-10. [Local Development & Setup Guide](#-local-development--setup-guide)
-11. [Automated Testing Suite (14/14 Suites)](#-automated-testing-suite)
-12. [License & Attribution](#-license--attribution)
+9. [Local Development & Setup Guide](#-local-development--setup-guide)
+10. [Automated Testing Suite (14/14 Suites)](#-automated-testing-suite)
+11. [License & Attribution](#-license--attribution)
 
 ---
 
@@ -150,24 +149,39 @@ graph TB
 ### Level 0: Context Diagram
 
 ```mermaid
-graph LR
-    TaxpayerUser((Taxpayer / Accountant))
-    Platform[CandidTax GST Compliance Platform]
-    GSTNPortal["Government GST System (GSTN)"]
-    NICEInvoice["NIC E-Invoice & E-Way System"]
-    PaymentGateway["Razorpay Billing Engine"]
+flowchart TB
+    %% External Entities
+    User["👤 Taxpayer / Enterprise User"]
+    Customer["🏢 Buyer / Customer"]
+    GSTN["🏛️ Government GST Portal (GSTN)"]
+    NIC["⚡ NIC E-Invoice & E-Way Bill Gateway"]
+    Razorpay["💳 Razorpay Payment Gateway"]
 
-    TaxpayerUser -->|1. Credentials, Invoices & Return Requests| Platform
-    Platform -->|2. Invoices, Filed Returns, Reports & Reconciliation| TaxpayerUser
+    %% Central System (Process 0.0)
+    System(("0.0<br/><b>CandidTax Platform</b><br/><i>GST Billing, Compliance & Returns System</i>"))
 
-    Platform -->|3. GSP Authenticated Requests (OTP, RETTRACK, RETSUM, B2B)| GSTNPortal
-    GSTNPortal -->|4. Decrypted Return Data, Filing Status & ARNs| Platform
+    %% Data Flows
+    User -->|"• User credentials & GSTIN<br/>• Sales Invoices & Purchase Bills<br/>• Consent & GST Portal OTP<br/>• Nil Return Declarations"| System
+    System -->|"• Tax Invoices (with IRN & QR Code)<br/>• GSTR-1, 2B, 3B Summaries<br/>• ITC Reconciliation Reports<br/>• Filing Acknowledgements (ARNs)"| User
 
-    Platform -->|5. NIC Inward Schema v1.1 Payload| NICEInvoice
-    NICEInvoice -->|6. 64-char IRN, Signed QR Code, Ack No| Platform
+    System -->|"• Digitally Signed Invoices<br/>• E-Way Bills & Delivery Notes"| Customer
 
-    Platform -->|7. Subscription Orders| PaymentGateway
-    PaymentGateway -->|8. Payment Webhook Confirmations| Platform
+    System -->|"• GSP-Authenticated Requests<br/>• Decrypted Return Payloads (B2B, RETSUM)<br/>• Statutory Nil Returns (Rule 67A)"| GSTN
+    GSTN -->|"• Auth Tokens & Session Keys<br/>• Live Filed Invoices & ITC Statements<br/>• Official Filing ARNs"| System
+
+    System -->|"• NIC Schema v1.1 Inward Payload<br/>• Vehicle & Transporter Details"| NIC
+    NIC -->|"• 64-Character Unique IRN<br/>• Signed QR Code & Ack No<br/>• Active E-Way Bill Number"| System
+
+    System -->|"• Subscription Checkout Requests"| Razorpay
+    Razorpay -->|"• Webhook Payment Confirmations"| System
+
+    %% Styling
+    style System fill:#ecfdf5,stroke:#0d6e59,stroke-width:3px,color:#065f46
+    style User fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#0f172a
+    style Customer fill:#f8fafc,stroke:#64748b,stroke-width:2px,color:#0f172a
+    style GSTN fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
+    style NIC fill:#faf5ff,stroke:#9333ea,stroke-width:2px,color:#581c87
+    style Razorpay fill:#fffbeb,stroke:#d97706,stroke-width:2px,color:#78350f
 ```
 
 ---
@@ -558,25 +572,6 @@ GST_Compliance/
 | `GET` | `/api/reports/gstr-comparison` | GSTR-1 vs. GSTR-3B tax variance and liability audit |
 | `POST` | `/api/import/sales` | Bulk upload sales invoices via `.xlsx` or `.csv` |
 | `POST` | `/api/import/purchases`| Bulk upload purchase bills via `.xlsx` or `.csv` |
-
----
-
-## 🔒 Security, Encryption & Statutory Compliance
-
-### 1. Cryptographic Envelope Encryption
-- **Taxpayer Tokens**: Government GST session auth tokens are encrypted using **AES-256-GCM** with unique initialization vectors (`iv`) and authentication tags before saving to MongoDB (`Session.gstTokenEnc`). Plaintext tokens are never stored on disk.
-- **Return Payloads**: Downloaded return data is encrypted in transit and at rest (`Return.dataEnc`).
-
-### 2. Multi-Tenant Cryptographic Boundaries
-- Every query to MongoDB enforces `{ workspaceId }` equality checks.
-- Cross-tenant data leakage is prevented at both the middleware layer (`middleware/workspaceRole.js`) and database index level (`{ workspaceId: 1, invoiceNumber: 1 }` unique constraint).
-
-### 3. Fail-Closed Sensitive Diagnostics
-- In accordance with GSTN security mandates, ASP passwords, signing private keys, and taxpayer auth tokens are strictly excluded from all server logs.
-- The logging subsystem masks credentials and truncates sensitive data before emitting logs.
-
-### 4. Distributed Rate Limiting
-- Custom MongoDB-backed rate-limiting store prevents brute-force attacks against OTP endpoints (strictly enforcing a 3-attempt OTP invalidation rule and IP throttles).
 
 ---
 
