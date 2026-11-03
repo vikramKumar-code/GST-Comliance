@@ -8,21 +8,45 @@ const auditLogSchema = new mongoose.Schema(
       default: null,
       index: true
     },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true
+    },
     memberId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'WorkspaceMember',
       default: null
     },
+    userName: {
+      type: String,
+      default: null,
+      trim: true
+    },
+    userEmail: {
+      type: String,
+      default: null,
+      trim: true
+    },
     gstin: {
       type: String,
-      required: true,
+      default: null,
       trim: true,
       uppercase: true
     },
     action: {
       type: String,
       required: true,
-      trim: true // e.g. 'SEARCH_GSTIN', 'OTP_REQUEST', 'OTP_VERIFY', 'FETCH_RETURN', 'LOGOUT'
+      trim: true // e.g. 'USER_SIGNIN', 'INVOICE_CREATE', 'GSTR1_FILE', 'NIL_FILE', 'LINK_GSTIN'
+    },
+    details: {
+      type: String,
+      default: ''
+    },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
     },
     period: {
       type: String,
@@ -34,16 +58,22 @@ const auditLogSchema = new mongoose.Schema(
       required: true,
       enum: ['SUCCESS', 'FAILURE']
     },
+    ipAddress: {
+      type: String,
+      default: null
+    },
     createdAt: {
       type: Date,
-      default: Date.now
+      default: Date.now,
+      index: true
     }
   },
   { timestamps: false }
 );
 
 auditLogSchema.index({ workspaceId: 1, createdAt: -1 });
-
+auditLogSchema.index({ userId: 1, createdAt: -1 });
 auditLogSchema.index({ gstin: 1, createdAt: -1 });
+auditLogSchema.index({ action: 1, createdAt: -1 });
 
 module.exports = mongoose.model('AuditLog', auditLogSchema);

@@ -1,16 +1,26 @@
 import { useState } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import GstinForm from '../components/GstinForm';
+import { Link, useNavigate } from 'react-router-dom';
 import GoogleLoginButton from '../components/GoogleLoginButton';
 import { signin } from '../api/auth.api';
 import { useAuth } from '../context/AuthContext';
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  ArrowLeft,
+  ShieldCheck,
+  Zap,
+  CheckCircle2,
+  AlertCircle,
+  Star,
+  Check
+} from 'lucide-react';
+import Button from '../components/ui/Button';
+import Badge from '../components/ui/Badge';
 
 export default function LoginPage() {
-  const [searchParams] = useSearchParams();
-  const queryGstin = (searchParams.get('gstin') || '').toUpperCase();
-  const defaultTab = queryGstin ? 'gstin' : 'account';
-  const [activeTab, setActiveTab] = useState(defaultTab);
-
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -19,10 +29,6 @@ export default function LoginPage() {
 
   const navigate = useNavigate();
   const { loginSuccess } = useAuth();
-
-  const handleOtpSent = (stateData) => {
-    navigate('/otp', { state: stateData });
-  };
 
   const handleAccountSubmit = async (e) => {
     e.preventDefault();
@@ -43,80 +49,73 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="auth-split-wrapper">
+    <div className="min-h-screen flex bg-white">
       {/* ====================================================================
-          LEFT SHOWCASE PANEL (Enterprise Brand & Value Proposition)
+          LEFT SHOWCASE PANEL (Enterprise Fintech Theme)
           ==================================================================== */}
-      <div className="auth-showcase-panel d-none d-lg-flex">
+      <div className="hidden lg:flex lg:w-5/12 xl:w-5/12 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 text-white p-12 flex-col justify-between relative overflow-hidden border-r border-slate-800">
+        {/* Subtle grid background pattern */}
+        <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:20px_20px] pointer-events-none opacity-60" />
+        <div className="absolute top-1/4 -left-20 w-80 h-80 bg-brand-500/10 rounded-full blur-3xl pointer-events-none" />
+
         {/* Top Branding */}
-        <div style={{ position: 'relative', zIndex: 2 }}>
-          <Link to="/" className="text-decoration-none d-inline-flex align-items-center gap-2 mb-4">
-            <span
-              className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow"
-              style={{
-                width: '44px',
-                height: '44px',
-                background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
-                fontSize: '1.2rem',
-                border: '1px solid rgba(255, 255, 255, 0.25)'
-              }}
-            >
+        <div className="relative z-10">
+          <Link to="/" className="inline-flex items-center gap-3 mb-8">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-brand-600 to-teal-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-brand-900/30 border border-white/20">
               CT
-            </span>
-            <span className="fs-3 fw-bold text-white tracking-tight">CandidTax</span>
-            <span
-              className="badge rounded-pill text-white ms-2 px-2.5 py-1"
-              style={{
-                background: 'rgba(31, 166, 137, 0.25)',
-                border: '1px solid rgba(31, 166, 137, 0.4)',
-                fontSize: '0.68rem',
-                letterSpacing: '0.04em'
-              }}
-            >
+            </div>
+            <span className="text-2xl font-bold tracking-tight text-white">CandidTax</span>
+            <Badge variant="fintech" size="sm" className="font-mono text-[10px]">
               GSP Certified
-            </span>
+            </Badge>
           </Link>
 
-          <h2 className="display-6 fw-bold text-white tracking-tight mb-3" style={{ lineHeight: 1.25 }}>
+          <h2 className="text-3xl font-extrabold tracking-tight text-white leading-tight mb-4">
             Automate GST billing, ITC audits & statutory returns.
           </h2>
-          <p className="text-white-50 fs-6 mb-5" style={{ maxWidth: '460px', lineHeight: 1.6 }}>
+          <p className="text-slate-400 text-sm leading-relaxed mb-8 max-w-md">
             The enterprise tax compliance platform built for Indian enterprises, MSMEs, and Chartered Accountants.
           </p>
 
           {/* 3 Pillars of Trust & Capability */}
-          <div className="d-flex flex-column gap-3 mb-5">
-            <div className="auth-feature-pill">
-              <div className="auth-feature-icon">⚡</div>
+          <div className="space-y-4">
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xs flex items-start gap-3.5">
+              <div className="w-8 h-8 rounded-lg bg-brand-500/20 text-brand-400 flex items-center justify-center shrink-0 mt-0.5">
+                <Zap className="w-4 h-4" />
+              </div>
               <div>
-                <h6 className="fw-bold text-white mb-0.5" style={{ fontSize: '0.92rem' }}>
+                <h4 className="text-xs font-bold text-white mb-0.5">
                   Direct GSTN API Gateway
-                </h6>
-                <p className="text-white-50 small mb-0">
+                </h4>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
                   Instant secure OTP handshake to auto-fetch GSTR-1, GSTR-3B & 2B without manual portal uploads.
                 </p>
               </div>
             </div>
 
-            <div className="auth-feature-pill">
-              <div className="auth-feature-icon">🛡️</div>
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xs flex items-start gap-3.5">
+              <div className="w-8 h-8 rounded-lg bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0 mt-0.5">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
               <div>
-                <h6 className="fw-bold text-white mb-0.5" style={{ fontSize: '0.92rem' }}>
+                <h4 className="text-xs font-bold text-white mb-0.5">
                   DRC-01B & 01C Notice Shield
-                </h6>
-                <p className="text-white-50 small mb-0">
+                </h4>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
                   Automated reconciliation flags mismatches in real-time before departmental notices are triggered.
                 </p>
               </div>
             </div>
 
-            <div className="auth-feature-pill">
-              <div className="auth-feature-icon">🔒</div>
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xs flex items-start gap-3.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
+                <Lock className="w-4 h-4" />
+              </div>
               <div>
-                <h6 className="fw-bold text-white mb-0.5" style={{ fontSize: '0.92rem' }}>
+                <h4 className="text-xs font-bold text-white mb-0.5">
                   Bank-Grade Cryptographic Vault
-                </h6>
-                <p className="text-white-50 small mb-0">
+                </h4>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
                   AES-256 session token encryption, role-based team permissions, and tamper-proof audit trails.
                 </p>
               </div>
@@ -124,27 +123,22 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Bottom Social Proof & Trust Card */}
-        <div style={{ position: 'relative', zIndex: 2 }}>
-          <div
-            className="p-3.5 rounded-3 mb-4"
-            style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)'
-            }}
-          >
-            <div className="d-flex align-items-center gap-2 mb-1.5">
-              <div className="text-warning small">★★★★★</div>
-              <span className="text-white fw-bold small">4.9 / 5 Rating</span>
-              <span className="text-white-50 small">• 1,200+ Verified CAs</span>
+        {/* Bottom Social Proof */}
+        <div className="relative z-10 pt-6">
+          <div className="p-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xs mb-4">
+            <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex text-amber-400 text-xs">
+                {'★'.repeat(5)}
+              </div>
+              <span className="text-white font-bold text-xs">4.9 / 5 Rating</span>
+              <span className="text-slate-400 text-xs">• 1,200+ Verified CAs</span>
             </div>
-            <p className="text-white-50 small mb-0" style={{ lineHeight: 1.5 }}>
+            <p className="text-slate-300 text-xs leading-relaxed italic">
               &ldquo;CandidTax cut down our monthly GST reconciliation from 3 full days to under 15 minutes. An indispensable tool for serious tax professionals.&rdquo;
             </p>
           </div>
 
-          <div className="d-flex align-items-center justify-content-between text-white-50 small pt-3 border-top border-white-10">
+          <div className="flex items-center justify-between text-slate-500 text-[11px] pt-3 border-t border-white/10">
             <span>ISO 27001 Certified</span>
             <span>•</span>
             <span>SOC 2 Type II Compliant</span>
@@ -155,228 +149,159 @@ export default function LoginPage() {
       </div>
 
       {/* ====================================================================
-          RIGHT INTERACTIVE AUTHENTICATION PANEL
+          RIGHT AUTHENTICATION FORM PANEL
           ==================================================================== */}
-      <div className="auth-form-panel">
+      <div className="flex-1 flex flex-col justify-between p-6 sm:p-10 lg:p-14 overflow-y-auto">
         {/* Top Utility Bar */}
-        <div className="d-flex align-items-center justify-content-between pb-3">
+        <div className="flex items-center justify-between pb-6">
           <Link
             to="/"
-            className="text-decoration-none text-muted small fw-semibold d-inline-flex align-items-center gap-1.5 transition-all"
-            style={{ transition: 'color 0.15s ease' }}
+            className="text-slate-500 hover:text-slate-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path fillRule="evenodd" d="M12 8a.5.5 0 0 1-.5.5H5.707l3.147 3.146a.5.5 0 0 1-.708.708l-4-4a.5.5 0 0 1 0-.708l4-4a.5.5 0 1 1 .708.708L5.707 7.5H11.5a.5.5 0 0 1 .5.5z"/>
-            </svg>
-            Back to Home
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Home</span>
           </Link>
 
-          <div className="small">
-            <span className="text-muted">Don&apos;t have an account? </span>
-            <Link to="/signup" className="fw-semibold text-primary text-decoration-none">
+          <div className="text-xs">
+            <span className="text-slate-500">Don&apos;t have an account? </span>
+            <Link to="/signup" className="font-semibold text-brand-600 hover:text-brand-700 hover:underline">
               Sign up
             </Link>
           </div>
         </div>
 
         {/* Center Auth Form Container */}
-        <div className="auth-form-container my-auto py-4">
+        <div className="w-full max-w-md mx-auto my-auto py-4">
           {/* Mobile Brand Indicator */}
-          <div className="d-flex d-lg-none align-items-center justify-content-between mb-4">
-            <div className="d-flex align-items-center gap-2">
-              <span
-                className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow-xs"
-                style={{
-                  width: '38px',
-                  height: '38px',
-                  background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
-                  fontSize: '1rem'
-                }}
-              >
+          <div className="flex lg:hidden items-center justify-between mb-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-brand-600 text-white font-bold flex items-center justify-center text-sm shadow-xs">
                 CT
-              </span>
-              <span className="fs-4 fw-bold text-dark tracking-tight">CandidTax</span>
+              </div>
+              <span className="text-xl font-bold tracking-tight text-slate-900">CandidTax</span>
             </div>
-            <span className="badge bg-success-subtle text-success border border-success-subtle small fw-semibold">
-              GSP Certified
-            </span>
+            <Badge variant="fintech" size="sm">GSP Certified</Badge>
           </div>
 
-          <div className="mb-4">
-            <h1 className="fs-3 fw-bold text-dark tracking-tight mb-1">Sign in to CandidTax</h1>
-            <p className="text-muted small mb-0">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Sign in to CandidTax</h1>
+            <p className="text-xs text-slate-500 mt-1">
               Access your compliance workspaces, automated filings, and tax registers.
             </p>
           </div>
 
-          {/* Segmented Auth Method Switcher */}
-          <div
-            className="d-flex p-1 bg-light rounded-3 mb-4 border"
-            style={{ borderColor: '#e2e8f0', background: '#f1f5f9' }}
-          >
-            <button
-              type="button"
-              onClick={() => { setActiveTab('account'); setError(''); }}
-              className={`btn btn-sm flex-fill fw-semibold py-2 border-0 transition-all ${
-                activeTab === 'account'
-                  ? 'btn-primary shadow-xs'
-                  : 'text-secondary bg-transparent'
-              }`}
-              style={{ borderRadius: '7px' }}
-            >
-              <span className="me-1.5">✉️</span> Email & Google
-            </button>
-            <button
-              type="button"
-              onClick={() => { setActiveTab('gstin'); setError(''); }}
-              className={`btn btn-sm flex-fill fw-semibold py-2 border-0 transition-all ${
-                activeTab === 'gstin'
-                  ? 'btn-primary shadow-xs'
-                  : 'text-secondary bg-transparent'
-              }`}
-              style={{ borderRadius: '7px' }}
-            >
-              <span className="me-1.5">🏢</span> GSTIN Portal OTP
-            </button>
-          </div>
-
+          {/* Login Error Notification */}
           {error && (
-            <div className="alert alert-danger py-2.5 px-3 small rounded-3 mb-3.5 d-flex align-items-center gap-2" role="alert">
-              <span className="fs-6">⚠️</span>
-              <span className="fw-medium">{error}</span>
+            <div className="p-3.5 rounded-xl bg-danger-50 border border-danger-200 text-danger-700 text-xs flex items-center gap-2.5 mb-4">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
-          {activeTab === 'account' ? (
-            <div>
-              {/* Google OAuth Button */}
-              <GoogleLoginButton onError={(err) => setError(err?.message || 'Google sign-in failed')} />
+          <div className="space-y-4">
+            {/* Google OAuth Button */}
+            <GoogleLoginButton onError={(err) => setError(err?.message || 'Google sign-in failed')} />
 
-              {/* Elegant Divider */}
-              <div className="d-flex align-items-center my-3.5">
-                <div className="flex-grow-1 border-bottom" style={{ borderColor: '#e2e8f0' }} />
-                <span
-                  className="px-3 text-muted fw-bold text-uppercase text-nowrap"
-                  style={{ fontSize: '0.68rem', letterSpacing: '0.08em' }}
-                >
-                  Or continue with email
-                </span>
-                <div className="flex-grow-1 border-bottom" style={{ borderColor: '#e2e8f0' }} />
+            {/* Divider */}
+            <div className="relative flex items-center justify-center my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-surface-border" />
+              </div>
+              <span className="relative bg-white px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Or continue with email
+              </span>
+            </div>
+
+            <form onSubmit={handleAccountSubmit} className="space-y-3.5">
+              {/* Email Field */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Email Address
+                </label>
+                <div className="relative flex items-center">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl border border-surface-border bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
+                    autoComplete="username"
+                  />
+                </div>
               </div>
 
-              <form onSubmit={handleAccountSubmit}>
-                {/* Email Field with Icon */}
-                <div className="mb-3">
-                  <label className="form-label">Email Address</label>
-                  <div className="auth-input-wrapper">
-                    <span className="auth-input-icon">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="2" y="4" width="20" height="16" rx="2" />
-                        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                      </svg>
-                    </span>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@company.com"
-                      className="form-control"
-                      autoComplete="username"
-                    />
-                  </div>
-                </div>
-
-                {/* Password Field with Eye Toggle */}
-                <div className="mb-3.5">
-                  <div className="d-flex justify-content-between align-items-center mb-1">
-                    <label className="form-label mb-0">Password</label>
-                    <span className="text-muted small" style={{ fontSize: '0.78rem' }}>
-                      Forgot password?
-                    </span>
-                  </div>
-                  <div className="auth-input-wrapper">
-                    <span className="auth-input-icon">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                    </span>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="form-control"
-                      autoComplete="current-password"
-                    />
-                    <button
-                      type="button"
-                      className="auth-eye-toggle"
-                      onClick={() => setShowPassword(!showPassword)}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                          <line x1="1" y1="1" x2="23" y2="23" />
-                        </svg>
-                      ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Remember Device Checkbox */}
-                <div className="form-check mb-4">
-                  <input className="form-check-input" type="checkbox" id="rememberMe" defaultChecked />
-                  <label className="form-check-label small text-secondary" htmlFor="rememberMe">
-                    Remember this device for 30 days
+              {/* Password Field */}
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Password
                   </label>
+                  <span className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer">
+                    Forgot password?
+                  </span>
                 </div>
+                <div className="relative flex items-center">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl border border-surface-border bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 p-0.5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="btn btn-primary w-100 py-2.5 fw-semibold shadow-xs"
-                >
-                  {loading ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />
-                      Signing in...
-                    </>
-                  ) : (
-                    <>
-                      Sign In to Portal
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="ms-2">
-                        <path fillRule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
-                      </svg>
-                    </>
-                  )}
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div>
-              <GstinForm key={queryGstin} initialGstin={queryGstin} onOtpSent={handleOtpSent} />
-            </div>
-          )}
+              {/* Remember Device Checkbox */}
+              <div className="flex items-center gap-2 pt-1 text-xs">
+                <input
+                  type="checkbox"
+                  id="rememberMe"
+                  defaultChecked
+                  className="rounded border-surface-border text-brand-600 focus:ring-brand-500 cursor-pointer"
+                />
+                <label htmlFor="rememberMe" className="text-[11px] text-slate-600 select-none cursor-pointer">
+                  Remember this device for 30 days
+                </label>
+              </div>
+
+              <Button
+                type="submit"
+                variant="fintech"
+                className="w-full justify-center py-2.5"
+                disabled={loading}
+              >
+                {loading ? (
+                  <span>Signing in...</span>
+                ) : (
+                  <>
+                    <span>Sign In to Portal</span>
+                    <ArrowRight className="w-4 h-4 ml-1.5" />
+                  </>
+                )}
+              </Button>
+            </form>
+          </div>
         </div>
 
         {/* Bottom Trust & Legal Footer */}
-        <div className="pt-4 border-top" style={{ borderColor: '#e2e8f0' }}>
-          <div className="d-flex flex-column flex-sm-row align-items-center justify-content-between gap-2 text-muted small" style={{ fontSize: '0.78rem' }}>
-            <span className="d-flex align-items-center gap-1.5">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-success">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-              Bank-grade 256-bit SSL encrypted
+        <div className="pt-6 border-t border-surface-border">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-slate-400 text-[11px]">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-brand-600" />
+              <span>Bank-grade 256-bit SSL encrypted</span>
             </span>
             <span>&copy; {new Date().getFullYear()} CandidTax Systems Pvt Ltd</span>
           </div>

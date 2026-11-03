@@ -364,18 +364,41 @@ exports.switchWorkspace = async (req, res, next) => {
  */
 exports.getMe = async (req, res, next) => {
   try {
+    let currentWorkspace = null;
+    if (req.workspaceId) {
+      currentWorkspace = await Workspace.findById(req.workspaceId).lean();
+    }
+
+    const resolvedName = req.user?.name && !req.user.name.startsWith('Taxpayer')
+      ? req.user.name
+      : currentWorkspace?.name || (req.gstin ? `GSTIN ${req.gstin}` : 'User');
+
     res.status(200).json({
       success: true,
-      user: req.user ? {
-        id: req.user._id,
-        name: req.user.name,
-        email: req.user.email,
-        avatar: req.user.avatar,
-        authProvider: req.user.authProvider
+      user: {
+        id: req.user?._id || req.session?.userId || null,
+        name: resolvedName,
+        email: req.user?.email || null,
+        avatar: req.user?.avatar || null,
+        authProvider: req.user?.authProvider || req.session?.authType || 'GSTIN_OTP',
+        systemRole: req.user?.systemRole || (req.isSuperAdmin ? 'SUPER_ADMIN' : 'USER'),
+        isSuperAdmin: Boolean(req.isSuperAdmin)
+      },
+      currentWorkspace: currentWorkspace ? {
+        id: currentWorkspace._id,
+        name: currentWorkspace.name,
+        gstin: currentWorkspace.gstin,
+        status: currentWorkspace.status || 'ACTIVE',
+        subscription: currentWorkspace.subscription || { plan: 'FREE', status: 'ACTIVE' },
+        limits: currentWorkspace.limits || { maxClients: 1, maxInvoicesPerMonth: 50 },
+        role: req.workspaceRole || 'OWNER',
+        permissions: req.membership?.permissions || ['ALL']
       } : null,
-      gstin: req.gstin || null,
+      gstin: req.gstin || currentWorkspace?.gstin || null,
       workspaceId: req.workspaceId || null,
-      workspaceRole: req.workspaceRole || null,
+      workspaceRole: req.workspaceRole || 'OWNER',
+      permissions: req.membership?.permissions || ['ALL'],
+      isSuperAdmin: Boolean(req.isSuperAdmin),
       expiresAt: req.session.expiresAt
     });
   } catch (error) {
@@ -488,7 +511,54 @@ exports.createWorkspace = async (req, res, next) => {
       }
       const existing = await Workspace.findOne({ gstin: normGstin });
       if (existing) {
-        throw ApiError.conflict('A workspace with this GSTIN already exists.');
+        // Update client name if a verified name is provided
+        if (name && name.trim() && existing.name !== name.trim()) {
+          existing.name = name.trim();
+          await existing.save();
+        }
+
+        // Grant CA OWNER access to this client workspace
+        let membership = await WorkspaceMember.findOne({
+          workspaceId: existing._id,
+          userId
+        });
+        if (!membership) {
+          membership = await WorkspaceMember.create({
+            workspaceId: existing._id,
+            userId,
+            role: 'OWNER',
+            status: 'ACTIVE'
+          });
+        } else if (membership.role !== 'OWNER' && membership.role !== 'ADMIN') {
+          membership.role = 'OWNER';
+          await membership.save();
+        }
+
+        // Auto-switch to this client workspace
+        if (req.session) {
+          req.session.workspaceId = existing._id;
+          req.session.memberId = membership._id;
+          req.session.gstin = existing.gstin;
+          await req.session.save();
+        }
+
+        await AuditLog.create({
+          workspaceId: existing._id,
+          userId,
+          action: 'LINK_CLIENT_WORKSPACE',
+          status: 'SUCCESS'
+        }).catch(() => {});
+
+        return res.status(200).json({
+          success: true,
+          message: `Client "${existing.name}" linked and switched successfully.`,
+          workspace: {
+            id: existing._id,
+            name: existing.name,
+            gstin: existing.gstin,
+            role: 'OWNER'
+          }
+        });
       }
     }
 

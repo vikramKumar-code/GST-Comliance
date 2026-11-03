@@ -185,6 +185,23 @@ exports.createInvoice = async (req, res, next) => {
       terms: terms !== undefined ? terms : 'Payment due upon receipt.'
     });
 
+    const AuditLog = require('../models/AuditLog');
+    AuditLog.create({
+      workspaceId,
+      userId: req.userId || null,
+      userName: req.user?.name || null,
+      userEmail: req.user?.email || null,
+      gstin: sellerGstin || null,
+      action: 'INVOICE_CREATE',
+      status: 'SUCCESS',
+      details: `Created invoice ${invoice.invoiceNumber} for customer "${invoice.customerName}" (Total: ₹${calculation.grandTotal})`,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        grandTotal: calculation.grandTotal
+      }
+    }).catch(() => {});
+
     res.status(201).json({
       success: true,
       data: invoice

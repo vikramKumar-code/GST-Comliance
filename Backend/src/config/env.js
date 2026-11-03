@@ -40,6 +40,7 @@ const config = {
   CONTACT_INTAKE_ENABLED: process.env.CONTACT_INTAKE_ENABLED === undefined
     ? !isProduction
     : process.env.CONTACT_INTAKE_ENABLED === 'true',
+  SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS || 'vk8595422784@gmail.com,admin@candidtax.com',
   isProduction
 };
 

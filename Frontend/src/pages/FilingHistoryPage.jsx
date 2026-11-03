@@ -9,6 +9,31 @@ import ErrorMessage from '../components/ErrorMessage';
 import EmptyState from '../components/EmptyState';
 import { formatPeriod } from '../utils/format';
 import NilReturnModal from '../components/NilReturnModal';
+import FilingCertificateModal from '../components/FilingCertificateModal';
+import {
+  FileCheck,
+  Zap,
+  ArrowRight,
+  Copy,
+  Check,
+  RefreshCw,
+  ShieldCheck,
+  Calendar,
+  Award,
+  Printer
+} from 'lucide-react';
+import Button from '../components/ui/Button';
+import Badge from '../components/ui/Badge';
+import Card from '../components/ui/Card';
+import PageHeader from '../components/ui/PageHeader';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell
+} from '../components/ui/Table';
 
 export default function FilingHistoryPage() {
   const { user } = useAuth();
@@ -17,6 +42,8 @@ export default function FilingHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [nilModalOpen, setNilModalOpen] = useState(false);
+  const [copiedArn, setCopiedArn] = useState(null);
+  const [selectedCertificate, setSelectedCertificate] = useState(null);
 
   const fetchHistory = useCallback(async (p) => {
     setLoading(true);
@@ -42,107 +69,132 @@ export default function FilingHistoryPage() {
     };
   }, [fetchHistory, period]);
 
+  const handleCopyArn = (arn) => {
+    if (arn) {
+      navigator.clipboard.writeText(arn);
+      setCopiedArn(arn);
+      setTimeout(() => setCopiedArn(null), 2000);
+    }
+  };
+
   return (
-    <div>
-      <div className="zoho-page-header d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
-        <div>
-          <h1 className="fw-bold fs-4 text-dark mb-1">GST Filing History & Track Status</h1>
-          <p className="text-secondary small mb-0">
-            Official Application Reference Numbers (ARN) and filing acknowledgments for GSTIN {user?.gstin}.
-          </p>
-        </div>
-        <div className="d-flex align-items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            className="btn btn-outline-success btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
-            onClick={() => setNilModalOpen(true)}
-            title="File Nil Return under CGST Rule 67A"
-          >
-            <span>⚡ File Nil Return</span>
-          </button>
-          <PeriodSelector selectedPeriod={period} onPeriodChange={setPeriod} />
-        </div>
-      </div>
-
-      <div className="zoho-page-body">
-        <ErrorMessage error={error} onRetry={() => fetchHistory(period)} />
-
-        {loading && (
-          <div className="py-4">
-            <Loader message="Fetching filing history and tracking records..." />
+    <div className="space-y-6">
+      <PageHeader
+        title="GST Filing History"
+        actions={
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <PeriodSelector selectedPeriod={period} onPeriodChange={setPeriod} />
           </div>
-        )}
+        }
+      />
 
-        {!loading && !error && filings.length === 0 && (
-          <EmptyState
-            title="No Filing Records"
-            message="No return filing acknowledgments found for this period. Try another financial period or check back after filing."
-            action={
-              <button
-                type="button"
-                onClick={() => fetchHistory(period)}
-                className="btn btn-outline-primary btn-sm"
-              >
-                ↻ Refresh
-              </button>
-            }
-          />
-        )}
+      <ErrorMessage error={error} onRetry={() => fetchHistory(period)} />
 
-        {!loading && filings.length > 0 && (
-          <div className="card border shadow-sm bg-white overflow-hidden">
-            <div className="table-responsive">
-              <table className="table table-hover align-middle mb-0">
-                <thead className="table-light small">
-                  <tr>
-                    <th className="ps-3.5">Return Form</th>
-                    <th>Period</th>
-                    <th>ARN (Ack Reference #)</th>
-                    <th>Filing Date</th>
-                    <th>Mode</th>
-                    <th>Status</th>
-                    <th className="text-end pe-3.5">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="small">
-                  {filings.map((f, idx) => {
-                    const cleanType = String(f.type || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-                    return (
-                      <tr key={f.arn || idx}>
-                        <td className="ps-3.5 fw-bold text-dark">
-                          {f.type}
+      {loading && (
+        <div className="py-12 bg-white rounded-2xl border border-surface-border text-center">
+          <Loader message="Fetching filing history and tracking records..." />
+        </div>
+      )}
+
+      {!loading && !error && filings.length === 0 && (
+        <EmptyState
+          title="No Filing Records for this Period"
+          message="No return filing acknowledgments found for this tax period. Try another financial period or check back after filing."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fetchHistory(period)}
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              <span>Refresh Records</span>
+            </Button>
+          }
+        />
+      )}
+
+      {!loading && filings.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="py-3 px-4 font-semibold text-slate-700">Return Form</TableHead>
+                  <TableHead className="py-3 px-4 font-semibold text-slate-700">Period</TableHead>
+                  <TableHead className="py-3 px-4 font-semibold text-slate-700">ARN (Ack Reference #)</TableHead>
+                  <TableHead className="py-3 px-4 font-semibold text-slate-700">Filing Date</TableHead>
+                  <TableHead className="py-3 px-4 font-semibold text-slate-700">Mode</TableHead>
+                  <TableHead className="py-3 px-4 font-semibold text-slate-700">Status</TableHead>
+                  <TableHead className="text-right py-3 px-4 font-semibold text-slate-700">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filings.map((f, idx) => {
+                  const cleanType = String(f.type || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                  const isCopied = copiedArn === f.arn;
+                  return (
+                    <TableRow key={f.arn || idx} className="hover:bg-slate-50/50 transition-colors">
+                      <TableCell className="py-3 px-4 font-bold text-slate-900">
+                        <div className="flex items-center gap-1.5">
+                          <span>{f.type}</span>
                           {f.isNil && (
-                            <span className="badge bg-info-subtle text-info border border-info-subtle ms-1.5 font-monospace">
+                            <Badge variant="info" size="sm" className="font-mono text-[10px]">
                               NIL
-                            </span>
+                            </Badge>
                           )}
-                        </td>
-                        <td className="font-monospace">{formatPeriod(f.period)}</td>
-                        <td className="font-monospace fw-semibold text-primary">{f.arn}</td>
-                        <td className="text-muted">{f.date}</td>
-                        <td className="text-muted">{f.mode}</td>
-                        <td>
-                          <span className="badge bg-success-subtle text-success border border-success-subtle">
-                            {f.status}
-                          </span>
-                        </td>
-                        <td className="text-end pe-3.5">
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 px-4 font-mono text-slate-600">
+                        {formatPeriod(f.period)}
+                      </TableCell>
+                      <TableCell className="py-3 px-4">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-brand-700">{f.arn}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyArn(f.arn)}
+                            className="p-1 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                            title="Copy ARN"
+                          >
+                            {isCopied ? <Check className="w-3.5 h-3.5 text-success-600" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-3 px-4 text-slate-500">{f.date}</TableCell>
+                      <TableCell className="py-3 px-4 text-slate-500 font-medium">{f.mode}</TableCell>
+                      <TableCell className="py-3 px-4">
+                        <Badge variant="success" size="sm">
+                          {f.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right py-3 px-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCertificate(f)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-2.5 py-1 rounded-lg transition shadow-2xs cursor-pointer"
+                            title="View / Print Official Filing Certificate"
+                          >
+                            <Award className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Certificate</span>
+                          </button>
                           <Link
                             to={`/returns/${cleanType}?period=${f.period}`}
-                            className="btn btn-sm btn-link text-primary text-decoration-none p-0 fw-semibold"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 hover:underline px-1.5 py-1"
                           >
-                            View Data →
+                            <span>Data</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
                           </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           </div>
-        )}
-      </div>
+        </Card>
+      )}
 
       <NilReturnModal
         isOpen={nilModalOpen}
@@ -150,6 +202,16 @@ export default function FilingHistoryPage() {
         initialPeriod={period}
         initialType="GSTR1"
         onSuccess={() => fetchHistory(period)}
+      />
+
+      <FilingCertificateModal
+        isOpen={Boolean(selectedCertificate)}
+        onClose={() => setSelectedCertificate(null)}
+        filing={selectedCertificate}
+        workspace={{
+          name: user?.name || 'Candidtax Private Limited',
+          gstin: user?.gstin || '06AAMCC3439Q1Z2'
+        }}
       />
     </div>
   );

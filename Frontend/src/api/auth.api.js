@@ -34,6 +34,17 @@ export const verifyOtp = async ({ gstin, username, otp }) => {
 };
 
 /**
+ * Request EVC OTP for electronic return verification (Aadhaar / PAN OTP)
+ * @param {Object} payload
+ * @param {string} payload.pan - 10-character PAN of authorized signatory
+ * @param {string} [payload.form_type] - e.g. 'R1', 'R3B'
+ * @returns {Promise<{ success: boolean, message: string }>}
+ */
+export const requestEvcOtp = async ({ pan, form_type = 'R1' }) => {
+  return client.post('/auth/otp/evc', { pan, form_type });
+};
+
+/**
  * Check active session and get current user info
  * @returns {Promise<{ gstin: string, expiresAt: string, user?: Object, workspaceId?: string }>}
  */

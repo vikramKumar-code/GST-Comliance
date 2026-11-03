@@ -697,8 +697,25 @@ class TaxProProvider {
       const data = checkTaxProResponse(response.data, `getReturn:${normType}`);
       return data;
     } catch (error) {
+      const errorCd = error.response?.data?.error?.error_cd;
+
+      // Silent Auto-Refresh: If token expired, attempt seamless refresh and single retry
+      if (SESSION_ERROR_CODES.includes(errorCd) && token && username) {
+        try {
+          logger.info(`TaxPro session token expired (${errorCd}) for ${gstin}. Attempting silent auto-refresh...`);
+          const refreshRes = await this.refreshToken(gstin, username, token);
+          if (refreshRes?.token) {
+            headers['auth-token'] = refreshRes.token;
+            this.activeTokens.set(`${gstin}:${username}`, refreshRes.token);
+            const retryRes = await this.httpClient.get(path, { params, headers });
+            return checkTaxProResponse(retryRes.data, `getReturn:${normType}:retry`);
+          }
+        } catch {
+          // If refresh fails, fall through to standard error handler
+        }
+      }
+
       if (normType === 'GSTR1' && action === 'B2B') {
-        const errorCd = error.response?.data?.error?.error_cd;
         if (errorCd === 'RET13509' || errorCd === 'RET13510') {
           // No B2B invoices found for period; try fetching GSTR-1 summary (RETSUM)
           try {
@@ -771,6 +788,211 @@ class TaxProProvider {
       };
     } catch (error) {
       throw handleTaxProError(error, 'saveGstr1');
+    }
+  }
+
+  /**
+   * Track Return Upload Status via TaxPro RETSTATUS (Row 1 from API Spec)
+   * GET /taxpayerapi/dec/v1.1/returns?action=RETSTATUS
+   */
+  async trackStatus(refId, options = {}) {
+    const gstin = options.gstin || this.aspCallerGstin || '33AANCS2882A1ZG';
+    const username = options.username || 'TN_NT2.2265';
+    let token = options.token || options.gstToken || this.activeTokens.get(`${gstin}:${username}`);
+
+    const path = '/taxpayerapi/dec/v1.1/returns';
+    const params = {
+      action: 'RETSTATUS',
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      gstin,
+      username,
+      authtoken: token || '',
+      ref_id: refId
+    };
+    const headers = {
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      'auth-token': token || ''
+    };
+
+    try {
+      logger.debug(`TaxPro RETSTATUS dispatched for ${gstin} refId ${refId}`);
+      const response = await this.httpClient.get(path, { params, headers });
+      const data = checkTaxProResponse(response.data, 'trackStatus');
+      return { success: true, data };
+    } catch (error) {
+      throw handleTaxProError(error, 'trackStatus');
+    }
+  }
+
+  /**
+   * Proceed to File GSTR-1 via TaxPro PROCEEDFILE (Row 4 from API Spec)
+   * POST /taxpayerapi/dec/v1.0/returns/gstr?action=PROCEEDFILE
+   */
+  async proceedToFile(period, options = {}) {
+    const gstin = options.gstin || this.aspCallerGstin || '33AANCS2882A1ZG';
+    const username = options.username || 'TN_NT2.2265';
+    let token = options.token || options.gstToken || this.activeTokens.get(`${gstin}:${username}`);
+
+    const path = '/taxpayerapi/dec/v1.0/returns/gstr';
+    const params = {
+      action: 'PROCEEDFILE',
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      gstin,
+      username,
+      authtoken: token || '',
+      ret_period: period
+    };
+    const headers = {
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      'auth-token': token || '',
+      'Content-Type': 'application/json'
+    };
+
+    try {
+      logger.debug(`TaxPro PROCEEDFILE dispatched for ${gstin} period ${period}`);
+      const response = await this.httpClient.post(path, options.body || {}, { params, headers });
+      const data = checkTaxProResponse(response.data, 'proceedToFile');
+      return { success: true, data };
+    } catch (error) {
+      throw handleTaxProError(error, 'proceedToFile');
+    }
+  }
+
+  /**
+   * File GSTR-1 via TaxPro RETFILE with EVC OTP or DSC (Row 26 from API Spec)
+   * POST /taxpayerapi/dec/v2.0/returns/gstr1?action=RETFILE
+   */
+  async fileGstr1(period, options = {}) {
+    const gstin = options.gstin || this.aspCallerGstin || '33AANCS2882A1ZG';
+    const username = options.username || 'TN_NT2.2265';
+    let token = options.token || options.gstToken || this.activeTokens.get(`${gstin}:${username}`);
+
+    const path = '/taxpayerapi/dec/v2.0/returns/gstr1';
+    const params = {
+      action: 'RETFILE',
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      gstin,
+      username,
+      authtoken: token || '',
+      ret_period: period
+    };
+    const headers = {
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      'auth-token': token || '',
+      'Content-Type': 'application/json'
+    };
+
+    const payload = {
+      gstin,
+      ret_period: period,
+      pan: options.pan || undefined,
+      otp: options.otp || undefined,
+      mode: options.mode || 'EVC',
+      ...options.body
+    };
+
+    try {
+      logger.debug(`TaxPro RETFILE dispatched for ${gstin} period ${period}`);
+      const response = await this.httpClient.post(path, payload, { params, headers });
+      const data = checkTaxProResponse(response.data, 'fileGstr1');
+      return {
+        success: true,
+        arn: data?.arn || data?.ack_num || data?.reference_id,
+        data
+      };
+    } catch (error) {
+      throw handleTaxProError(error, 'fileGstr1');
+    }
+  }
+
+  /**
+   * File GSTR-3B via TaxPro RETFILE
+   * POST /taxpayerapi/dec/v0.3/returns/gstr3b?action=RETFILE
+   */
+  async fileGstr3b(period, options = {}) {
+    const gstin = options.gstin || this.aspCallerGstin || '33AANCS2882A1ZG';
+    const username = options.username || 'TN_NT2.2265';
+    let token = options.token || options.gstToken || this.activeTokens.get(`${gstin}:${username}`);
+
+    const path = this.apiProfile === 'current'
+      ? '/taxpayerapi/dec/v7.0/returns/gstr3b'
+      : '/taxpayerapi/dec/v0.3/returns/gstr3b';
+    const params = {
+      action: 'RETFILE',
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      gstin,
+      username,
+      authtoken: token || '',
+      ret_period: period
+    };
+    const headers = {
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      'auth-token': token || '',
+      'Content-Type': 'application/json'
+    };
+
+    const payload = {
+      gstin,
+      ret_period: period,
+      pan: options.pan || undefined,
+      otp: options.otp || undefined,
+      mode: options.mode || 'EVC',
+      ...options.body
+    };
+
+    try {
+      logger.debug(`TaxPro GSTR-3B RETFILE dispatched for ${gstin} period ${period}`);
+      const response = await this.httpClient.post(path, payload, { params, headers });
+      const data = checkTaxProResponse(response.data, 'fileGstr3b');
+      return {
+        success: true,
+        arn: data?.arn || data?.ack_num || data?.reference_id,
+        data
+      };
+    } catch (error) {
+      throw handleTaxProError(error, 'fileGstr3b');
+    }
+  }
+
+  /**
+   * Get File Details via TaxPro FILEDET (Row 2 from API Spec)
+   * GET /taxpayerapi/dec/v1.1/returns?action=FILEDET
+   */
+  async getFileDetails(period, options = {}) {
+    const gstin = options.gstin || this.aspCallerGstin || '33AANCS2882A1ZG';
+    const username = options.username || 'TN_NT2.2265';
+    let token = options.token || options.gstToken || this.activeTokens.get(`${gstin}:${username}`);
+
+    const path = '/taxpayerapi/dec/v1.1/returns';
+    const params = {
+      action: 'FILEDET',
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      gstin,
+      ret_period: period,
+      token: token || ''
+    };
+    const headers = {
+      aspid: this.getAspid(),
+      password: this.getPassword(),
+      'auth-token': token || ''
+    };
+
+    try {
+      logger.debug(`TaxPro FILEDET dispatched for ${gstin} period ${period}`);
+      const response = await this.httpClient.get(path, { params, headers });
+      const data = checkTaxProResponse(response.data, 'getFileDetails');
+      return { success: true, data };
+    } catch (error) {
+      throw handleTaxProError(error, 'getFileDetails');
     }
   }
 }

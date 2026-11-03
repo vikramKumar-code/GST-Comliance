@@ -14,6 +14,7 @@ const reconciliationRoutes = require('./reconciliation.routes');
 const reportRoutes = require('./report.routes');
 const importRoutes = require('./import.routes');
 const subscriptionRoutes = require('./subscription.routes');
+const superAdminRoutes = require('./superAdmin.routes');
 
 router.use('/gstin', gstinRoutes);
 router.use('/auth', authRoutes);
@@ -28,5 +29,6 @@ router.use('/reconciliation', reconciliationRoutes);
 router.use('/reports', reportRoutes);
 router.use('/import', importRoutes);
 router.use('/subscription', subscriptionRoutes);
+router.use('/admin', superAdminRoutes);
 
 module.exports = router;

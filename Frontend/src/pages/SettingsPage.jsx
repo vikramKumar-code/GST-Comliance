@@ -57,27 +57,24 @@ export default function SettingsPage() {
   const ROLE_DEFINITIONS = [
     {
       id: 'OWNER',
-      title: '👑 Owner',
-      desc: 'Full administrative control. Can delete workspace, link GSTIN, invite members, and file returns.',
-      badgeClass: 'bg-success text-white'
+      title: '👑 Workspace Owner',
+      desc: 'Full administrative authority. Manages all users, views billing and payments for subscriptions, configures company GSTIN, and oversees statutory filings.',
+      badgeClass: 'bg-success text-white',
+      rights: ['Manage all users', 'View subscription payments', 'Delete workspace', 'Full filing authority']
     },
     {
       id: 'ADMIN',
-      title: '🛡️ Admin',
-      desc: 'Operations manager / Accountant. Can create invoices, E-Way bills, import spreadsheets, and reconcile ITC.',
-      badgeClass: 'bg-primary text-white'
+      title: '🛡️ Organization Admin',
+      desc: 'User & role access management, company profiles, invoice series numbering, and team member permissions.',
+      badgeClass: 'bg-primary text-white',
+      rights: ['User & role management', 'Sales & purchase management', 'ITC reconciliation', 'Export data']
     },
     {
       id: 'MEMBER',
-      title: '👤 Member',
-      desc: 'Billing clerk. Can create and view sales invoices, purchase bills, and customer records.',
-      badgeClass: 'bg-secondary text-white'
-    },
-    {
-      id: 'VIEWER',
-      title: '👁️ Viewer',
-      desc: 'Auditor / CA Read-only. Can inspect invoices, tax registers, and return summaries without edit rights.',
-      badgeClass: 'bg-light text-dark border'
+      title: '👤 Member / Operator',
+      desc: 'View GSTR-1, GSTR-2B, and GSTR-3B, create sales invoices & purchase bills, and file GST returns according to the active subscription plan.',
+      badgeClass: 'bg-secondary text-white',
+      rights: ['View GSTR-1, 2B, 3B', 'Create invoices & bills', 'File GST per plan quota', 'Download reports']
     }
   ];
 
@@ -125,6 +122,15 @@ export default function SettingsPage() {
             onClick={() => setSettingsTab('roles')}
           >
             <span>🛡️</span> Role & Access Control (RBAC)
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm px-3.5 py-1.5 rounded-pill fw-semibold shadow-xs d-flex align-items-center gap-1.5 ${
+              settingsTab === 'subscriptions' ? 'btn-primary' : 'btn-light border text-secondary'
+            }`}
+            onClick={() => setSettingsTab('subscriptions')}
+          >
+            <span>💳</span> Subscriptions & Plan Quotas
           </button>
         </div>
 
@@ -261,6 +267,65 @@ export default function SettingsPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Subscriptions & Plan Quotas Section (Image 4 Blueprint) */}
+        {settingsTab === 'subscriptions' && (
+          <div className="card border shadow-sm bg-white p-4 mb-4" id="subscription-section">
+            <div className="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom flex-wrap gap-2">
+              <div>
+                <h2 className="fs-6 fw-bold text-dark mb-0.5">Subscription & Filing Quotas</h2>
+                <p className="text-muted small mb-0">
+                  Manage active plan features, GST return filing quotas, and member access tiers.
+                </p>
+              </div>
+              <span className="badge bg-primary px-3 py-1.5 rounded-pill fw-semibold">
+                Active Plan: Enterprise Pro
+              </span>
+            </div>
+
+            <div className="row g-3 mb-4">
+              <div className="col-12 col-md-4">
+                <div className="p-3 bg-light border rounded-3 text-center">
+                  <div className="text-muted text-[11px] fw-bold uppercase">Monthly Invoices</div>
+                  <div className="fs-4 fw-bold text-dark mt-1">Unlimited</div>
+                  <div className="text-success small fw-medium mt-1">✓ Active Quota</div>
+                </div>
+              </div>
+              <div className="col-12 col-md-4">
+                <div className="p-3 bg-light border rounded-3 text-center">
+                  <div className="text-muted text-[11px] fw-bold uppercase">GSTR-1, 2B, 3B Returns</div>
+                  <div className="fs-4 fw-bold text-dark mt-1">Included</div>
+                  <div className="text-success small fw-medium mt-1">✓ Sandbox & Live Filing</div>
+                </div>
+              </div>
+              <div className="col-12 col-md-4">
+                <div className="p-3 bg-light border rounded-3 text-center">
+                  <div className="text-muted text-[11px] fw-bold uppercase">Workspace Members</div>
+                  <div className="fs-4 fw-bold text-dark mt-1">10 Seats</div>
+                  <div className="text-primary small fw-medium mt-1">Owner, Admin & Members</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border rounded-3">
+              <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div>
+                  <strong className="text-dark d-block">Manage Payments & Invoices</strong>
+                  <span className="small text-muted">
+                    Workspace Owners have exclusive access to view subscription payments, invoice history, and billing receipts.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline-primary btn-sm px-3 fw-semibold"
+                  onClick={() => alert('Subscription billing is active. In Sandbox/Enterprise mode, unlimited returns are enabled.')}
+                >
+                  View Payment History
+                </button>
+              </div>
             </div>
           </div>
         )}

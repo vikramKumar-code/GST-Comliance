@@ -28,7 +28,7 @@ class Gstr1Service {
    * - Table 12 (HSN): HSN-wise summary of outward supplies
    * - Table 13 (DOCISS): Documents issued during the tax period
    */
-  static async preparePayload(workspaceId, gstin, period) {
+  static async preparePayload(workspaceId, gstin, period, options = {}) {
     if (!workspaceId) {
       throw ApiError.validationError('Active workspaceId is required to prepare GSTR-1.');
     }
@@ -45,6 +45,8 @@ class Gstr1Service {
     const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
     const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
 
+    const excludedIds = new Set((options.excludedInvoiceIds || []).map(String));
+
     // Query all invoices in the tax period
     const allInvoices = await Invoice.find({
       workspaceId,
@@ -55,57 +57,189 @@ class Gstr1Service {
     const activeInvoices = allInvoices.filter((inv) => !isCancelled(inv));
     const cancelledCount = allInvoices.filter((inv) => isCancelled(inv)).length;
 
+    // Categorized invoice list for drilldown inspection
+    const sectionDetails = {
+      b2b: [],
+      b2cl: [],
+      b2cs: [],
+      exp: [],
+      cdnr: [],
+      hsn: [],
+      docIssue: null,
+      docIssueList: []
+    };
+
     // 1. Group B2B Invoices (Table 4)
     const b2bMap = new Map();
-    // 2. Group B2CS Invoices (Table 7)
+    // 2. Group B2CL Invoices (Table 5)
+    const b2clMap = new Map();
+    // 3. Group B2CS Invoices (Table 7)
     const b2csMap = new Map();
-    // 3. Group HSN Summary (Table 12)
+    // 4. Group Exports (Table 6A)
+    const expList = [];
+    // 5. Group HSN Summary (Table 12)
     const hsnMap = new Map();
 
     const supplierStateCode = normGstin.slice(0, 2);
 
     for (const inv of activeInvoices) {
+      const invIdStr = String(inv._id);
+      const isExcluded = excludedIds.has(invIdStr);
+
       const pos = extractPos(inv.placeOfSupply);
       const isInterState = pos !== supplierStateCode;
       const isB2B = inv.customerGstin && isValidGstin(inv.customerGstin.trim().toUpperCase());
+      const isExport = Boolean(inv.isExport || pos === '96' || inv.exportType);
+      const grandTotalVal = Number(inv.grandTotal || 0);
+      const taxableVal = Number(inv.subTotal ?? inv.totalTaxable ?? 0);
+      const igstVal = Number(inv.totalIgst || 0);
+      const cgstVal = Number(inv.totalCgst || 0);
+      const sgstVal = Number(inv.totalSgst || 0);
 
-      if (isB2B) {
-        const buyerGstin = inv.customerGstin.trim().toUpperCase();
-        if (!b2bMap.has(buyerGstin)) {
-          b2bMap.set(buyerGstin, []);
-        }
+      const invoiceItemDetail = {
+        _id: inv._id,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceDate: inv.invoiceDate,
+        dateFormatted: formatGstnDate(inv.invoiceDate),
+        customerName: inv.customerName,
+        customerGstin: inv.customerGstin || '',
+        placeOfSupply: inv.placeOfSupply || pos,
+        pos,
+        grandTotal: grandTotalVal,
+        taxableAmount: taxableVal,
+        igst: igstVal,
+        cgst: cgstVal,
+        sgst: sgstVal,
+        lineItemsCount: inv.lineItems?.length || 0,
+        isExcluded
+      };
 
-        const itms = (inv.lineItems || []).map((item, idx) => ({
-          num: idx + 1,
-          itm_det: {
-            rt: Number(item.gstRate || 0),
-            txval: Math.round(Number(item.taxableAmount || 0) * 100) / 100,
-            iamt: Math.round(Number(item.igstAmount || 0) * 100) / 100,
-            camt: Math.round(Number(item.cgstAmount || 0) * 100) / 100,
-            samt: Math.round(Number(item.sgstAmount || 0) * 100) / 100,
-            csamt: 0
-          }
-        }));
+      sectionDetails.docIssueList.push(invoiceItemDetail);
 
-        b2bMap.get(buyerGstin).push({
-          inum: inv.invoiceNumber,
-          idt: formatGstnDate(inv.invoiceDate),
-          val: Math.round(Number(inv.grandTotal || 0) * 100) / 100,
-          pos,
-          rchrg: 'N',
-          inv_typ: 'R',
-          itms
+      if (inv.documentType === 'CREDIT_NOTE' || inv.documentType === 'DEBIT_NOTE') {
+        sectionDetails.cdnr.push({
+          ...invoiceItemDetail,
+          noteType: inv.documentType === 'CREDIT_NOTE' ? 'C' : 'D',
+          originalInvoiceNumber: inv.originalInvoiceNumber || 'INV-ORIG',
+          originalInvoiceDate: inv.originalInvoiceDate ? formatGstnDate(inv.originalInvoiceDate) : '',
+          reason: inv.noteReason || 'Sales Return'
         });
+      } else if (isExport) {
+        sectionDetails.exp.push(invoiceItemDetail);
+        if (!isExcluded) {
+          expList.push({
+            exp_typ: inv.exportType || 'WOPAY',
+            inv: [{
+              inum: inv.invoiceNumber,
+              idt: formatGstnDate(inv.invoiceDate),
+              val: Math.round(grandTotalVal * 100) / 100,
+              itms: (inv.lineItems || []).map((item, idx) => ({
+                num: idx + 1,
+                itm_det: {
+                  rt: Number(item.gstRate || 0),
+                  txval: Math.round(Number(item.taxableAmount || 0) * 100) / 100,
+                  iamt: Math.round(Number(item.igstAmount || 0) * 100) / 100,
+                  csamt: 0
+                }
+              }))
+            }]
+          });
+        }
+      } else if (isB2B) {
+        sectionDetails.b2b.push(invoiceItemDetail);
+        if (!isExcluded) {
+          const buyerGstin = inv.customerGstin.trim().toUpperCase();
+          if (!b2bMap.has(buyerGstin)) {
+            b2bMap.set(buyerGstin, []);
+          }
+
+          const itms = (inv.lineItems || []).map((item, idx) => ({
+            num: idx + 1,
+            itm_det: {
+              rt: Number(item.gstRate || 0),
+              txval: Math.round(Number(item.taxableAmount || 0) * 100) / 100,
+              iamt: Math.round(Number(item.igstAmount || 0) * 100) / 100,
+              camt: Math.round(Number(item.cgstAmount || 0) * 100) / 100,
+              samt: Math.round(Number(item.sgstAmount || 0) * 100) / 100,
+              csamt: 0
+            }
+          }));
+
+          b2bMap.get(buyerGstin).push({
+            inum: inv.invoiceNumber,
+            idt: formatGstnDate(inv.invoiceDate),
+            val: Math.round(grandTotalVal * 100) / 100,
+            pos,
+            rchrg: 'N',
+            inv_typ: 'R',
+            itms
+          });
+        }
+      } else if (isInterState && grandTotalVal > 250000) {
+        // Table 5: B2C Large (Unregistered, Inter-State, > 2.5 Lakhs)
+        sectionDetails.b2cl.push(invoiceItemDetail);
+        if (!isExcluded) {
+          if (!b2clMap.has(pos)) {
+            b2clMap.set(pos, []);
+          }
+          b2clMap.get(pos).push({
+            inum: inv.invoiceNumber,
+            idt: formatGstnDate(inv.invoiceDate),
+            val: Math.round(grandTotalVal * 100) / 100,
+            pos,
+            itms: (inv.lineItems || []).map((item, idx) => ({
+              num: idx + 1,
+              itm_det: {
+                rt: Number(item.gstRate || 0),
+                txval: Math.round(Number(item.taxableAmount || 0) * 100) / 100,
+                iamt: Math.round(Number(item.igstAmount || 0) * 100) / 100,
+                csamt: 0
+              }
+            }))
+          });
+        }
       } else {
-        // B2C Small
-        const sply_ty = isInterState ? 'INTER' : 'INTRA';
+        // Table 7: B2C Small
+        sectionDetails.b2cs.push(invoiceItemDetail);
+        if (!isExcluded) {
+          const sply_ty = isInterState ? 'INTER' : 'INTRA';
+          for (const item of (inv.lineItems || [])) {
+            const rt = Number(item.gstRate || 0);
+            const key = `${sply_ty}_${pos}_${rt}`;
+            if (!b2csMap.has(key)) {
+              b2csMap.set(key, {
+                sply_ty,
+                pos,
+                rt,
+                txval: 0,
+                iamt: 0,
+                camt: 0,
+                samt: 0,
+                csamt: 0
+              });
+            }
+            const row = b2csMap.get(key);
+            row.txval += Number(item.taxableAmount || 0);
+            row.iamt += Number(item.igstAmount || 0);
+            row.camt += Number(item.cgstAmount || 0);
+            row.samt += Number(item.sgstAmount || 0);
+          }
+        }
+      }
+
+      // HSN items aggregation (only for non-excluded invoices)
+      if (!isExcluded) {
         for (const item of (inv.lineItems || [])) {
+          const hsnCode = (item.hsnSac || '9999').trim();
           const rt = Number(item.gstRate || 0);
-          const key = `${sply_ty}_${pos}_${rt}`;
-          if (!b2csMap.has(key)) {
-            b2csMap.set(key, {
-              sply_ty,
-              pos,
+          const uqc = (item.unit || 'PCS').trim().toUpperCase();
+          const key = `${hsnCode}_${uqc}_${rt}`;
+          if (!hsnMap.has(key)) {
+            hsnMap.set(key, {
+              hsn_sc: hsnCode,
+              desc: item.name || 'Goods and Services',
+              uqc,
+              qty: 0,
               rt,
               txval: 0,
               iamt: 0,
@@ -114,40 +248,13 @@ class Gstr1Service {
               csamt: 0
             });
           }
-          const row = b2csMap.get(key);
-          row.txval += Number(item.taxableAmount || 0);
-          row.iamt += Number(item.igstAmount || 0);
-          row.camt += Number(item.cgstAmount || 0);
-          row.samt += Number(item.sgstAmount || 0);
+          const hsnRow = hsnMap.get(key);
+          hsnRow.qty += Number(item.quantity || 0);
+          hsnRow.txval += Number(item.taxableAmount || 0);
+          hsnRow.iamt += Number(item.igstAmount || 0);
+          hsnRow.camt += Number(item.cgstAmount || 0);
+          hsnRow.samt += Number(item.sgstAmount || 0);
         }
-      }
-
-      // HSN items aggregation
-      for (const item of (inv.lineItems || [])) {
-        const hsnCode = (item.hsnSac || '9999').trim();
-        const rt = Number(item.gstRate || 0);
-        const uqc = (item.unit || 'PCS').trim().toUpperCase();
-        const key = `${hsnCode}_${uqc}_${rt}`;
-        if (!hsnMap.has(key)) {
-          hsnMap.set(key, {
-            hsn_sc: hsnCode,
-            desc: item.name || 'Goods and Services',
-            uqc,
-            qty: 0,
-            rt,
-            txval: 0,
-            iamt: 0,
-            camt: 0,
-            samt: 0,
-            csamt: 0
-          });
-        }
-        const hsnRow = hsnMap.get(key);
-        hsnRow.qty += Number(item.quantity || 0);
-        hsnRow.txval += Number(item.taxableAmount || 0);
-        hsnRow.iamt += Number(item.igstAmount || 0);
-        hsnRow.camt += Number(item.cgstAmount || 0);
-        hsnRow.samt += Number(item.sgstAmount || 0);
       }
     }
 
@@ -157,6 +264,15 @@ class Gstr1Service {
       b2b.push({
         ctin,
         cfs: 'Y',
+        inv: invList
+      });
+    }
+
+    // Transform B2CL array
+    const b2cl = [];
+    for (const [pos, invList] of b2clMap.entries()) {
+      b2cl.push({
+        pos,
         inv: invList
       });
     }
@@ -194,15 +310,19 @@ class Gstr1Service {
         csamt: 0
       });
     }
+    sectionDetails.hsn = hsnData;
 
     // Transform Document Issue (Table 13)
+    const includedInvoices = activeInvoices.filter((inv) => !excludedIds.has(String(inv._id)));
     const docRange = {
-      from: allInvoices.length > 0 ? allInvoices[0].invoiceNumber : 'N/A',
-      to: allInvoices.length > 0 ? allInvoices[allInvoices.length - 1].invoiceNumber : 'N/A',
+      from: includedInvoices.length > 0 ? includedInvoices[0].invoiceNumber : 'N/A',
+      to: includedInvoices.length > 0 ? includedInvoices[includedInvoices.length - 1].invoiceNumber : 'N/A',
       totnum: allInvoices.length,
-      canc: cancelledCount,
-      net_issue: activeInvoices.length
+      canc: cancelledCount + excludedIds.size,
+      net_issue: includedInvoices.length,
+      totalCount: allInvoices.length
     };
+    sectionDetails.docIssue = docRange;
 
     const doc_issue = {
       doc_det: [
@@ -223,9 +343,9 @@ class Gstr1Service {
       ]
     };
 
-    // Calculate overall totals
+    // Calculate active/included totals
     let totalTaxable = 0, totalIgst = 0, totalCgst = 0, totalSgst = 0, grandTotal = 0;
-    for (const inv of activeInvoices) {
+    for (const inv of includedInvoices) {
       totalTaxable += Number(inv.subTotal ?? inv.totalTaxable ?? 0);
       totalIgst += Number(inv.totalIgst || 0);
       totalCgst += Number(inv.totalCgst || 0);
@@ -235,6 +355,9 @@ class Gstr1Service {
 
     const summary = {
       totalInvoices: activeInvoices.length,
+      allInvoicesCount: allInvoices.length,
+      includedInvoices: includedInvoices.length,
+      excludedInvoices: excludedIds.size,
       cancelledInvoices: cancelledCount,
       totalTaxable: Math.round(totalTaxable * 100) / 100,
       totalIgst: Math.round(totalIgst * 100) / 100,
@@ -243,8 +366,27 @@ class Gstr1Service {
       totalTax: Math.round((totalIgst + totalCgst + totalSgst) * 100) / 100,
       grandTotal: Math.round(grandTotal * 100) / 100,
       sections: {
-        b2bCount: b2b.reduce((acc, b) => acc + (b.inv || []).length, 0),
-        b2csCount: b2cs.length,
+        b2bCount: sectionDetails.b2b.length,
+        b2bIncluded: sectionDetails.b2b.filter((i) => !i.isExcluded).length,
+        b2bTaxable: Math.round(sectionDetails.b2b.filter((i) => !i.isExcluded).reduce((acc, i) => acc + i.taxableAmount, 0) * 100) / 100,
+        b2bTax: Math.round(sectionDetails.b2b.filter((i) => !i.isExcluded).reduce((acc, i) => acc + i.igst + i.cgst + i.sgst, 0) * 100) / 100,
+
+        b2clCount: sectionDetails.b2cl.length,
+        b2clIncluded: sectionDetails.b2cl.filter((i) => !i.isExcluded).length,
+        b2clTaxable: Math.round(sectionDetails.b2cl.filter((i) => !i.isExcluded).reduce((acc, i) => acc + i.taxableAmount, 0) * 100) / 100,
+        b2clTax: Math.round(sectionDetails.b2cl.filter((i) => !i.isExcluded).reduce((acc, i) => acc + i.igst + i.cgst + i.sgst, 0) * 100) / 100,
+
+        b2csCount: sectionDetails.b2cs.length,
+        b2csIncluded: sectionDetails.b2cs.filter((i) => !i.isExcluded).length,
+        b2csTaxable: Math.round(sectionDetails.b2cs.filter((i) => !i.isExcluded).reduce((acc, i) => acc + i.taxableAmount, 0) * 100) / 100,
+        b2csTax: Math.round(sectionDetails.b2cs.filter((i) => !i.isExcluded).reduce((acc, i) => acc + i.igst + i.cgst + i.sgst, 0) * 100) / 100,
+
+        expCount: sectionDetails.exp.length,
+        expIncluded: sectionDetails.exp.filter((i) => !i.isExcluded).length,
+        expTaxable: Math.round(sectionDetails.exp.filter((i) => !i.isExcluded).reduce((acc, i) => acc + i.taxableAmount, 0) * 100) / 100,
+        expTax: Math.round(sectionDetails.exp.filter((i) => !i.isExcluded).reduce((acc, i) => acc + i.igst, 0) * 100) / 100,
+
+        cdnrCount: sectionDetails.cdnr.length,
         hsnCount: hsnData.length,
         docRange
       }
@@ -256,7 +398,9 @@ class Gstr1Service {
       gt: 0,
       cur_gt: summary.grandTotal,
       b2b,
+      b2cl,
       b2cs,
+      exp: expList,
       hsn: { data: hsnData },
       doc_issue
     };
@@ -266,7 +410,8 @@ class Gstr1Service {
       period,
       gstin: normGstin,
       summary,
-      payload
+      payload,
+      sectionDetails
     };
   }
 
@@ -275,7 +420,7 @@ class Gstr1Service {
    * STRICT SAFETY GUARD: When FEATURE_FILING !== 'true', this strictly operates in dry-run mode.
    */
   static async savePayload(workspaceId, gstin, period, options = {}) {
-    const prepared = await Gstr1Service.preparePayload(workspaceId, gstin, period);
+    const prepared = await Gstr1Service.preparePayload(workspaceId, gstin, period, options);
 
     const isFilingEnabled = process.env.FEATURE_FILING === 'true';
 

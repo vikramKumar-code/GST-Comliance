@@ -1,6 +1,15 @@
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import OtpForm from '../components/OtpForm';
+import {
+  ArrowLeft,
+  ShieldCheck,
+  CheckCircle2,
+  Smartphone,
+  Lock,
+  Building2
+} from 'lucide-react';
+import Badge from '../components/ui/Badge';
 
 export default function OtpPage() {
   const location = useLocation();
@@ -24,80 +33,75 @@ export default function OtpPage() {
   };
 
   return (
-    <div className="auth-split-wrapper">
+    <div className="min-h-screen flex bg-white">
       {/* ====================================================================
           LEFT SHOWCASE PANEL (Taxpayer 2FA Context & Security Overview)
           ==================================================================== */}
-      <div className="auth-showcase-panel d-none d-lg-flex">
+      <div className="hidden lg:flex lg:w-5/12 xl:w-5/12 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 text-white p-12 flex-col justify-between relative overflow-hidden border-r border-slate-800">
+        <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:20px_20px] pointer-events-none opacity-60" />
+        <div className="absolute top-1/3 -left-20 w-80 h-80 bg-brand-500/10 rounded-full blur-3xl pointer-events-none" />
+
         {/* Top Branding */}
-        <div style={{ position: 'relative', zIndex: 2 }}>
-          <Link to="/" className="text-decoration-none d-inline-flex align-items-center gap-2 mb-4">
-            <span
-              className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow"
-              style={{
-                width: '44px',
-                height: '44px',
-                background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
-                fontSize: '1.2rem',
-                border: '1px solid rgba(255, 255, 255, 0.25)'
-              }}
-            >
+        <div className="relative z-10">
+          <Link to="/" className="inline-flex items-center gap-3 mb-8">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-brand-600 to-teal-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-brand-900/30 border border-white/20">
               CT
-            </span>
-            <span className="fs-3 fw-bold text-white tracking-tight">CandidTax</span>
-            <span
-              className="badge rounded-pill text-white ms-2 px-2.5 py-1"
-              style={{
-                background: 'rgba(31, 166, 137, 0.25)',
-                border: '1px solid rgba(31, 166, 137, 0.4)',
-                fontSize: '0.68rem',
-                letterSpacing: '0.04em'
-              }}
-            >
+            </div>
+            <span className="text-2xl font-bold tracking-tight text-white">CandidTax</span>
+            <Badge variant="fintech" size="sm" className="font-mono text-[10px]">
               GSTN Gateway 2FA
-            </span>
+            </Badge>
           </Link>
 
-          <h2 className="display-6 fw-bold text-white tracking-tight mb-3" style={{ lineHeight: 1.25 }}>
+          <h2 className="text-3xl font-extrabold tracking-tight text-white leading-tight mb-4">
             Two-Factor Taxpayer Authentication.
           </h2>
-          <p className="text-white-50 fs-6 mb-5" style={{ maxWidth: '460px', lineHeight: 1.6 }}>
+          <p className="text-slate-400 text-sm leading-relaxed mb-8 max-w-md">
             Direct cryptographic session handshake with the Goods & Services Tax Network (GSTN).
           </p>
 
           {/* Stepper overview */}
-          <div className="d-flex flex-column gap-3 mb-5">
-            <div className="auth-feature-pill">
-              <div className="auth-feature-icon text-success">✓</div>
+          <div className="space-y-4">
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xs flex items-start gap-3.5">
+              <div className="w-8 h-8 rounded-lg bg-brand-500/20 text-brand-400 flex items-center justify-center shrink-0 mt-0.5">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
               <div>
-                <h6 className="fw-bold text-white mb-0.5" style={{ fontSize: '0.92rem' }}>
+                <h4 className="text-xs font-bold text-white mb-0.5">
                   GSTIN Verified
-                </h6>
-                <p className="text-white-50 small mb-0 font-monospace">
-                  {gstin}
+                </h4>
+                <p className="text-brand-300 font-mono text-[11px] font-bold">
+                  {gstin || '29AABCU9603R1Z2'}
                 </p>
+                {legalName && (
+                  <p className="text-slate-400 text-[10px] mt-0.5">{legalName}</p>
+                )}
               </div>
             </div>
 
-            <div className="auth-feature-pill" style={{ borderColor: 'rgba(31, 166, 137, 0.4)', background: 'rgba(31, 166, 137, 0.12)' }}>
-              <div className="auth-feature-icon">📲</div>
+            <div className="p-4 rounded-xl bg-brand-500/10 border border-brand-500/30 backdrop-blur-xs flex items-start gap-3.5">
+              <div className="w-8 h-8 rounded-lg bg-brand-500/30 text-brand-300 flex items-center justify-center shrink-0 mt-0.5">
+                <Smartphone className="w-4 h-4" />
+              </div>
               <div>
-                <h6 className="fw-bold text-white mb-0.5" style={{ fontSize: '0.92rem' }}>
+                <h4 className="text-xs font-bold text-white mb-0.5">
                   OTP Dispatched by Portal
-                </h6>
-                <p className="text-white-50 small mb-0">
+                </h4>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
                   Transmitted to the authorized signatory mobile & email registered on GSTN.
                 </p>
               </div>
             </div>
 
-            <div className="auth-feature-pill">
-              <div className="auth-feature-icon">🔒</div>
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xs flex items-start gap-3.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
+                <Lock className="w-4 h-4" />
+              </div>
               <div>
-                <h6 className="fw-bold text-white mb-0.5" style={{ fontSize: '0.92rem' }}>
+                <h4 className="text-xs font-bold text-white mb-0.5">
                   6-Hour Secure Working Session
-                </h6>
-                <p className="text-white-50 small mb-0">
+                </h4>
+                <p className="text-slate-400 text-[11px] leading-relaxed">
                   Auto-sync invoices, ITC reconciliations, and return ledgers with full audit trails.
                 </p>
               </div>
@@ -105,136 +109,71 @@ export default function OtpPage() {
           </div>
         </div>
 
-        {/* Bottom Social Proof & Trust Card */}
-        <div style={{ position: 'relative', zIndex: 2 }}>
-          <div
-            className="p-3.5 rounded-3 mb-4"
-            style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)'
-            }}
-          >
-            <div className="d-flex align-items-center gap-2 mb-1">
-              <span className="badge bg-info-subtle text-info border border-info-subtle px-2 py-0.5 rounded-pill small fw-bold">
-                Direct GSP Channel
-              </span>
-              <span className="text-white-50 small">• Encrypted Handshake</span>
+        {/* Bottom Social Proof */}
+        <div className="relative z-10 pt-6">
+          <div className="p-4 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xs mb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Badge variant="info" size="sm">Direct GSP Channel</Badge>
+              <span className="text-slate-400 text-xs">FinAgg Sandbox & Live Gateway</span>
             </div>
-            <p className="text-white-50 small mb-0" style={{ lineHeight: 1.5 }}>
-              All communications are routed through authorized GST Suvidha Providers in full compliance with National Informatics Centre (NIC) guidelines.
+            <p className="text-slate-300 text-xs leading-relaxed italic mt-1.5">
+              &ldquo;Cryptographic token validation ensures zero raw taxpayer credentials are ever persisted in storage.&rdquo;
             </p>
           </div>
 
-          <div className="d-flex align-items-center justify-content-between text-white-50 small pt-3 border-top border-white-10">
+          <div className="flex items-center justify-between text-slate-500 text-[11px] pt-3 border-t border-white/10">
             <span>ISO 27001 Certified</span>
             <span>•</span>
-            <span>256-Bit TLS 1.3</span>
+            <span>SOC 2 Type II Compliant</span>
             <span>•</span>
-            <span>Zero-Knowledge Storage</span>
+            <span>99.99% Uptime SLA</span>
           </div>
         </div>
       </div>
 
       {/* ====================================================================
-          RIGHT INTERACTIVE OTP VERIFICATION PANEL
+          RIGHT OTP VERIFICATION PANEL
           ==================================================================== */}
-      <div className="auth-form-panel">
+      <div className="flex-1 flex flex-col justify-between p-6 sm:p-10 lg:p-14 overflow-y-auto">
         {/* Top Utility Bar */}
-        <div className="d-flex align-items-center justify-content-between pb-3">
-          <Link
-            to="/"
-            className="text-decoration-none text-muted small fw-semibold d-inline-flex align-items-center gap-1.5 transition-all"
-            style={{ transition: 'color 0.15s ease' }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path fillRule="evenodd" d="M12 8a.5.5 0 0 1-.5.5H5.707l3.147 3.146a.5.5 0 0 1-.708.708l-4-4a.5.5 0 0 1 0-.708l4-4a.5.5 0 1 1 .708.708L5.707 7.5H11.5a.5.5 0 0 1 .5.5z"/>
-            </svg>
-            Back to Home
-          </Link>
-
+        <div className="flex items-center justify-between pb-6">
           <Link
             to="/login"
-            className="text-decoration-none text-primary small fw-semibold d-inline-flex align-items-center gap-1"
+            className="text-slate-500 hover:text-slate-900 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
           >
-            Change GSTIN
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Sign In</span>
           </Link>
+
+          <div className="text-xs text-slate-400 font-mono">
+            Step 2 of 2
+          </div>
         </div>
 
         {/* Center Auth Form Container */}
-        <div className="auth-form-container my-auto py-4">
-          {/* Mobile Brand Indicator */}
-          <div className="d-flex d-lg-none align-items-center justify-content-between mb-4">
-            <div className="d-flex align-items-center gap-2">
-              <span
-                className="d-inline-flex align-items-center justify-content-center text-white fw-bold rounded-3 shadow-xs"
-                style={{
-                  width: '38px',
-                  height: '38px',
-                  background: 'linear-gradient(135deg, #10b981 0%, #0d6e59 100%)',
-                  fontSize: '1rem'
-                }}
-              >
-                CT
-              </span>
-              <span className="fs-4 fw-bold text-dark tracking-tight">CandidTax</span>
+        <div className="w-full max-w-md mx-auto my-auto py-4">
+          <div className="text-center mb-6">
+            <div className="w-12 h-12 rounded-2xl bg-brand-50 border border-brand-100 text-brand-600 flex items-center justify-center mx-auto mb-3 shadow-xs">
+              <ShieldCheck className="w-6 h-6" />
             </div>
-            <span className="badge bg-success-subtle text-success border border-success-subtle small fw-semibold">
-              GSTN Gateway 2FA
-            </span>
-          </div>
-
-          <div className="mb-4">
-            <div className="d-inline-flex align-items-center gap-2 px-2.5 py-1 rounded-pill bg-primary-subtle text-primary border border-primary-subtle small fw-bold mb-2">
-              <span>🔐</span>
-              <span>2FA GST Verification</span>
-            </div>
-            <h1 className="fs-3 fw-bold text-dark tracking-tight mb-1">Enter GST Portal OTP</h1>
-            <p className="text-muted small mb-0">
-              Enter the 4-8 digit verification code sent to your GST-registered contact.
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Verify Two-Factor OTP</h1>
+            <p className="text-xs text-slate-500 mt-1">
+              GSTIN: <strong className="font-mono text-slate-800">{gstin || '29AABCU9603R1Z2'}</strong>
+              {username && <span> • User: <strong>{username}</strong></span>}
             </p>
           </div>
 
-          {/* Taxpayer Information Summary Card */}
-          <div
-            className="p-3 mb-4 rounded-3 border"
-            style={{
-              backgroundColor: '#f8fafc',
-              borderColor: '#e2e8f0'
-            }}
-          >
-            <div className="d-flex align-items-center justify-content-between mb-1.5">
-              <span className="text-muted small fw-medium">Target GSTIN:</span>
-              <span className="badge bg-success-subtle text-success border border-success-subtle fw-semibold">
-                ✓ Ready for Handshake
-              </span>
-            </div>
-            <div className="d-flex justify-content-between align-items-center">
-              <span className="font-monospace fw-bold text-dark fs-5 tracking-wide">{gstin}</span>
-              {username && (
-                <span className="badge bg-light text-secondary border font-monospace">{username}</span>
-              )}
-            </div>
-            {legalName && (
-              <div className="text-secondary small fw-medium mt-1 pt-1 border-top border-slate-200">
-                🏢 {legalName}
-              </div>
-            )}
+          <div className="p-6 bg-white rounded-2xl border border-surface-border shadow-card">
+            <OtpForm gstin={gstin} username={username} onSuccess={handleSuccess} />
           </div>
-
-          {/* OTP Verification Form */}
-          <OtpForm gstin={gstin} username={username} onSuccess={handleSuccess} />
         </div>
 
         {/* Bottom Trust & Legal Footer */}
-        <div className="pt-4 border-top" style={{ borderColor: '#e2e8f0' }}>
-          <div className="d-flex flex-column flex-sm-row align-items-center justify-content-between gap-2 text-muted small" style={{ fontSize: '0.78rem' }}>
-            <span className="d-flex align-items-center gap-1.5">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-success">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-              Bank-grade 256-bit SSL encrypted
+        <div className="pt-6 border-t border-surface-border">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-slate-400 text-[11px]">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-brand-600" />
+              <span>Bank-grade 256-bit SSL encrypted</span>
             </span>
             <span>&copy; {new Date().getFullYear()} CandidTax Systems Pvt Ltd</span>
           </div>

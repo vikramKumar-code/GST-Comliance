@@ -65,6 +65,10 @@ const SUITES = [
     args: [path.join(__dirname, 'test-security.js')]
   },
   {
+    name: 'test-super-admin',
+    args: [path.join(__dirname, 'test-super-admin.js')]
+  },
+  {
     name: 'test:e2e',
     args: [path.join(__dirname, 'run-e2e.js')]
   }

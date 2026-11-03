@@ -10,15 +10,24 @@ export function AuthProvider({ children }) {
 
   const formatUserData = (data) => {
     if (!data) return null;
+    const gstin = data.gstin || data.currentWorkspace?.gstin || null;
+    const fallbackName = gstin === '06AAMCC3439Q1Z2' ? 'Candidtax Private Limited' : (gstin ? `GSTIN ${gstin}` : 'User');
+    const rawName = data.user?.name || data.currentWorkspace?.name;
+    const resolvedName = (rawName && !rawName.startsWith('Taxpayer (')) ? rawName : fallbackName;
+
     return {
       id: data.user?.id || null,
-      name: data.user?.name || (data.gstin ? `Taxpayer (${data.gstin.slice(0, 5)})` : 'User'),
+      name: resolvedName,
       email: data.user?.email || null,
       avatar: data.user?.avatar || null,
       authProvider: data.user?.authProvider || 'GSTIN_OTP',
-      gstin: data.gstin || data.currentWorkspace?.gstin || null,
+      systemRole: data.user?.systemRole || (data.isSuperAdmin ? 'SUPER_ADMIN' : 'USER'),
+      isSuperAdmin: Boolean(data.isSuperAdmin || data.user?.isSuperAdmin || data.user?.systemRole === 'SUPER_ADMIN'),
+      gstin,
       workspaceId: data.workspaceId || data.currentWorkspace?.id || null,
       workspaceRole: data.workspaceRole || data.currentWorkspace?.role || 'MEMBER',
+      permissions: data.permissions || data.currentWorkspace?.permissions || ['ALL'],
+      subscription: data.currentWorkspace?.subscription || { plan: 'FREE', status: 'ACTIVE' },
       expiresAt: data.expiresAt,
     };
   };

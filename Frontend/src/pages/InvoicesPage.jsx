@@ -1,25 +1,67 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
+  FileText,
+  Plus,
+  Search,
+  Printer,
+  Truck,
+  Copy,
+  Check,
+  Zap,
+  RotateCcw,
+  Trash2,
+  Edit2,
+  Eye,
+  AlertTriangle,
+  CheckCircle2,
+  X,
+  XCircle,
+  Building2,
+  Calendar,
+  Layers,
+  ShieldCheck,
+  RefreshCw
+} from 'lucide-react';
+import { searchGstin } from '../api/auth.api';
+import {
   listInvoices,
   createInvoice,
   updateInvoice,
   deleteInvoice,
   generateEInvoice,
   cancelEInvoice,
-  generateEwayBill
+  generateEwayBill,
 } from '../api/invoices.api';
 import { listCustomers } from '../api/customers.api';
 import { listItems } from '../api/items.api';
 import { useAuth } from '../context/AuthContext';
-import Loader from '../components/Loader';
+import Loader from '../components/common/Loader';
 import ErrorMessage from '../components/ErrorMessage';
+import ConfirmDialog from '../components/common/ConfirmDialog';
+import StatusBadge from '../components/common/StatusBadge';
+import {
+  PageHeader,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+  MetricCard,
+  Button,
+  Input,
+  Select,
+  Modal,
+  Tabs,
+  Badge,
+} from '../components/ui';
 import {
   formatCurrency,
   formatDate,
   formatTallyDate,
   getStateName,
-  numberToWords
+  numberToWords,
 } from '../utils/format';
 
 const DEFAULT_LINE_ITEM = {
@@ -31,7 +73,7 @@ const DEFAULT_LINE_ITEM = {
   quantity: 1,
   rate: 0,
   discount: 0,
-  gstRate: 18
+  gstRate: 18,
 };
 
 export default function InvoicesPage() {
@@ -64,14 +106,18 @@ export default function InvoicesPage() {
     transporterId: '',
     transporterName: '',
     distance: 0,
-    transportMode: '1'
+    transportMode: '1',
   });
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelForm, setCancelForm] = useState({
     reasonCode: '1',
-    remarks: 'Data entry mistake'
+    remarks: 'Data entry mistake',
   });
   const [copiedIrn, setCopiedIrn] = useState(false);
+
+  // Confirm delete dialog
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form state
   const [customerId, setCustomerId] = useState('');
@@ -84,8 +130,36 @@ export default function InvoicesPage() {
   const [lineItems, setLineItems] = useState([{ ...DEFAULT_LINE_ITEM }]);
   const [notes, setNotes] = useState('Thanks for your business.');
   const [status, setStatus] = useState('Draft');
+  const [verifyingCustomerGstin, setVerifyingCustomerGstin] = useState(false);
 
-  const sellerState = (user?.gstin && user.gstin.length >= 2) ? user.gstin.slice(0, 2) : '29';
+  const handleVerifyInvoiceCustomerGstin = async () => {
+    if (!customerGstin || customerGstin.trim().length < 15) {
+      setToast({ type: 'error', message: 'Enter a valid 15-character GSTIN to verify.' });
+      return;
+    }
+    setVerifyingCustomerGstin(true);
+    try {
+      const clean = customerGstin.trim().toUpperCase();
+      const res = await searchGstin(clean);
+      const tp = res?.taxpayer || res;
+      const legal = tp?.legalName || tp?.tradeName;
+      if (legal) {
+        setCustomerName(legal);
+        if (clean.length >= 2) {
+          setPlaceOfSupply(clean.slice(0, 2));
+        }
+        setToast({ type: 'success', message: `Verified: ${legal} (${tp?.status || 'Active'})` });
+      } else {
+        setToast({ type: 'warning', message: 'GSTIN verified, but legal name could not be resolved.' });
+      }
+    } catch (err) {
+      setToast({ type: 'error', message: err?.message || 'Taxpayer lookup failed.' });
+    } finally {
+      setVerifyingCustomerGstin(false);
+    }
+  };
+
+  const sellerState = user?.gstin && user.gstin.length >= 2 ? user.gstin.slice(0, 2) : '29';
 
   const fetchInvoices = useCallback(async (q = '', st = '') => {
     setLoading(true);
@@ -104,7 +178,7 @@ export default function InvoicesPage() {
     try {
       const [custRes, itemRes] = await Promise.all([
         listCustomers({ limit: 100 }),
-        listItems()
+        listItems(),
       ]);
       setCustomers(custRes.data || []);
       setAvailableItems(itemRes.data || []);
@@ -126,6 +200,7 @@ export default function InvoicesPage() {
     setStatus('Draft');
     setNotes('Thanks for your business.');
     setIsCreating(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [sellerState]);
 
   const handleOpenEdit = useCallback((inv) => {
@@ -134,23 +209,33 @@ export default function InvoicesPage() {
     setCustomerId(inv.customerId || '');
     setCustomerName(inv.customerName || '');
     setCustomerGstin(inv.customerGstin || '');
-    const pos = inv.placeOfSupply || (inv.customerGstin && inv.customerGstin.length >= 2 ? inv.customerGstin.slice(0, 2) : sellerState);
+    const pos =
+      inv.placeOfSupply ||
+      (inv.customerGstin && inv.customerGstin.length >= 2
+        ? inv.customerGstin.slice(0, 2)
+        : sellerState);
     setPlaceOfSupply(pos);
     setInvoiceNumber(inv.invoiceNumber || '');
-    setInvoiceDate(inv.invoiceDate ? new Date(inv.invoiceDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
+    setInvoiceDate(
+      inv.invoiceDate
+        ? new Date(inv.invoiceDate).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10)
+    );
     setDueDate(inv.dueDate ? new Date(inv.dueDate).toISOString().slice(0, 10) : '');
     if (inv.lineItems && inv.lineItems.length > 0) {
-      setLineItems(inv.lineItems.map((it) => ({
-        itemId: it.itemId || '',
-        name: it.name || '',
-        description: it.description || '',
-        hsnSac: it.hsnSac || '',
-        unit: it.unit || 'PCS',
-        quantity: it.quantity != null ? it.quantity : 1,
-        rate: it.rate != null ? it.rate : 0,
-        discount: it.discount != null ? it.discount : 0,
-        gstRate: it.gstRate != null ? it.gstRate : 18
-      })));
+      setLineItems(
+        inv.lineItems.map((it) => ({
+          itemId: it.itemId || '',
+          name: it.name || '',
+          description: it.description || '',
+          hsnSac: it.hsnSac || '',
+          unit: it.unit || 'PCS',
+          quantity: it.quantity != null ? it.quantity : 1,
+          rate: it.rate != null ? it.rate : 0,
+          discount: it.discount != null ? it.discount : 0,
+          gstRate: it.gstRate != null ? it.gstRate : 18,
+        }))
+      );
     } else {
       setLineItems([{ ...DEFAULT_LINE_ITEM }]);
     }
@@ -208,7 +293,7 @@ export default function InvoicesPage() {
         hsnSac: selected.hsnSac || '',
         rate: selected.sellingPrice || 0,
         gstRate: selected.gstRate !== undefined ? selected.gstRate : 18,
-        unit: selected.unit || 'PCS'
+        unit: selected.unit || 'PCS',
       };
     } else {
       updated[index].itemId = '';
@@ -240,7 +325,7 @@ export default function InvoicesPage() {
       const qty = Math.max(0, Number(item.quantity) || 1);
       const rate = Math.max(0, Number(item.rate) || 0);
       const discount = Math.max(0, Number(item.discount) || 0);
-      const taxable = Math.max(0, (qty * rate) - discount);
+      const taxable = Math.max(0, qty * rate - discount);
       const gstRate = Math.max(0, Number(item.gstRate) || 0);
 
       let cgst = 0;
@@ -248,10 +333,10 @@ export default function InvoicesPage() {
       let igst = 0;
 
       if (isIntraState) {
-        cgst = Math.round((taxable * ((gstRate / 2) / 100)) * 100) / 100;
-        sgst = Math.round((taxable * ((gstRate / 2) / 100)) * 100) / 100;
+        cgst = Math.round(taxable * (gstRate / 2 / 100) * 100) / 100;
+        sgst = Math.round(taxable * (gstRate / 2 / 100) * 100) / 100;
       } else {
-        igst = Math.round((taxable * (gstRate / 100)) * 100) / 100;
+        igst = Math.round(taxable * (gstRate / 100) * 100) / 100;
       }
 
       const totalTax = Math.round((cgst + sgst + igst) * 100) / 100;
@@ -264,7 +349,7 @@ export default function InvoicesPage() {
         sgstAmount: sgst,
         igstAmount: igst,
         totalTax,
-        totalAmount
+        totalAmount,
       };
     });
 
@@ -283,9 +368,30 @@ export default function InvoicesPage() {
       totalIgst,
       totalTax,
       grandTotal,
-      isIntraState
+      isIntraState,
     };
   }, [lineItems, placeOfSupply, sellerState]);
+
+  // Derived financial summary for list view
+  const summaryStats = useMemo(() => {
+    let totalRev = 0;
+    let paidAmt = 0;
+    let pendingAmt = 0;
+    let eInvCount = 0;
+    for (const inv of invoices) {
+      const amt = Number(inv.grandTotal || 0);
+      totalRev += amt;
+      if (inv.status?.toLowerCase() === 'paid') {
+        paidAmt += amt;
+      } else {
+        pendingAmt += amt;
+      }
+      if (inv.einvoiceStatus === 'Generated') {
+        eInvCount++;
+      }
+    }
+    return { totalRev, paidAmt, pendingAmt, eInvCount };
+  }, [invoices]);
 
   const handleSaveInvoice = async (e) => {
     e.preventDefault();
@@ -303,12 +409,6 @@ export default function InvoicesPage() {
       }
     }
 
-    const trimmedInvNum = invoiceNumber.trim().toUpperCase();
-    if (trimmedInvNum && trimmedInvNum.length > 16) {
-      alert('Invoice number cannot exceed 16 characters as per Rule 46(b) of CGST Rules.');
-      return;
-    }
-
     setSaving(true);
     setError(null);
 
@@ -322,7 +422,7 @@ export default function InvoicesPage() {
       placeOfSupply: placeOfSupply || sellerState,
       lineItems: invoiceCalculations.computedItems,
       status,
-      notes
+      notes,
     };
 
     try {
@@ -346,33 +446,21 @@ export default function InvoicesPage() {
     }
   };
 
-  const handleStatusChange = async (id, newStatus) => {
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setIsDeleting(true);
     try {
-      await updateInvoice(id, { status: newStatus });
+      await deleteInvoice(deleteTargetId);
+      setDeleteTargetId(null);
       fetchInvoices(searchQuery, statusFilter);
-      if (viewingInvoice && viewingInvoice._id === id) {
-        setViewingInvoice({ ...viewingInvoice, status: newStatus });
-      }
-    } catch (err) {
-      setError(err);
-    }
-  };
-
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this invoice?')) return;
-    try {
-      await deleteInvoice(id);
-      fetchInvoices(searchQuery, statusFilter);
-      if (viewingInvoice && viewingInvoice._id === id) {
+      if (viewingInvoice && viewingInvoice._id === deleteTargetId) {
         setViewingInvoice(null);
       }
     } catch (err) {
       setError(err);
+    } finally {
+      setIsDeleting(false);
     }
-  };
-
-  const handlePrint = () => {
-    window.print();
   };
 
   const handleGenerateEInvoice = async (invoiceId) => {
@@ -408,7 +496,7 @@ export default function InvoicesPage() {
       transporterId: viewingInvoice?.transporterId || '',
       transporterName: viewingInvoice?.transporterName || '',
       distance: 0,
-      transportMode: viewingInvoice?.transportMode || '1'
+      transportMode: viewingInvoice?.transportMode || '1',
     });
     setEInvError(null);
     setEInvSuccess(null);
@@ -471,10 +559,10 @@ export default function InvoicesPage() {
     const map = {};
     for (const it of viewingInvoice.lineItems) {
       const hsn = it.hsnSac || '3923';
-      const taxable = Number(it.taxableAmount) || ((Number(it.quantity) || 1) * (Number(it.rate) || 0));
-      const cgstRate = it.cgstRate || (viewingInvoice.totalCgst > 0 ? ((it.gstRate || 18) / 2) : 0);
-      const sgstRate = it.sgstRate || (viewingInvoice.totalSgst > 0 ? ((it.gstRate || 18) / 2) : 0);
-      const igstRate = it.igstRate || (viewingInvoice.totalIgst > 0 ? (it.gstRate || 18) : 0);
+      const taxable = Number(it.taxableAmount) || (Number(it.quantity) || 1) * (Number(it.rate) || 0);
+      const cgstRate = it.cgstRate || (viewingInvoice.totalCgst > 0 ? (it.gstRate || 18) / 2 : 0);
+      const sgstRate = it.sgstRate || (viewingInvoice.totalSgst > 0 ? (it.gstRate || 18) / 2 : 0);
+      const igstRate = it.igstRate || (viewingInvoice.totalIgst > 0 ? it.gstRate || 18 : 0);
 
       let cgstAmt = Number(it.cgstAmount) || 0;
       let sgstAmt = Number(it.sgstAmount) || 0;
@@ -488,7 +576,7 @@ export default function InvoicesPage() {
           sgstAmt = Math.round(taxable * (sgstRate / 100) * 100) / 100;
         }
       }
-      const totalTax = Number(it.totalTax) || (cgstAmt + sgstAmt + igstAmt);
+      const totalTax = Number(it.totalTax) || cgstAmt + sgstAmt + igstAmt;
 
       if (!map[hsn]) {
         map[hsn] = {
@@ -500,7 +588,7 @@ export default function InvoicesPage() {
           sgstAmount: 0,
           igstRate,
           igstAmount: 0,
-          totalTax: 0
+          totalTax: 0,
         };
       }
       map[hsn].taxable += taxable;
@@ -523,13 +611,9 @@ export default function InvoicesPage() {
     const n = Number(val) || 0;
     return n.toLocaleString('en-IN', {
       minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals
+      maximumFractionDigits: decimals,
     });
   };
-
-  const viewingTotalTax = (viewingInvoice?.totalTax != null && viewingInvoice.totalTax > 0)
-    ? viewingInvoice.totalTax
-    : ((Number(viewingInvoice?.totalCgst) || 0) + (Number(viewingInvoice?.totalSgst) || 0) + (Number(viewingInvoice?.totalIgst) || 0));
 
   const sellerDisplayName = user?.companyName || user?.name || user?.tradeName || 'OM Enterprises';
   const sellerDisplayGstin = user?.gstin || '06AAHPB8621K1ZR';
@@ -539,68 +623,45 @@ export default function InvoicesPage() {
 
   const buyerDisplayName = viewingInvoice?.customerName || 'Bhayana Computer Stationery Forms Private Limited';
   const buyerDisplayGstin = viewingInvoice?.customerGstin || '';
-  const buyerDisplayStateCode = (viewingInvoice?.placeOfSupply && viewingInvoice.placeOfSupply.length === 2)
-    ? viewingInvoice.placeOfSupply
-    : (buyerDisplayGstin.length >= 2 ? buyerDisplayGstin.slice(0, 2) : sellerDisplayStateCode);
+  const buyerDisplayStateCode =
+    viewingInvoice?.placeOfSupply && viewingInvoice.placeOfSupply.length === 2
+      ? viewingInvoice.placeOfSupply
+      : buyerDisplayGstin.length >= 2
+      ? buyerDisplayGstin.slice(0, 2)
+      : sellerDisplayStateCode;
   const buyerDisplayStateName = getStateName(buyerDisplayStateCode);
   const posDisplayName = getStateName(viewingInvoice?.placeOfSupply || buyerDisplayStateCode);
 
   const buyerAddressDisplay = [
     viewingInvoice?.billingAddress?.street,
     viewingInvoice?.billingAddress?.city,
-    viewingInvoice?.billingAddress?.pincode
-  ].filter(Boolean).join(', ') || '2N-14B, Near 2 & 3Chowk, NIT Faridabad';
-
+    viewingInvoice?.billingAddress?.state,
+    viewingInvoice?.billingAddress?.pincode,
+  ]
+    .filter(Boolean)
+    .join(', ') || '123 Commercial Hub, Industrial Phase-1';
 
   return (
-    <div>
-      {/* Header */}
-      <div className="zoho-page-header d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3">
-        <div>
-          <h1 className="fw-bold fs-4 text-dark mb-1">Sales Invoices</h1>
-          <p className="text-secondary small mb-0">
-            Create tax invoices, compute CGST/SGST vs IGST, and manage receivables.
-          </p>
-        </div>
-        {!isCreating && (
-          <div className="d-flex align-items-center gap-2">
-            <Link
-              to="/returns/gstr1"
-              className="btn btn-outline-primary btn-sm d-flex align-items-center gap-1.5 fw-semibold px-3 py-1.5"
-            >
-              <span>📋 File GSTR-1</span>
-            </Link>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm d-flex align-items-center gap-1.5 fw-semibold px-3 py-1.5"
-              onClick={handleOpenCreate}
-            >
-              <span>+ New Invoice</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="zoho-page-body">
-        <ErrorMessage error={error} onRetry={() => fetchInvoices(searchQuery, statusFilter)} />
-
-        {/* Create / Edit Invoice Form View */}
-        {isCreating ? (
-          <div className="card border shadow-sm p-4 bg-white mb-4">
-            <div className="d-flex justify-content-between align-items-center pb-3 mb-4 border-bottom">
-              <div>
-                <h2 className="fs-5 fw-bold text-dark mb-0">
-                  {editingInvoiceId ? 'Edit Tax Invoice' : 'Create New Tax Invoice'}
-                </h2>
-                {editingInvoiceId && (
-                  <div className="small text-muted mt-1 font-monospace">
-                    Editing <span className="fw-bold text-primary">#{invoiceNumber || 'Draft'}</span>
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                className="btn btn-outline-secondary btn-sm"
+    <div className="space-y-6">
+      {/* ====================================================================
+          MODE 1: INVOICE BUILDER (CREATE / EDIT)
+          ==================================================================== */}
+      {isCreating ? (
+        <div className="space-y-6">
+          <PageHeader
+            title={editingInvoiceId ? 'Edit Tax Invoice' : 'Create Sales Invoice'}
+            subtitle="GST compliant tax invoice with automatic CGST, SGST, IGST calculation and HSN summaries."
+            badge={
+              editingInvoiceId ? (
+                <Badge variant="indigo" size="sm">
+                  #{invoiceNumber || 'Draft'}
+                </Badge>
+              ) : null
+            }
+            actions={
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   setIsCreating(false);
                   setEditingInvoiceId(null);
@@ -608,1487 +669,999 @@ export default function InvoicesPage() {
                 disabled={saving}
               >
                 ✕ Cancel
-              </button>
-            </div>
+              </Button>
+            }
+          />
 
-            <form onSubmit={handleSaveInvoice}>
-              <div className="row g-3 mb-4">
-                {/* Customer Selector */}
-                <div className="col-12 col-md-5">
-                  <label className="form-label small fw-semibold text-secondary">Customer *</label>
-                  <select
-                    className="form-select mb-1"
-                    value={customerId}
-                    onChange={(e) => handleCustomerSelect(e.target.value)}
-                    disabled={saving}
-                  >
-                    <option value="">-- Choose Existing Customer or type below --</option>
-                    {customers.map((c) => (
-                      <option key={c._id} value={c._id}>
-                        {c.name} {c.companyName ? `(${c.companyName})` : ''} {c.gstin ? `[${c.gstin}]` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="Customer Name / Business Name *"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    required
-                    disabled={saving}
-                  />
-                </div>
-
-                {/* Customer GSTIN */}
-                <div className="col-12 col-md-4">
-                  <label className="form-label small fw-semibold text-secondary">Customer GSTIN</label>
-                  <input
-                    type="text"
-                    className="form-control font-monospace text-uppercase"
-                    placeholder="e.g. 29ABCDE1234F1Z5"
-                    maxLength={15}
-                    value={customerGstin}
-                    onChange={(e) => {
-                      const val = e.target.value.toUpperCase();
-                      setCustomerGstin(val);
-                      if (val.length >= 2) setPlaceOfSupply(val.slice(0, 2));
-                    }}
-                    disabled={saving}
-                  />
-                </div>
-
-                {/* Place of Supply (POS) */}
-                <div className="col-12 col-md-3">
-                  <label className="form-label small fw-semibold text-secondary">
-                    Place of Supply (POS) *
-                  </label>
-                  <input
-                    type="text"
-                    className="form-control font-monospace"
-                    placeholder="e.g. 29"
-                    maxLength={2}
-                    value={placeOfSupply}
-                    onChange={(e) => setPlaceOfSupply(e.target.value)}
-                    required
-                    disabled={saving}
-                  />
-                  <div className="form-text small text-muted">
-                    Seller State: <code>{sellerState}</code> •{' '}
-                    {invoiceCalculations.isIntraState ? (
-                      <span className="text-success fw-semibold">Intra-state (CGST + SGST)</span>
-                    ) : (
-                      <span className="text-primary fw-semibold">Inter-state (IGST)</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Invoice Number */}
-                <div className="col-12 col-md-4">
-                  <label className="form-label small fw-semibold text-secondary">Invoice Number</label>
-                  <input
-                    type="text"
-                    className="form-control font-monospace"
-                    placeholder="Auto-generated (e.g. INV-202610-0001)"
-                    value={invoiceNumber}
-                    onChange={(e) => setInvoiceNumber(e.target.value.toUpperCase())}
-                    disabled={saving}
-                  />
-                </div>
-
-                {/* Invoice Date */}
-                <div className="col-12 col-md-4">
-                  <label className="form-label small fw-semibold text-secondary">Invoice Date *</label>
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={invoiceDate}
-                    onChange={(e) => setInvoiceDate(e.target.value)}
-                    required
-                    disabled={saving}
-                  />
-                </div>
-
-                {/* Due Date */}
-                <div className="col-12 col-md-4">
-                  <label className="form-label small fw-semibold text-secondary">Due Date</label>
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    disabled={saving}
-                  />
-                </div>
-              </div>
-
-              {/* Line Items Table */}
-              <div className="mb-4">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                  <h3 className="fs-6 fw-bold text-dark mb-0">Item Details & Tax Slabs</h3>
-                  <span className="badge bg-light text-secondary border">
-                    {invoiceCalculations.isIntraState ? 'Tax Mode: CGST + SGST' : 'Tax Mode: IGST'}
-                  </span>
-                </div>
-
-                <div className="table-responsive border rounded-3 bg-white">
-                  <table className="table table-bordered align-middle mb-0">
-                    <thead className="table-light small">
-                      <tr>
-                        <th style={{ width: '28%' }}>Item / Description</th>
-                        <th style={{ width: '12%' }}>HSN / SAC</th>
-                        <th style={{ width: '10%' }}>Qty</th>
-                        <th style={{ width: '14%' }}>Rate (₹)</th>
-                        <th style={{ width: '10%' }}>Disc (₹)</th>
-                        <th style={{ width: '12%' }}>GST Rate</th>
-                        <th style={{ width: '14%' }}>Amount (₹)</th>
-                        <th style={{ width: '4%' }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {invoiceCalculations.computedItems.map((item, idx) => (
-                        <tr key={idx}>
-                          <td>
-                            {availableItems.length > 0 && (
-                              <select
-                                className="form-select form-select-sm mb-1"
-                                value={item.itemId || ''}
-                                onChange={(e) => handleItemSelect(idx, e.target.value)}
-                                disabled={saving}
-                              >
-                                <option value="">-- Select Saved Item --</option>
-                                {availableItems.map((it) => (
-                                  <option key={it._id} value={it._id}>
-                                    {it.name} (₹{it.sellingPrice})
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-                            <input
-                              type="text"
-                              className="form-control form-control-sm"
-                              placeholder="Item name / details *"
-                              value={item.name}
-                              onChange={(e) => updateLineItem(idx, 'name', e.target.value)}
-                              required
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="text"
-                              className="form-control form-control-sm font-monospace"
-                              placeholder="HSN"
-                              value={item.hsnSac}
-                              onChange={(e) => updateLineItem(idx, 'hsnSac', e.target.value)}
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              min="1"
-                              className="form-control form-control-sm font-monospace"
-                              value={item.quantity}
-                              onChange={(e) => updateLineItem(idx, 'quantity', e.target.value)}
-                              required
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              step="0.01"
-                              className="form-control form-control-sm font-monospace"
-                              value={item.rate}
-                              onChange={(e) => updateLineItem(idx, 'rate', e.target.value)}
-                              required
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              step="0.01"
-                              className="form-control form-control-sm font-monospace"
-                              value={item.discount}
-                              onChange={(e) => updateLineItem(idx, 'discount', e.target.value)}
-                              disabled={saving}
-                            />
-                          </td>
-                          <td>
-                            <select
-                              className="form-select form-select-sm"
-                              value={item.gstRate}
-                              onChange={(e) => updateLineItem(idx, 'gstRate', Number(e.target.value))}
-                              disabled={saving}
-                            >
-                              <option value={0}>0%</option>
-                              <option value={5}>5%</option>
-                              <option value={12}>12%</option>
-                              <option value={18}>18%</option>
-                              <option value={28}>28%</option>
-                            </select>
-                          </td>
-                          <td className="text-end fw-bold font-monospace pe-3">
-                            <div>{formatCurrency(item.totalAmount)}</div>
-                            <div className="text-muted" style={{ fontSize: '0.7rem' }}>
-                              Taxable: {formatCurrency(item.taxableAmount)}
-                            </div>
-                          </td>
-                          <td className="text-center">
-                            {lineItems.length > 1 && (
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-link text-danger p-0"
-                                onClick={() => removeLineItemRow(idx)}
-                                title="Remove row"
-                                disabled={saving}
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary btn-sm mt-2"
-                  onClick={addLineItemRow}
-                  disabled={saving}
-                >
-                  + Add Item Row
-                </button>
-              </div>
-
-              {/* Bottom Summary & Notes */}
-              <div className="row g-4 justify-content-between mb-4">
-                <div className="col-12 col-md-6">
-                  <label className="form-label small fw-semibold text-secondary">Customer Notes</label>
-                  <textarea
-                    className="form-control mb-3"
-                    rows={3}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    disabled={saving}
-                  />
-                  <div className="d-flex align-items-center gap-3">
-                    <label className="form-label small fw-semibold text-secondary mb-0">Initial Status:</label>
+          <form onSubmit={handleSaveInvoice} className="space-y-6">
+            {/* Top Cards: Customer & Invoice Details */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Customer Selector Card */}
+              <Card className="lg:col-span-2 p-5 space-y-4">
+                <CardTitle>Customer Information</CardTitle>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Select Existing Customer
+                    </label>
                     <select
-                      className="form-select form-select-sm w-auto"
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value)}
+                      className="w-full text-xs font-normal text-slate-900 bg-white rounded-lg border border-slate-300 p-2 focus:outline-hidden focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/10"
+                      value={customerId}
+                      onChange={(e) => handleCustomerSelect(e.target.value)}
                       disabled={saving}
                     >
-                      <option value="Draft">Draft</option>
-                      <option value="Sent">Sent</option>
-                      <option value="Paid">Paid</option>
+                      <option value="">-- Choose Customer or Enter Below --</option>
+                      {customers.map((c) => (
+                        <option key={c._id} value={c._id}>
+                          {c.name} {c.companyName ? `(${c.companyName})` : ''} {c.gstin ? `[${c.gstin}]` : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
-                </div>
 
-                {/* Totals Breakdown */}
-                <div className="col-12 col-md-5">
-                  <div className="p-3 bg-light rounded-3 border">
-                    <div className="d-flex justify-content-between py-1 small">
-                      <span className="text-secondary">Subtotal (Taxable Value):</span>
-                      <strong className="font-monospace">{formatCurrency(invoiceCalculations.subTotal)}</strong>
-                    </div>
+                  <Input
+                    label="Customer / Business Name *"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Acme Technologies Private Limited"
+                    required
+                    disabled={saving}
+                  />
 
-                    {invoiceCalculations.isIntraState ? (
-                      <>
-                        <div className="d-flex justify-content-between py-1 small">
-                          <span className="text-secondary">CGST:</span>
-                          <span className="font-monospace">{formatCurrency(invoiceCalculations.totalCgst)}</span>
-                        </div>
-                        <div className="d-flex justify-content-between py-1 small">
-                          <span className="text-secondary">SGST:</span>
-                          <span className="font-monospace">{formatCurrency(invoiceCalculations.totalSgst)}</span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="d-flex justify-content-between py-1 small">
-                        <span className="text-secondary">IGST:</span>
-                        <span className="font-monospace">{formatCurrency(invoiceCalculations.totalIgst)}</span>
-                      </div>
-                    )}
-
-                    <div className="d-flex justify-content-between py-1 small border-top mt-1 pt-1">
-                      <span className="text-secondary">Total Tax:</span>
-                      <strong className="font-monospace text-primary">{formatCurrency(invoiceCalculations.totalTax)}</strong>
-                    </div>
-
-                    <div className="d-flex justify-content-between py-2 border-top mt-2 pt-2 fs-5">
-                      <strong className="text-dark">Grand Total:</strong>
-                      <strong className="text-dark font-monospace">{formatCurrency(invoiceCalculations.grandTotal)}</strong>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Customer GSTIN (15 Digits)
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={customerGstin}
+                        onChange={(e) => {
+                          const val = e.target.value.toUpperCase();
+                          setCustomerGstin(val);
+                          if (val.length >= 2) setPlaceOfSupply(val.slice(0, 2));
+                        }}
+                        placeholder="29ABCDE1234F1Z5"
+                        maxLength={15}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-surface-border font-mono uppercase bg-white focus:outline-hidden focus:border-indigo-600"
+                        disabled={saving}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleVerifyInvoiceCustomerGstin}
+                        disabled={saving || verifyingCustomerGstin || !customerGstin || customerGstin.length < 15}
+                        className="shrink-0 text-xs px-2.5 py-2 border-indigo-200 bg-indigo-50/60 text-indigo-700 hover:bg-indigo-100"
+                        title="Verify GSTIN with Portal & Auto-fill Legal Name"
+                      >
+                        {verifyingCustomerGstin ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                        )}
+                        <span className="ml-1 text-[11px] font-bold">Verify</span>
+                      </Button>
                     </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Submit Buttons */}
-              <div className="d-flex justify-content-end gap-2 pt-3 border-top">
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary"
-                  onClick={() => {
-                    setIsCreating(false);
-                    setEditingInvoiceId(null);
-                  }}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary px-4 fw-semibold"
-                  disabled={saving}
-                >
-                  {saving
-                    ? (editingInvoiceId ? 'Updating Invoice...' : 'Saving to Database...')
-                    : (editingInvoiceId ? 'Update Invoice' : 'Save Invoice')}
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : (
-          <>
-            {/* Search and Status Filter */}
-            <div className="card border shadow-sm p-3 mb-4 bg-white">
-              <div className="row g-2 align-items-center">
-                <div className="col-12 col-md-5">
-                  <div className="input-group input-group-sm">
-                    <span className="input-group-text bg-white border-end-0">🔍</span>
-                    <input
-                      type="text"
-                      className="form-control border-start-0"
-                      placeholder="Search invoice #, customer name, GSTIN..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                  <div>
+                    <Input
+                      label="Place of Supply (POS Code) *"
+                      value={placeOfSupply}
+                      onChange={(e) => setPlaceOfSupply(e.target.value)}
+                      placeholder="e.g. 29"
+                      maxLength={2}
+                      className="font-mono"
+                      required
+                      disabled={saving}
                     />
+                    <span className="text-[11px] text-slate-500 mt-1 block">
+                      Tax Engine:{' '}
+                      {invoiceCalculations.isIntraState ? (
+                        <strong className="text-emerald-700">Intra-State (CGST + SGST)</strong>
+                      ) : (
+                        <strong className="text-indigo-700">Inter-State (IGST)</strong>
+                      )}
+                    </span>
                   </div>
                 </div>
-                <div className="col-6 col-md-3">
+              </Card>
+
+              {/* Invoice Numbers & Dates */}
+              <Card className="p-5 space-y-4">
+                <CardTitle>Invoice Details</CardTitle>
+                <Input
+                  label="Invoice Number"
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value.toUpperCase())}
+                  placeholder="Auto-generated if empty"
+                  className="font-mono uppercase"
+                  disabled={saving}
+                />
+                <Input
+                  label="Invoice Date *"
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  required
+                  disabled={saving}
+                />
+                <Input
+                  label="Payment Due Date"
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  disabled={saving}
+                />
+              </Card>
+            </div>
+
+            {/* Line Items Table Builder */}
+            <Card className="overflow-hidden">
+              <CardHeader>
+                <div>
+                  <CardTitle>Invoice Line Items</CardTitle>
+                  <CardDescription>
+                    Add products or services with applicable HSN and GST rates
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={addLineItemRow}
+                  disabled={saving}
+                  leftIcon={<Plus className="w-3 h-3" />}
+                >
+                  Add Row
+                </Button>
+              </CardHeader>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider w-8">#</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider min-w-[200px]">Item / Description</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider w-24">HSN/SAC</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider w-20">Unit</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider w-20">Qty</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider w-24">Rate (₹)</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider w-20">Disc (₹)</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider w-20">GST %</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-right w-28">Amount (₹)</th>
+                      <th className="py-2.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-center w-12">✕</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {lineItems.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50">
+                        <td className="py-2 px-3 text-slate-400 font-mono">{idx + 1}</td>
+                        <td className="py-2 px-3">
+                          {availableItems.length > 0 && (
+                            <select
+                              className="w-full text-[11px] rounded border border-slate-200 p-1 mb-1 bg-white text-slate-700"
+                              value={item.itemId || ''}
+                              onChange={(e) => handleItemSelect(idx, e.target.value)}
+                              disabled={saving}
+                            >
+                              <option value="">-- Choose item preset --</option>
+                              {availableItems.map((it) => (
+                                <option key={it._id} value={it._id}>
+                                  {it.name} (₹{it.sellingPrice} | {it.gstRate}%)
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          <input
+                            type="text"
+                            className="w-full text-xs rounded border border-slate-200 px-2 py-1 focus:border-indigo-600 focus:outline-hidden"
+                            placeholder="Item name / service line *"
+                            value={item.name}
+                            onChange={(e) => updateLineItem(idx, 'name', e.target.value)}
+                            required
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <input
+                            type="text"
+                            className="w-full text-xs rounded border border-slate-200 px-2 py-1 font-mono uppercase focus:border-indigo-600 focus:outline-hidden"
+                            placeholder="8471"
+                            value={item.hsnSac}
+                            onChange={(e) => updateLineItem(idx, 'hsnSac', e.target.value)}
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <select
+                            className="w-full text-xs rounded border border-slate-200 p-1 bg-white"
+                            value={item.unit}
+                            onChange={(e) => updateLineItem(idx, 'unit', e.target.value)}
+                            disabled={saving}
+                          >
+                            <option value="PCS">PCS</option>
+                            <option value="NOS">NOS</option>
+                            <option value="KGS">KGS</option>
+                            <option value="BOX">BOX</option>
+                            <option value="HRS">HRS</option>
+                            <option value="MTR">MTR</option>
+                          </select>
+                        </td>
+                        <td className="py-2 px-3">
+                          <input
+                            type="number"
+                            step="1"
+                            min="1"
+                            className="w-full text-xs rounded border border-slate-200 px-2 py-1 font-mono focus:border-indigo-600 focus:outline-hidden"
+                            value={item.quantity}
+                            onChange={(e) => updateLineItem(idx, 'quantity', e.target.value)}
+                            required
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="w-full text-xs rounded border border-slate-200 px-2 py-1 font-mono focus:border-indigo-600 focus:outline-hidden"
+                            value={item.rate}
+                            onChange={(e) => updateLineItem(idx, 'rate', e.target.value)}
+                            required
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="w-full text-xs rounded border border-slate-200 px-2 py-1 font-mono focus:border-indigo-600 focus:outline-hidden"
+                            value={item.discount}
+                            onChange={(e) => updateLineItem(idx, 'discount', e.target.value)}
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <select
+                            className="w-full text-xs rounded border border-slate-200 p-1 bg-white font-mono"
+                            value={item.gstRate}
+                            onChange={(e) => updateLineItem(idx, 'gstRate', Number(e.target.value))}
+                            disabled={saving}
+                          >
+                            <option value={0}>0%</option>
+                            <option value={5}>5%</option>
+                            <option value={12}>12%</option>
+                            <option value={18}>18%</option>
+                            <option value={28}>28%</option>
+                          </select>
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono font-semibold tabular-nums text-slate-900">
+                          {formatCurrency(
+                            invoiceCalculations.computedItems[idx]?.totalAmount || 0
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {lineItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeLineItemRow(idx)}
+                              className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                              title="Remove item"
+                              disabled={saving}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Bottom Breakdown & Submission */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+              <Card className="p-5 space-y-4">
+                <CardTitle>Customer Notes & Terms</CardTitle>
+                <textarea
+                  className="w-full text-xs font-normal text-slate-900 bg-white rounded-lg border border-slate-300 p-2.5 focus:outline-hidden focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/10"
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  disabled={saving}
+                />
+                <div className="flex items-center gap-3">
+                  <label className="text-xs font-semibold text-slate-700">Initial Invoice Status:</label>
                   <select
-                    className="form-select form-select-sm"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="text-xs rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-slate-700"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    disabled={saving}
                   >
-                    <option value="">All Statuses</option>
                     <option value="Draft">Draft</option>
                     <option value="Sent">Sent</option>
                     <option value="Paid">Paid</option>
-                    <option value="Overdue">Overdue</option>
                   </select>
                 </div>
-                <div className="col-6 col-md-4 text-end text-muted small">
-                  Invoices: <strong className="text-dark">{invoices.length}</strong>
+              </Card>
+
+              {/* Total Calculation Card */}
+              <Card className="p-5 space-y-2.5 bg-slate-50/60">
+                <CardTitle>Invoice Summary</CardTitle>
+                <div className="flex justify-between text-xs py-1 text-slate-600">
+                  <span>Subtotal (Taxable Value):</span>
+                  <strong className="font-mono">{formatCurrency(invoiceCalculations.subTotal)}</strong>
                 </div>
+
+                {invoiceCalculations.isIntraState ? (
+                  <>
+                    <div className="flex justify-between text-xs py-1 text-slate-600">
+                      <span>Central Tax (CGST):</span>
+                      <span className="font-mono font-medium">{formatCurrency(invoiceCalculations.totalCgst)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs py-1 text-slate-600">
+                      <span>State Tax (SGST):</span>
+                      <span className="font-mono font-medium">{formatCurrency(invoiceCalculations.totalSgst)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between text-xs py-1 text-slate-600">
+                    <span>Integrated Tax (IGST):</span>
+                    <span className="font-mono font-medium">{formatCurrency(invoiceCalculations.totalIgst)}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between text-xs py-1 text-slate-600">
+                  <span>Total Tax Amount:</span>
+                  <span className="font-mono font-medium">{formatCurrency(invoiceCalculations.totalTax)}</span>
+                </div>
+
+                <div className="pt-2.5 border-t border-slate-200 flex justify-between items-center text-sm">
+                  <span className="font-bold text-slate-900">Total Invoice Amount:</span>
+                  <span className="font-mono font-extrabold text-base text-indigo-700">
+                    {formatCurrency(invoiceCalculations.grandTotal)}
+                  </span>
+                </div>
+
+                <div className="pt-4 flex items-center justify-end gap-2.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setIsCreating(false);
+                      setEditingInvoiceId(null);
+                    }}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    isLoading={saving}
+                  >
+                    {editingInvoiceId ? 'Update Invoice' : 'Save Invoice'}
+                  </Button>
+                </div>
+              </Card>
+            </div>
+          </form>
+        </div>
+      ) : (
+        /* ====================================================================
+           MODE 2: INVOICES LIST VIEW
+           ==================================================================== */
+        <div className="space-y-6">
+          <PageHeader
+            title="Sales Invoices"
+            actions={
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleOpenCreate}
+                leftIcon={<Plus className="w-3.5 h-3.5" />}
+              >
+                New Invoice
+              </Button>
+            }
+          />
+
+          <ErrorMessage error={error} onRetry={() => fetchInvoices(searchQuery, statusFilter)} />
+
+          {/* Metric Summary Widgets */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <MetricCard
+              title="Total Sales Invoiced"
+              value={formatCurrency(summaryStats.totalRev)}
+              subvalue={`${invoices.length} invoices generated`}
+              icon={FileText}
+            />
+            <MetricCard
+              title="Collected Amount"
+              value={formatCurrency(summaryStats.paidAmt)}
+              subvalue="Received customer payments"
+              icon={CheckCircle2}
+              badge={<Badge status="PAID">Collected</Badge>}
+            />
+            <MetricCard
+              title="Outstanding / Due"
+              value={formatCurrency(summaryStats.pendingAmt)}
+              subvalue="Pending collection"
+              icon={Calendar}
+              badge={
+                <Badge status={summaryStats.pendingAmt > 0 ? 'OVERDUE' : 'PAID'}>
+                  {summaryStats.pendingAmt > 0 ? 'Pending' : 'Zero Due'}
+                </Badge>
+              }
+            />
+            <MetricCard
+              title="Registered E-Invoices"
+              value={summaryStats.eInvCount}
+              subvalue="NIC IRN verified with QR code"
+              icon={Zap}
+              badge={<Badge status="GENERATED">NIC IRN</Badge>}
+            />
+          </div>
+
+          {/* Filter & Search Bar */}
+          <Card className="p-3.5 bg-slate-50/60">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 flex-1 max-w-lg">
+                <div className="relative flex-1">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Search className="w-3.5 h-3.5" />
+                  </span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by invoice #, customer name, GSTIN..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/10 transition"
+                  />
+                </div>
+
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-hidden focus:border-indigo-600"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="Draft">Draft</option>
+                  <option value="Sent">Sent</option>
+                  <option value="Paid">Paid</option>
+                  <option value="Overdue">Overdue</option>
+                </select>
+              </div>
+
+              <div className="text-xs text-slate-500 font-medium">
+                Total <strong className="font-mono text-slate-700">{invoices.length}</strong> invoices
               </div>
             </div>
+          </Card>
 
-            {/* Invoices List Table */}
-            <div className="card border shadow-sm bg-white overflow-hidden">
-              {loading ? (
-                <div className="p-4">
-                  <Loader message="Loading invoices..." />
+          {/* Invoices List Table */}
+          <Card className="overflow-hidden">
+            {loading ? (
+              <div className="py-16">
+                <Loader message="Loading invoices records..." />
+              </div>
+            ) : invoices.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">Invoice #</th>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">Customer</th>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">Date</th>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">Taxable (₹)</th>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">Total Tax (₹)</th>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">Grand Total (₹)</th>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-center">Status</th>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-center">E-Invoice</th>
+                      <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {invoices.map((inv) => (
+                      <tr key={inv._id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3 px-4 font-mono font-semibold text-indigo-600">
+                          <button
+                            type="button"
+                            onClick={() => setViewingInvoice(inv)}
+                            className="hover:underline cursor-pointer"
+                          >
+                            {inv.invoiceNumber}
+                          </button>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-slate-900">{inv.customerName}</div>
+                          {inv.customerGstin && (
+                            <div className="font-mono text-[10px] text-slate-400 mt-0.5">
+                              {inv.customerGstin}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-500">{formatDate(inv.invoiceDate)}</td>
+                        <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums">
+                          {formatCurrency(inv.subTotal)}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-indigo-600 tabular-nums">
+                          {formatCurrency(inv.totalTax)}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 tabular-nums">
+                          {formatCurrency(inv.grandTotal)}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <StatusBadge status={inv.status} size="xs" />
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          {inv.einvoiceStatus === 'Generated' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>IRN Active</span>
+                            </span>
+                          ) : inv.einvoiceStatus === 'Failed' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateEInvoice(inv._id)}
+                              disabled={generatingInvoiceId === inv._id}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition cursor-pointer"
+                              title={inv.einvoiceError || 'Click to retry generation'}
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Retry IRN</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateEInvoice(inv._id)}
+                              disabled={generatingInvoiceId === inv._id}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition cursor-pointer"
+                            >
+                              <Zap className="w-3 h-3 text-indigo-500" />
+                              <span>Generate</span>
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setViewingInvoice(inv)}
+                              className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition cursor-pointer"
+                              title="View & Print Invoice"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(inv)}
+                              className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition cursor-pointer"
+                              title="Edit Invoice"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTargetId(inv._id)}
+                              className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                              title="Delete Invoice"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-16 text-center text-slate-400">
+                <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                <h4 className="text-sm font-semibold text-slate-700">No sales invoices found</h4>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Create your first invoice to generate IRN, QR codes, and prepare GSTR-1 returns.
+                </p>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleOpenCreate}
+                  className="mt-4"
+                  leftIcon={<Plus className="w-3.5 h-3.5" />}
+                >
+                  Create First Invoice
+                </Button>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* ====================================================================
+          MODE 3: INVOICE PREVIEW & PRINT MODAL (Authentic Tally Prime)
+          ==================================================================== */}
+      {viewingInvoice && (
+        <Modal
+          isOpen={Boolean(viewingInvoice)}
+          onClose={() => setViewingInvoice(null)}
+          title={`Invoice #${viewingInvoice.invoiceNumber}`}
+          subtitle={`Customer: ${viewingInvoice.customerName} • Grand Total: ${formatCurrency(viewingInvoice.grandTotal)}`}
+          size="xl"
+          footer={
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-2">
+                {viewingInvoice.einvoiceStatus === 'Generated' ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenEwbModal}
+                      leftIcon={<Truck className="w-3.5 h-3.5 text-indigo-600" />}
+                    >
+                      {viewingInvoice.ewayBillNo ? 'Update E-Way Bill' : 'Generate E-Way Bill'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowCancelModal(true)}
+                      className="text-rose-600 hover:bg-rose-50"
+                    >
+                      Cancel IRN
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleGenerateEInvoice(viewingInvoice._id)}
+                    isLoading={eInvLoading}
+                    leftIcon={<Zap className="w-3.5 h-3.5" />}
+                  >
+                    Generate E-Invoice (IRN)
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.print()}
+                  leftIcon={<Printer className="w-3.5 h-3.5" />}
+                >
+                  Print / Export
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setViewingInvoice(null)}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            {/* E-Invoice Notification Banners */}
+            {eInvSuccess && (
+              <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{eInvSuccess}</span>
+              </div>
+            )}
+            {eInvError && (
+              <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{eInvError}</span>
+              </div>
+            )}
+
+            {/* Official IRN Status Card when generated */}
+            {viewingInvoice.einvoiceStatus === 'Generated' && (
+              <Card className="p-3.5 bg-indigo-50/50 border-indigo-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">
+                        Government E-Invoice Verified (NIC)
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                        ACTIVE
+                      </span>
+                    </div>
+                    <div className="font-mono text-xs text-slate-800 break-all select-all flex items-center gap-1.5">
+                      <span><strong>IRN:</strong> {viewingInvoice.irn}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyIrn(viewingInvoice.irn)}
+                        className="text-indigo-600 hover:text-indigo-800 transition"
+                        title="Copy IRN"
+                      >
+                        {copiedIrn ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-mono">
+                      Ack No: {viewingInvoice.ackNo} | Ack Date: {formatDate(viewingInvoice.ackDate)}
+                    </div>
+                  </div>
+                  {viewingInvoice.qrCodeImage && (
+                    <img
+                      src={`data:image/png;base64,${viewingInvoice.qrCodeImage}`}
+                      alt="NIC Signed QR"
+                      className="w-16 h-16 rounded border border-slate-200 bg-white p-0.5 object-contain"
+                    />
+                  )}
                 </div>
-              ) : invoices.length > 0 ? (
-                <div className="table-responsive">
-                  <table className="table table-hover align-middle mb-0">
+              </Card>
+            )}
+
+            {/* Authentic Tally Prime Tax Invoice Container (Preserved Layout) */}
+            <div
+              id="printableInvoice"
+              className="tally-printable-invoice bg-white text-black p-2 max-w-[820px] mx-auto text-[11.5px] leading-tight select-text"
+              style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
+            >
+              <div style={{ border: '1.5px solid #000' }}>
+                <div
+                  style={{
+                    position: 'relative',
+                    textAlign: 'center',
+                    padding: '4px 8px',
+                    borderBottom: '1px solid #000',
+                    fontWeight: 'bold',
+                    fontSize: '15px',
+                  }}
+                >
+                  Tax Invoice
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '5px',
+                      fontStyle: 'italic',
+                      fontWeight: 'normal',
+                      fontSize: '11px',
+                    }}
+                  >
+                    (ORIGINAL FOR RECIPIENT)
+                  </span>
+                </div>
+
+                {/* Seller & Buyer grid */}
+                <div style={{ display: 'flex', borderBottom: '1px solid #000' }}>
+                  <div style={{ width: '55%', borderRight: '1px solid #000', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ padding: '6px 8px', borderBottom: '1px solid #000' }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '13px' }}>{sellerDisplayName}</div>
+                      <div>{sellerDisplayAddress}</div>
+                      <div>GSTIN/UIN: <strong>{sellerDisplayGstin}</strong></div>
+                      <div>State Name: {sellerDisplayStateName}, Code: {sellerDisplayStateCode}</div>
+                    </div>
+                    <div style={{ padding: '6px 8px', flexGrow: 1 }}>
+                      <div style={{ fontSize: '10.5px' }}>Buyer (Bill to)</div>
+                      <div style={{ fontWeight: 'bold', fontSize: '12.5px' }}>{buyerDisplayName}</div>
+                      <div>{buyerAddressDisplay}</div>
+                      <div>GSTIN/UIN: <strong>{buyerDisplayGstin || '—'}</strong></div>
+                      <div>Place of Supply: {posDisplayName}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ width: '45%', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', borderBottom: '1px solid #000', minHeight: '34px' }}>
+                      <div style={{ width: '50%', padding: '3px 6px', borderRight: '1px solid #000' }}>
+                        <div style={{ fontSize: '10px' }}>Invoice No.</div>
+                        <div style={{ fontWeight: 'bold' }}>{viewingInvoice.invoiceNumber}</div>
+                      </div>
+                      <div style={{ width: '50%', padding: '3px 6px' }}>
+                        <div style={{ fontSize: '10px' }}>Dated</div>
+                        <div style={{ fontWeight: 'bold' }}>{formatTallyDate(viewingInvoice.invoiceDate)}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', borderBottom: '1px solid #000', minHeight: '34px' }}>
+                      <div style={{ width: '50%', padding: '3px 6px', borderRight: '1px solid #000' }}>
+                        <div style={{ fontSize: '10px' }}>Delivery Note</div>
+                        <div>—</div>
+                      </div>
+                      <div style={{ width: '50%', padding: '3px 6px' }}>
+                        <div style={{ fontSize: '10px' }}>Mode/Terms of Payment</div>
+                        <div>Due on Receipt</div>
+                      </div>
+                    </div>
+                    <div style={{ padding: '3px 6px' }}>
+                      <div style={{ fontSize: '10px' }}>Buyer&apos;s Order No. & Date</div>
+                      <div>—</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Line Items Table */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #000', backgroundColor: '#fcfcfc' }}>
+                      <th style={{ padding: '4px', textAlign: 'center', width: '30px', borderRight: '1px solid #000' }}>Sl</th>
+                      <th style={{ padding: '4px', textAlign: 'left', borderRight: '1px solid #000' }}>Description of Goods</th>
+                      <th style={{ padding: '4px', textAlign: 'center', width: '70px', borderRight: '1px solid #000' }}>HSN/SAC</th>
+                      <th style={{ padding: '4px', textAlign: 'right', width: '60px', borderRight: '1px solid #000' }}>Qty</th>
+                      <th style={{ padding: '4px', textAlign: 'right', width: '70px', borderRight: '1px solid #000' }}>Rate</th>
+                      <th style={{ padding: '4px', textAlign: 'right', width: '80px' }}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewingInvoice.lineItems?.map((it, idx) => (
+                      <tr key={idx}>
+                        <td style={{ padding: '4px', textAlign: 'center', borderRight: '1px solid #000' }}>{idx + 1}</td>
+                        <td style={{ padding: '4px', borderRight: '1px solid #000', fontWeight: 'bold' }}>{it.name}</td>
+                        <td style={{ padding: '4px', textAlign: 'center', borderRight: '1px solid #000', fontFamily: 'monospace' }}>{it.hsnSac || '—'}</td>
+                        <td style={{ padding: '4px', textAlign: 'right', borderRight: '1px solid #000' }}>{it.quantity} {it.unit || defaultUnit}</td>
+                        <td style={{ padding: '4px', textAlign: 'right', borderRight: '1px solid #000' }}>{formatTallyNum(it.rate)}</td>
+                        <td style={{ padding: '4px', textAlign: 'right', fontWeight: 'bold' }}>{formatTallyNum(it.totalAmount || (it.quantity * it.rate))}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ borderTop: '1px solid #000', fontWeight: 'bold' }}>
+                      <td colSpan={3} style={{ padding: '5px', textAlign: 'right', borderRight: '1px solid #000' }}>Total:</td>
+                      <td style={{ padding: '5px', textAlign: 'right', borderRight: '1px solid #000' }}>{totalInvoiceQty} {defaultUnit}</td>
+                      <td style={{ padding: '5px', borderRight: '1px solid #000' }} />
+                      <td style={{ padding: '5px', textAlign: 'right' }}>₹{formatTallyNum(viewingInvoice.grandTotal)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* Amount in Words */}
+                <div style={{ padding: '6px 8px', borderTop: '1px solid #000', fontSize: '11px' }}>
+                  Amount Chargeable (in words):<br />
+                  <strong>INR {numberToWords(viewingInvoice.grandTotal)} Only</strong>
+                </div>
+
+                {/* HSN Tax Summary */}
+                <div style={{ borderTop: '1px solid #000', padding: '6px 8px' }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Tax Summary</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10.5px' }}>
                     <thead>
-                      <tr>
-                        <th className="ps-3.5">Invoice #</th>
-                        <th>Customer</th>
-                        <th>Date</th>
-                        <th>Due Date</th>
-                        <th>Taxable (₹)</th>
-                        <th>Tax (₹)</th>
-                        <th>Grand Total (₹)</th>
-                        <th>Status</th>
-                        <th>E-Invoice (IRN)</th>
-                        <th className="text-end pe-3.5" style={{ minWidth: '220px', whiteSpace: 'nowrap' }}>Actions</th>
+                      <tr style={{ borderBottom: '1px solid #000' }}>
+                        <th style={{ textAlign: 'left', padding: '2px 4px' }}>HSN/SAC</th>
+                        <th style={{ textAlign: 'right', padding: '2px 4px' }}>Taxable Value</th>
+                        <th style={{ textAlign: 'right', padding: '2px 4px' }}>Central Tax</th>
+                        <th style={{ textAlign: 'right', padding: '2px 4px' }}>State Tax</th>
+                        <th style={{ textAlign: 'right', padding: '2px 4px' }}>Integrated Tax</th>
+                        <th style={{ textAlign: 'right', padding: '2px 4px' }}>Total Tax</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {invoices.map((inv) => (
-                        <tr key={inv._id}>
-                          <td className="ps-3.5 font-monospace fw-bold">
-                            <button
-                              type="button"
-                              className="btn btn-link text-primary text-decoration-none p-0 fw-bold font-monospace"
-                              onClick={() => setViewingInvoice(inv)}
-                            >
-                              {inv.invoiceNumber}
-                            </button>
-                          </td>
-                          <td className="fw-medium text-dark">
-                            <div>{inv.customerName}</div>
-                            {inv.customerGstin && (
-                              <span className="badge bg-light text-secondary border font-monospace" style={{ fontSize: '0.7rem' }}>
-                                {inv.customerGstin}
-                              </span>
-                            )}
-                          </td>
-                          <td className="text-muted small">{formatDate(inv.invoiceDate)}</td>
-                          <td className="text-muted small">{inv.dueDate ? formatDate(inv.dueDate) : '—'}</td>
-                          <td className="font-monospace small">{formatCurrency(inv.subTotal)}</td>
-                          <td className="font-monospace small text-primary">{formatCurrency(inv.totalTax)}</td>
-                          <td className="font-monospace fw-bold text-dark">{formatCurrency(inv.grandTotal)}</td>
-                          <td>
-                            <span className={`zoho-badge-status zoho-status-${inv.status?.toLowerCase()}`}>
-                              {inv.status}
-                            </span>
-                          </td>
-                          <td>
-                            {inv.einvoiceStatus === 'Generated' ? (
-                              <div>
-                                <span className="ct-badge-irn-active" title={`IRN: ${inv.irn || ''}`}>
-                                  <span className="ct-badge-irn-pulse" />
-                                  <span>IRN Active</span>
-                                </span>
-                                {inv.ewayBillNo && (
-                                  <div className="small text-secondary font-monospace mt-1 d-flex align-items-center gap-1" style={{ fontSize: '0.72rem' }}>
-                                    <span>🚚</span>
-                                    <span>EWB: {inv.ewayBillNo}</span>
-                                  </div>
-                                )}
-                              </div>
-                            ) : inv.einvoiceStatus === 'Cancelled' ? (
-                              <span className="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1 rounded-pill fw-semibold" style={{ fontSize: '0.74rem' }}>
-                                ✕ Cancelled
-                              </span>
-                            ) : inv.einvoiceStatus === 'Failed' ? (
-                              <button
-                                type="button"
-                                className="ct-btn-irn-quick text-danger border-danger-subtle bg-danger-subtle"
-                                onClick={() => handleGenerateEInvoice(inv._id)}
-                                disabled={generatingInvoiceId === inv._id}
-                                title={inv.einvoiceError || 'Click to retry generation'}
-                              >
-                                {generatingInvoiceId === inv._id ? (
-                                  <>
-                                    <span className="spinner-border spinner-border-sm" style={{ width: '0.7rem', height: '0.7rem' }} />
-                                    <span>Retrying...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span>⚠️</span>
-                                    <span>Retry IRN</span>
-                                  </>
-                                )}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="ct-btn-irn-quick"
-                                onClick={() => handleGenerateEInvoice(inv._id)}
-                                disabled={generatingInvoiceId === inv._id}
-                                title="Generate Government E-Invoice (IRN) & Signed QR Code"
-                              >
-                                {generatingInvoiceId === inv._id ? (
-                                  <>
-                                    <span className="spinner-border spinner-border-sm" style={{ width: '0.7rem', height: '0.7rem' }} />
-                                    <span>Generating...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                                    </svg>
-                                    <span>Generate IRN</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
-                          </td>
-                          <td className="text-end pe-3.5" style={{ minWidth: '220px', whiteSpace: 'nowrap' }}>
-                            <div className="ct-action-group">
-                              <button
-                                type="button"
-                                className="ct-action-btn ct-action-btn-view"
-                                onClick={() => setViewingInvoice(inv)}
-                                title="View & Print Invoice"
-                              >
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                                  <circle cx="12" cy="12" r="3" />
-                                </svg>
-                                <span>View</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                className="ct-action-btn ct-action-btn-edit"
-                                onClick={() => handleOpenEdit(inv)}
-                                title="Edit invoice details"
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                                  <path d="m15 5 4 4" />
-                                </svg>
-                                <span>Edit</span>
-                              </button>
-
-                              {inv.status !== 'Paid' && (
-                                <button
-                                  type="button"
-                                  className="ct-action-btn ct-action-btn-paid"
-                                  onClick={() => handleStatusChange(inv._id, 'Paid')}
-                                  title="Mark as Paid"
-                                >
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="20 6 9 17 4 12" />
-                                  </svg>
-                                  <span>Paid</span>
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                className="ct-action-btn ct-action-btn-delete"
-                                onClick={() => handleDelete(inv._id)}
-                                title="Delete Invoice"
-                              >
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M3 6h18" />
-                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                                  <line x1="10" y1="11" x2="10" y2="17" />
-                                  <line x1="14" y1="11" x2="14" y2="17" />
-                                </svg>
-                              </button>
-                            </div>
-                          </td>
+                      {hsnBreakdown.map((h, i) => (
+                        <tr key={i}>
+                          <td style={{ padding: '2px 4px', fontFamily: 'monospace' }}>{h.hsn}</td>
+                          <td style={{ textAlign: 'right', padding: '2px 4px' }}>{formatTallyNum(h.taxable)}</td>
+                          <td style={{ textAlign: 'right', padding: '2px 4px' }}>{formatTallyNum(h.cgstAmount)}</td>
+                          <td style={{ textAlign: 'right', padding: '2px 4px' }}>{formatTallyNum(h.sgstAmount)}</td>
+                          <td style={{ textAlign: 'right', padding: '2px 4px' }}>{formatTallyNum(h.igstAmount)}</td>
+                          <td style={{ textAlign: 'right', padding: '2px 4px', fontWeight: 'bold' }}>{formatTallyNum(h.totalTax)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              ) : (
-                <div className="text-center py-5">
-                  <div className="fs-1 mb-2">📄</div>
-                  <h3 className="fs-6 fw-bold text-dark">No sales invoices found</h3>
-                  <p className="text-muted small mb-3">Create your first tax invoice with automated GST split.</p>
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={handleOpenCreate}
-                  >
-                    + Create Invoice
-                  </button>
+
+                {/* Footer Signatures */}
+                <div style={{ display: 'flex', borderTop: '1px solid #000', minHeight: '60px' }}>
+                  <div style={{ width: '55%', padding: '6px 8px', borderRight: '1px solid #000', fontSize: '10.5px' }}>
+                    Declaration: We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.
+                  </div>
+                  <div style={{ width: '45%', padding: '6px 8px', textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>for <strong>{sellerDisplayName}</strong></div>
+                    <div style={{ fontSize: '10.5px', marginTop: '30px' }}>Authorized Signatory</div>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* E-Way Bill Modal */}
+      <Modal
+        isOpen={showEwbModal}
+        onClose={() => setShowEwbModal(false)}
+        title="Generate Government E-Way Bill"
+        subtitle="Registers vehicle transit linked to active IRN"
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setShowEwbModal(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleGenerateEwbSubmit} isLoading={ewbLoading}>
+              Generate E-Way Bill
+            </Button>
           </>
-        )}
-      </div>
+        }
+      >
+        <form onSubmit={handleGenerateEwbSubmit} className="space-y-4">
+          <Input
+            label="Vehicle Registration Number *"
+            value={ewbForm.vehicleNo}
+            onChange={(e) => setEwbForm({ ...ewbForm, vehicleNo: e.target.value.toUpperCase() })}
+            placeholder="e.g. DL01AB1234"
+            required
+            className="font-mono uppercase"
+          />
+          <Input
+            label="Approx Transit Distance (km)"
+            type="number"
+            value={ewbForm.distance}
+            onChange={(e) => setEwbForm({ ...ewbForm, distance: Number(e.target.value) })}
+            placeholder="e.g. 150"
+            className="font-mono"
+          />
+          <Input
+            label="Transporter Name"
+            value={ewbForm.transporterName}
+            onChange={(e) => setEwbForm({ ...ewbForm, transporterName: e.target.value })}
+            placeholder="e.g. VRL Logistics"
+          />
+          <Input
+            label="Transporter GSTIN / ID"
+            value={ewbForm.transporterId}
+            onChange={(e) => setEwbForm({ ...ewbForm, transporterId: e.target.value.toUpperCase() })}
+            placeholder="29AAAAL1234A1Z5"
+            className="font-mono uppercase"
+          />
+        </form>
+      </Modal>
 
-      {/* Invoice Detail / Print Modal */}
-      {viewingInvoice && (
-        <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1055 }}>
-          <div className="modal-dialog modal-dialog-centered modal-xl" style={{ maxWidth: '880px' }}>
-            <div className="modal-content border-0 shadow-lg">
-              <div className="modal-header border-bottom py-2.5 px-4 bg-light d-flex justify-content-between align-items-center d-print-none">
-                <div className="d-flex align-items-center gap-2">
-                  <span className="fw-bold text-dark fs-6">Tax Invoice:</span>
-                  <span className="font-monospace fw-bold text-primary">{viewingInvoice.invoiceNumber}</span>
-                  <span className={`zoho-badge-status zoho-status-${viewingInvoice.status?.toLowerCase()}`}>
-                    {viewingInvoice.status}
-                  </span>
-                </div>
-                <div className="d-flex align-items-center gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-outline-primary btn-sm d-flex align-items-center gap-1.5 fw-semibold"
-                    onClick={() => handleOpenEdit(viewingInvoice)}
-                  >
-                    <span>✏️</span> Edit Invoice
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary btn-sm"
-                    onClick={handlePrint}
-                  >
-                    🖨️ Print
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setViewingInvoice(null)}
-                  />
-                </div>
-              </div>
+      {/* Cancel E-Invoice Modal */}
+      <Modal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        title="Cancel E-Invoice (IRN)"
+        subtitle="Cannot be undone. Government NIC allows cancellation within 24 hours of generation."
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setShowCancelModal(false)}>
+              Keep IRN Active
+            </Button>
+            <Button variant="danger" size="sm" onClick={handleCancelEInvoiceSubmit} isLoading={cancelLoading}>
+              Confirm Cancellation
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleCancelEInvoiceSubmit} className="space-y-4">
+          <Select
+            label="Statutory Cancellation Reason *"
+            value={cancelForm.reasonCode}
+            onChange={(e) => setCancelForm({ ...cancelForm, reasonCode: e.target.value })}
+          >
+            <option value="1">1 - Duplicate Invoice</option>
+            <option value="2">2 - Data Entry Mistake</option>
+            <option value="3">3 - Order Cancelled by Buyer</option>
+            <option value="4">4 - Other Business Reason</option>
+          </Select>
+          <Input
+            label="Remarks / Explanation *"
+            value={cancelForm.remarks}
+            onChange={(e) => setCancelForm({ ...cancelForm, remarks: e.target.value })}
+            placeholder="Explain reason for cancellation"
+            required
+          />
+        </form>
+      </Modal>
 
-              <div className="modal-body p-4">
-                {/* E-Invoice Feedback Alerts */}
-                {eInvError && (
-                  <div className="alert alert-danger alert-dismissible fade show d-flex align-items-center gap-2 py-2 px-3 small mb-3">
-                    <span>⚠️</span>
-                    <div className="flex-grow-1">{eInvError}</div>
-                    <button type="button" className="btn-close py-2" onClick={() => setEInvError(null)} />
-                  </div>
-                )}
-                {eInvSuccess && (
-                  <div className="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2 py-2 px-3 small mb-3">
-                    <span>✓</span>
-                    <div className="flex-grow-1">{eInvSuccess}</div>
-                    <button type="button" className="btn-close py-2" onClick={() => setEInvSuccess(null)} />
-                  </div>
-                )}
-
-                {/* E-Invoice Interactive Status & Operations Card */}
-                <div className="card border mb-4 bg-light shadow-sm">
-                  <div className="card-body p-3">
-                    {viewingInvoice.einvoiceStatus === 'Generated' ? (
-                      <div className="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3">
-                        <div className="d-flex align-items-center gap-3">
-                          {viewingInvoice.qrCodeImage ? (
-                            <img
-                              src={`data:image/png;base64,${viewingInvoice.qrCodeImage}`}
-                              alt="NIC Signed QR Code"
-                              style={{ width: 90, height: 90, objectFit: 'contain' }}
-                              className="rounded border bg-white p-1 shadow-sm flex-shrink-0"
-                            />
-                          ) : (
-                            <div
-                              className="rounded border bg-white d-flex align-items-center justify-content-center shadow-sm flex-shrink-0"
-                              style={{ width: 90, height: 90, fontSize: '2rem' }}
-                            >
-                              📱
-                            </div>
-                          )}
-                          <div>
-                            <div className="d-flex align-items-center gap-2 mb-1">
-                              <span className="badge bg-success text-white fw-semibold">⚡ IRN Active</span>
-                              <span className="text-muted small">NIC Verified</span>
-                            </div>
-                            <div className="small font-monospace text-dark text-break mb-1" style={{ fontSize: '0.75rem', maxWidth: 440 }}>
-                              <strong>IRN:</strong> {viewingInvoice.irn}
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-link p-0 ms-1.5 text-primary text-decoration-none font-sans"
-                                onClick={() => handleCopyIrn(viewingInvoice.irn)}
-                              >
-                                {copiedIrn ? '✓ Copied' : '📋 Copy'}
-                              </button>
-                            </div>
-                            <div className="small text-muted">
-                              Ack No: <strong className="text-dark font-monospace">{viewingInvoice.ackNo}</strong> • Date:{' '}
-                              <strong className="text-dark">{formatDate(viewingInvoice.ackDate)}</strong>
-                            </div>
-                            {viewingInvoice.ewayBillNo && (
-                              <div className="small text-primary mt-1 font-monospace">
-                                🚚 E-Way Bill: <strong>#{viewingInvoice.ewayBillNo}</strong>
-                                {viewingInvoice.vehicleNo && ` • Vehicle: ${viewingInvoice.vehicleNo}`}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="d-flex flex-column flex-sm-row align-items-stretch align-items-md-center gap-2 flex-shrink-0">
-                          {!viewingInvoice.ewayBillNo && (
-                            <button
-                              type="button"
-                              className="btn btn-outline-primary btn-sm d-flex align-items-center justify-content-center gap-1.5 fw-semibold"
-                              onClick={handleOpenEwbModal}
-                            >
-                              <span>🚚</span> Generate E-Way Bill
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="btn btn-outline-danger btn-sm d-flex align-items-center justify-content-center gap-1"
-                            onClick={() => {
-                              setShowCancelModal(true);
-                              setEInvError(null);
-                            }}
-                          >
-                            <span>✕</span> Cancel IRN
-                          </button>
-                        </div>
-                      </div>
-                    ) : viewingInvoice.einvoiceStatus === 'Cancelled' ? (
-                      <div className="d-flex align-items-center justify-content-between">
-                        <div className="d-flex align-items-center gap-2">
-                          <span className="fs-4 text-danger">🚫</span>
-                          <div>
-                            <strong className="text-danger small">E-Invoice (IRN) Cancelled</strong>
-                            <div className="text-muted small">
-                              Reason: {viewingInvoice.cancelRemarks || 'Order cancelled'} • Cancelled on:{' '}
-                              {formatDate(viewingInvoice.cancelledAt || viewingInvoice.updatedAt)}
-                            </div>
-                          </div>
-                        </div>
-                        <span className="badge bg-danger-subtle text-danger border border-danger-subtle">Cancelled</span>
-                      </div>
-                    ) : viewingInvoice.einvoiceStatus === 'Failed' ? (
-                      <div className="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3">
-                        <div className="d-flex align-items-center gap-2.5">
-                          <span className="fs-3">⚠️</span>
-                          <div>
-                            <div className="fw-bold text-danger small mb-0.5">E-Invoice Generation Failed</div>
-                            <div className="text-secondary small">
-                              {viewingInvoice.einvoiceError || 'NIC returned validation errors. Please edit invoice details (GSTIN / HSN) and retry.'}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="d-flex align-items-center gap-2 flex-shrink-0">
-                          <button
-                            type="button"
-                            className="btn btn-outline-primary btn-sm px-3 fw-semibold"
-                            onClick={() => handleOpenEdit(viewingInvoice)}
-                          >
-                            ✏️ Edit to Fix
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm px-3.5 py-1.5 fw-semibold shadow-sm d-flex align-items-center gap-1.5"
-                            onClick={() => handleGenerateEInvoice(viewingInvoice._id)}
-                            disabled={eInvLoading}
-                          >
-                            {eInvLoading ? (
-                              <>
-                                <span className="spinner-border spinner-border-sm" role="status" />
-                                <span>Retrying...</span>
-                              </>
-                            ) : (
-                              <>
-                                <span>⚡</span>
-                                <span>Retry IRN</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3">
-                        <div className="d-flex align-items-center gap-2.5">
-                          <span className="fs-3">⚡</span>
-                          <div>
-                            <div className="fw-bold text-dark small mb-0.5">Government E-Invoice (IRN) & QR Code</div>
-                            <div className="text-secondary small">
-                              Register with NIC E-Invoice portal via TaxPro Decrypted Gateway to get an authentic IRN and signed QR Code.
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-sm px-3.5 py-1.5 fw-semibold shadow-sm d-flex align-items-center gap-1.5 flex-shrink-0"
-                          onClick={() => handleGenerateEInvoice(viewingInvoice._id)}
-                          disabled={eInvLoading}
-                        >
-                          {eInvLoading ? (
-                            <>
-                              <span className="spinner-border spinner-border-sm" role="status" />
-                              <span>Generating IRN...</span>
-                            </>
-                          ) : (
-                            <>
-                              <span>⚡</span>
-                              <span>Generate E-Invoice (IRN)</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Printable Tally Prime GST Tax Invoice Container */}
-                <div
-                  id="printableInvoice"
-                  style={{
-                    backgroundColor: '#ffffff',
-                    color: '#000000',
-                    fontFamily: 'Arial, Helvetica, sans-serif',
-                    fontSize: '11.5px',
-                    lineHeight: '1.25',
-                    padding: '8px',
-                    margin: '0 auto',
-                    maxWidth: '820px',
-                    boxSizing: 'border-box'
-                  }}
-                >
-                  {/* Outer Border */}
-                  <div style={{ border: '1.5px solid #000' }}>
-                    {/* Header: Centered "Tax Invoice" & Right-aligned "(ORIGINAL FOR RECIPIENT)" */}
-                    <div
-                      style={{
-                        position: 'relative',
-                        textAlign: 'center',
-                        padding: '4px 8px',
-                        borderBottom: '1px solid #000',
-                        fontWeight: 'bold',
-                        fontSize: '15px',
-                        letterSpacing: '0.4px'
-                      }}
-                    >
-                      Tax Invoice
-                      <span
-                        style={{
-                          position: 'absolute',
-                          right: '8px',
-                          top: '5px',
-                          fontStyle: 'italic',
-                          fontWeight: 'normal',
-                          fontSize: '11px'
-                        }}
-                      >
-                        (ORIGINAL FOR RECIPIENT)
-                      </span>
-                    </div>
-
-                    {/* Optional E-Invoice IRN Banner when generated */}
-                    {viewingInvoice.einvoiceStatus === 'Generated' && (
-                      <div
-                        style={{
-                          borderBottom: '1px solid #000',
-                          padding: '6px 8px',
-                          backgroundColor: '#fafafa',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: '12px'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          {viewingInvoice.qrCodeImage && (
-                            <img
-                              src={`data:image/png;base64,${viewingInvoice.qrCodeImage}`}
-                              alt="NIC Signed QR"
-                              style={{ width: '70px', height: '70px', objectFit: 'contain' }}
-                            />
-                          )}
-                          <div style={{ fontSize: '10.5px', fontFamily: 'monospace' }}>
-                            <div style={{ fontWeight: 'bold', color: '#0d6efd', fontSize: '11px', marginBottom: '2px' }}>
-                              GOVERNMENT OF INDIA • GST E-INVOICE
-                            </div>
-                            <div>
-                              <strong>IRN:</strong> {viewingInvoice.irn}
-                            </div>
-                            <div>
-                              <strong>Ack No:</strong> {viewingInvoice.ackNo} &nbsp;|&nbsp;{' '}
-                              <strong>Ack Date:</strong> {formatDate(viewingInvoice.ackDate)}
-                            </div>
-                            {viewingInvoice.ewayBillNo && (
-                              <div style={{ color: '#198754', fontWeight: 'bold' }}>
-                                E-Way Bill: #{viewingInvoice.ewayBillNo}{' '}
-                                {viewingInvoice.vehicleNo && `(Vehicle: ${viewingInvoice.vehicleNo})`}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', fontSize: '10px', textTransform: 'uppercase', color: '#555' }}>
-                          NIC IRN ACTIVE<br />
-                          <span style={{ color: '#198754', fontWeight: 'bold' }}>VERIFIED</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Section 1: Top 2-Column Split (Seller & Buyer 55% | 5-Row Dispatch Grid 45%) */}
-                    <div style={{ display: 'flex', borderBottom: '1px solid #000' }}>
-                      {/* Left: Seller & Buyer Details */}
-                      <div style={{ width: '55%', borderRight: '1px solid #000', display: 'flex', flexDirection: 'column' }}>
-                        {/* Seller */}
-                        <div style={{ padding: '6px 8px', borderBottom: '1px solid #000' }}>
-                          <div style={{ fontWeight: 'bold', fontSize: '13px' }}>{sellerDisplayName}</div>
-                          <div>{sellerDisplayAddress}</div>
-                          <div>
-                            GSTIN/UIN: <span style={{ fontWeight: 'bold' }}>{sellerDisplayGstin}</span>
-                          </div>
-                          <div>
-                            State Name : {sellerDisplayStateName}, Code : {sellerDisplayStateCode}
-                          </div>
-                        </div>
-
-                        {/* Buyer */}
-                        <div style={{ padding: '6px 8px', flexGrow: 1 }}>
-                          <div style={{ fontSize: '10.5px' }}>Buyer (Bill to)</div>
-                          <div style={{ fontWeight: 'bold', fontSize: '12.5px' }}>{buyerDisplayName}</div>
-                          <div>{buyerAddressDisplay}</div>
-                          <table style={{ borderCollapse: 'collapse', marginTop: '2px', width: '100%', fontSize: '11.5px' }}>
-                            <tbody>
-                              <tr>
-                                <td style={{ width: '95px', padding: '1px 0' }}>GSTIN/UIN</td>
-                                <td style={{ padding: '1px 0' }}>: <span style={{ fontWeight: 'bold' }}>{buyerDisplayGstin || '—'}</span></td>
-                              </tr>
-                              <tr>
-                                <td style={{ padding: '1px 0' }}>State Name</td>
-                                <td style={{ padding: '1px 0' }}>: {buyerDisplayStateName}, Code : {buyerDisplayStateCode}</td>
-                              </tr>
-                              <tr>
-                                <td style={{ padding: '1px 0' }}>Place of Supply</td>
-                                <td style={{ padding: '1px 0' }}>: {posDisplayName}</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* Right: 5-Row Dispatch / Reference Table */}
-                      <div style={{ width: '45%', display: 'flex', flexDirection: 'column' }}>
-                        {/* Row 1: Invoice No & Dated */}
-                        <div style={{ display: 'flex', borderBottom: '1px solid #000', minHeight: '34px' }}>
-                          <div style={{ width: '50%', padding: '3px 6px', borderRight: '1px solid #000' }}>
-                            <div style={{ fontSize: '10px' }}>Invoice No.</div>
-                            <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{viewingInvoice.invoiceNumber}</div>
-                          </div>
-                          <div style={{ width: '50%', padding: '3px 6px' }}>
-                            <div style={{ fontSize: '10px' }}>Dated</div>
-                            <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{formatTallyDate(viewingInvoice.invoiceDate)}</div>
-                          </div>
-                        </div>
-
-                        {/* Row 2: Delivery Note & Mode/Terms of Payment */}
-                        <div style={{ display: 'flex', borderBottom: '1px solid #000', minHeight: '32px' }}>
-                          <div style={{ width: '50%', padding: '3px 6px', borderRight: '1px solid #000' }}>
-                            <div style={{ fontSize: '10px' }}>Delivery Note</div>
-                            <div>{viewingInvoice.deliveryNote || ''}</div>
-                          </div>
-                          <div style={{ width: '50%', padding: '3px 6px' }}>
-                            <div style={{ fontSize: '10px' }}>Mode/Terms of Payment</div>
-                            <div>{viewingInvoice.terms || viewingInvoice.paymentTerms || ''}</div>
-                          </div>
-                        </div>
-
-                        {/* Row 3: Buyer's Order No. & Dated */}
-                        <div style={{ display: 'flex', borderBottom: '1px solid #000', minHeight: '32px' }}>
-                          <div style={{ width: '50%', padding: '3px 6px', borderRight: '1px solid #000' }}>
-                            <div style={{ fontSize: '10px' }}>Buyer's Order No.</div>
-                            <div>{viewingInvoice.buyerOrderNo || ''}</div>
-                          </div>
-                          <div style={{ width: '50%', padding: '3px 6px' }}>
-                            <div style={{ fontSize: '10px' }}>Dated</div>
-                            <div>{viewingInvoice.buyerOrderDate ? formatTallyDate(viewingInvoice.buyerOrderDate) : ''}</div>
-                          </div>
-                        </div>
-
-                        {/* Row 4: Dispatch Doc No. & Delivery Note Date */}
-                        <div style={{ display: 'flex', borderBottom: '1px solid #000', minHeight: '32px' }}>
-                          <div style={{ width: '50%', padding: '3px 6px', borderRight: '1px solid #000' }}>
-                            <div style={{ fontSize: '10px' }}>Dispatch Doc No.</div>
-                            <div>{viewingInvoice.dispatchDocNo || ''}</div>
-                          </div>
-                          <div style={{ width: '50%', padding: '3px 6px' }}>
-                            <div style={{ fontSize: '10px' }}>Delivery Note Date</div>
-                            <div>{viewingInvoice.deliveryNoteDate ? formatTallyDate(viewingInvoice.deliveryNoteDate) : ''}</div>
-                          </div>
-                        </div>
-
-                        {/* Row 5: Dispatched through & Destination */}
-                        <div style={{ display: 'flex', minHeight: '32px', flexGrow: 1 }}>
-                          <div style={{ width: '50%', padding: '3px 6px', borderRight: '1px solid #000' }}>
-                            <div style={{ fontSize: '10px' }}>Dispatched through</div>
-                            <div>{viewingInvoice.dispatchedThrough || viewingInvoice.transporterName || viewingInvoice.vehicleNo || ''}</div>
-                          </div>
-                          <div style={{ width: '50%', padding: '3px 6px' }}>
-                            <div style={{ fontSize: '10px' }}>Destination</div>
-                            <div>{viewingInvoice.destination || posDisplayName || ''}</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Section 2: Line Items / Goods Table */}
-                    <table
-                      style={{
-                        width: '100%',
-                        borderCollapse: 'collapse',
-                        borderBottom: '1px solid #000',
-                        tableLayout: 'fixed',
-                        fontSize: '11.5px'
-                      }}
-                    >
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid #000', fontSize: '10.5px' }}>
-                          <th style={{ width: '4%', borderRight: '1px solid #000', padding: '3px 2px', fontWeight: 'bold', textAlign: 'center' }}>
-                            Sl<br />No.
-                          </th>
-                          <th style={{ width: '48%', borderRight: '1px solid #000', padding: '3px 6px', fontWeight: 'bold', textAlign: 'center' }}>
-                            Description of Goods
-                          </th>
-                          <th style={{ width: '13%', borderRight: '1px solid #000', padding: '3px 4px', fontWeight: 'bold', textAlign: 'center' }}>
-                            Quantity
-                          </th>
-                          <th style={{ width: '11%', borderRight: '1px solid #000', padding: '3px 4px', fontWeight: 'bold', textAlign: 'center' }}>
-                            Rate
-                          </th>
-                          <th style={{ width: '6%', borderRight: '1px solid #000', padding: '3px 2px', fontWeight: 'bold', textAlign: 'center' }}>
-                            per
-                          </th>
-                          <th style={{ width: '18%', padding: '3px 6px', fontWeight: 'bold', textAlign: 'center' }}>
-                            Amount
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {/* Goods Rows */}
-                        {viewingInvoice.lineItems && viewingInvoice.lineItems.length > 0 ? (
-                          viewingInvoice.lineItems.map((it, idx) => (
-                            <tr key={idx} style={{ verticalAlign: 'top' }}>
-                              <td style={{ borderRight: '1px solid #000', padding: '5px 3px', textAlign: 'center', fontWeight: 'bold' }}>
-                                {idx + 1}
-                              </td>
-                              <td style={{ borderRight: '1px solid #000', padding: '5px 8px' }}>
-                                <div style={{ fontWeight: 'bold', textTransform: 'uppercase' }}>{it.name}</div>
-                                {it.description && <div style={{ fontSize: '10.5px', color: '#444' }}>{it.description}</div>}
-                              </td>
-                              <td style={{ borderRight: '1px solid #000', padding: '5px 6px', textAlign: 'right', fontWeight: 'bold' }}>
-                                {formatTallyNum(it.quantity, 3)} {it.unit || 'kg'}
-                              </td>
-                              <td style={{ borderRight: '1px solid #000', padding: '5px 6px', textAlign: 'right' }}>
-                                {formatTallyNum(it.rate, 2)}
-                              </td>
-                              <td style={{ borderRight: '1px solid #000', padding: '5px 2px', textAlign: 'center' }}>
-                                {it.unit || 'kg'}
-                              </td>
-                              <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 'bold' }}>
-                                {formatTallyNum(it.taxableAmount || ((Number(it.quantity) || 1) * (Number(it.rate) || 0)), 2)}
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr style={{ verticalAlign: 'top' }}>
-                            <td style={{ borderRight: '1px solid #000', padding: '5px 3px', textAlign: 'center', fontWeight: 'bold' }}>1</td>
-                            <td style={{ borderRight: '1px solid #000', padding: '5px 8px' }}>
-                              <div style={{ fontWeight: 'bold', textTransform: 'uppercase' }}>PLASTIC PACKAGING MATERIAL</div>
-                            </td>
-                            <td style={{ borderRight: '1px solid #000', padding: '5px 6px', textAlign: 'right', fontWeight: 'bold' }}>200.000 kg</td>
-                            <td style={{ borderRight: '1px solid #000', padding: '5px 6px', textAlign: 'right' }}>210.00</td>
-                            <td style={{ borderRight: '1px solid #000', padding: '5px 2px', textAlign: 'center' }}>kg</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 'bold' }}>42,000.00</td>
-                          </tr>
-                        )}
-
-                        {/* Tax Lines & Journal Allocation embedded in table */}
-                        <tr style={{ verticalAlign: 'top' }}>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px' }}></td>
-                          <td style={{ borderRight: '1px solid #000', padding: '6px 8px 4px 8px' }}>
-                            {viewingInvoice.totalCgst > 0 && (
-                              <div style={{ textAlign: 'right', fontStyle: 'italic', fontWeight: 'bold', paddingRight: '18px' }}>
-                                Cgst
-                              </div>
-                            )}
-                            {viewingInvoice.totalSgst > 0 && (
-                              <div style={{ textAlign: 'right', fontStyle: 'italic', fontWeight: 'bold', paddingRight: '18px' }}>
-                                Sgst
-                              </div>
-                            )}
-                            {viewingInvoice.totalIgst > 0 && (
-                              <div style={{ textAlign: 'right', fontStyle: 'italic', fontWeight: 'bold', paddingRight: '18px' }}>
-                                Igst
-                              </div>
-                            )}
-                            <div style={{ marginTop: '10px' }}>
-                              <span style={{ textDecoration: 'underline', fontWeight: 'bold', fontSize: '11px' }}>
-                                Bill Details:
-                              </span>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', width: '250px', marginTop: '3px', fontSize: '11px' }}>
-                                <span>On Account</span>
-                                <span style={{ fontWeight: 'bold' }}>{formatTallyNum(viewingInvoice.grandTotal, 2)} &nbsp; Dr</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px' }}></td>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px' }}></td>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px' }}></td>
-                          <td style={{ padding: '6px 8px 4px 8px', textAlign: 'right' }}>
-                            {viewingInvoice.totalCgst > 0 && (
-                              <div style={{ fontWeight: 'bold' }}>{formatTallyNum(viewingInvoice.totalCgst, 2)}</div>
-                            )}
-                            {viewingInvoice.totalSgst > 0 && (
-                              <div style={{ fontWeight: 'bold' }}>{formatTallyNum(viewingInvoice.totalSgst, 2)}</div>
-                            )}
-                            {viewingInvoice.totalIgst > 0 && (
-                              <div style={{ fontWeight: 'bold' }}>{formatTallyNum(viewingInvoice.totalIgst, 2)}</div>
-                            )}
-                          </td>
-                        </tr>
-
-                        {/* Spacer Row for authentic Tally ledger look */}
-                        <tr style={{ height: '35px' }}>
-                          <td style={{ borderRight: '1px solid #000' }}></td>
-                          <td style={{ borderRight: '1px solid #000' }}></td>
-                          <td style={{ borderRight: '1px solid #000' }}></td>
-                          <td style={{ borderRight: '1px solid #000' }}></td>
-                          <td style={{ borderRight: '1px solid #000' }}></td>
-                          <td></td>
-                        </tr>
-
-                        {/* Total Row */}
-                        <tr style={{ borderTop: '1px solid #000', fontWeight: 'bold' }}>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px' }}></td>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px 8px', textAlign: 'right' }}>
-                            Total
-                          </td>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px 6px', textAlign: 'right' }}>
-                            {formatTallyNum(totalInvoiceQty || 200, 3)} {defaultUnit}
-                          </td>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px' }}></td>
-                          <td style={{ borderRight: '1px solid #000', padding: '4px' }}></td>
-                          <td style={{ padding: '4px 8px', textAlign: 'right', fontSize: '12.5px' }}>
-                            ₹ {formatTallyNum(viewingInvoice.grandTotal, 2)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-
-                    {/* Section 3: Amount Chargeable in words */}
-                    <div style={{ padding: '4px 8px', borderBottom: '1px solid #000' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#333' }}>
-                        <span>Amount Chargeable (in words)</span>
-                        <span style={{ fontStyle: 'italic', fontWeight: 'bold' }}>E. & O.E</span>
-                      </div>
-                      <div style={{ fontWeight: 'bold', fontSize: '12px', marginTop: '2px' }}>
-                        {numberToWords(viewingInvoice.grandTotal)}
-                      </div>
-                    </div>
-
-                    {/* Section 4: HSN/SAC Tax Summary Table */}
-                    <table
-                      style={{
-                        width: '100%',
-                        borderCollapse: 'collapse',
-                        borderBottom: '1px solid #000',
-                        tableLayout: 'fixed',
-                        fontSize: '11px'
-                      }}
-                    >
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid #000', textAlign: 'center' }}>
-                          <th rowSpan={2} style={{ width: '22%', borderRight: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>
-                            HSN/SAC
-                          </th>
-                          <th rowSpan={2} style={{ width: '18%', borderRight: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>
-                            Taxable<br />Value
-                          </th>
-                          {viewingInvoice.totalIgst > 0 ? (
-                            <th colSpan={2} style={{ width: '42%', borderRight: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>
-                              Integrated Tax
-                            </th>
-                          ) : (
-                            <>
-                              <th colSpan={2} style={{ width: '23%', borderRight: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>
-                                CGST
-                              </th>
-                              <th colSpan={2} style={{ width: '23%', borderRight: '1px solid #000', padding: '3px 4px', fontWeight: 'bold' }}>
-                                SGST/UTGST
-                              </th>
-                            </>
-                          )}
-                          <th rowSpan={2} style={{ width: '16%', padding: '3px 4px', fontWeight: 'bold' }}>
-                            Total<br />Tax Amount
-                          </th>
-                        </tr>
-                        <tr style={{ borderBottom: '1px solid #000', textAlign: 'center' }}>
-                          {viewingInvoice.totalIgst > 0 ? (
-                            <>
-                              <th style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: 'bold', width: '14%' }}>Rate</th>
-                              <th style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: 'bold', width: '28%' }}>Amount</th>
-                            </>
-                          ) : (
-                            <>
-                              <th style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: 'bold', width: '8%' }}>Rate</th>
-                              <th style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: 'bold', width: '15%' }}>Amount</th>
-                              <th style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: 'bold', width: '8%' }}>Rate</th>
-                              <th style={{ borderRight: '1px solid #000', padding: '2px 4px', fontWeight: 'bold', width: '15%' }}>Amount</th>
-                            </>
-                          )}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {hsnBreakdown.map((row, idx) => (
-                          <tr key={idx} style={{ textAlign: 'right' }}>
-                            <td style={{ borderRight: '1px solid #000', padding: '3px 6px', textAlign: 'left' }}>{row.hsn}</td>
-                            <td style={{ borderRight: '1px solid #000', padding: '3px 6px' }}>{formatTallyNum(row.taxable, 2)}</td>
-                            {viewingInvoice.totalIgst > 0 ? (
-                              <>
-                                <td style={{ borderRight: '1px solid #000', padding: '3px 4px', textAlign: 'center' }}>{row.igstRate}%</td>
-                                <td style={{ borderRight: '1px solid #000', padding: '3px 6px' }}>{formatTallyNum(row.igstAmount, 2)}</td>
-                              </>
-                            ) : (
-                              <>
-                                <td style={{ borderRight: '1px solid #000', padding: '3px 4px', textAlign: 'center' }}>{row.cgstRate}%</td>
-                                <td style={{ borderRight: '1px solid #000', padding: '3px 6px' }}>{formatTallyNum(row.cgstAmount, 2)}</td>
-                                <td style={{ borderRight: '1px solid #000', padding: '3px 4px', textAlign: 'center' }}>{row.sgstRate}%</td>
-                                <td style={{ borderRight: '1px solid #000', padding: '3px 6px' }}>{formatTallyNum(row.sgstAmount, 2)}</td>
-                              </>
-                            )}
-                            <td style={{ padding: '3px 6px' }}>{formatTallyNum(row.totalTax, 2)}</td>
-                          </tr>
-                        ))}
-                        {/* HSN Total Row */}
-                        <tr style={{ borderTop: '1px solid #000', fontWeight: 'bold', textAlign: 'right' }}>
-                          <td style={{ borderRight: '1px solid #000', padding: '3px 6px', textAlign: 'right' }}>Total</td>
-                          <td style={{ borderRight: '1px solid #000', padding: '3px 6px' }}>{formatTallyNum(viewingInvoice.subTotal, 2)}</td>
-                          {viewingInvoice.totalIgst > 0 ? (
-                            <>
-                              <td style={{ borderRight: '1px solid #000', padding: '3px 4px' }}></td>
-                              <td style={{ borderRight: '1px solid #000', padding: '3px 6px' }}>{formatTallyNum(viewingInvoice.totalIgst, 2)}</td>
-                            </>
-                          ) : (
-                            <>
-                              <td style={{ borderRight: '1px solid #000', padding: '3px 4px' }}></td>
-                              <td style={{ borderRight: '1px solid #000', padding: '3px 6px' }}>{formatTallyNum(viewingInvoice.totalCgst, 2)}</td>
-                              <td style={{ borderRight: '1px solid #000', padding: '3px 4px' }}></td>
-                              <td style={{ borderRight: '1px solid #000', padding: '3px 6px' }}>{formatTallyNum(viewingInvoice.totalSgst, 2)}</td>
-                            </>
-                          )}
-                          <td style={{ padding: '3px 6px' }}>{formatTallyNum(viewingTotalTax, 2)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-
-                    {/* Section 5: Tax Amount in Words */}
-                    <div style={{ padding: '4px 8px', borderBottom: '1px solid #000', fontSize: '11px' }}>
-                      <span>Tax Amount (in words) : &nbsp;</span>
-                      <strong style={{ fontSize: '12px' }}>{numberToWords(viewingTotalTax)}</strong>
-                    </div>
-
-                    {/* Section 6: Declaration & Bank Details / Signatures */}
-                    <div style={{ display: 'flex' }}>
-                      {/* Left: Declaration */}
-                      <div
-                        style={{
-                          width: '50%',
-                          borderRight: '1px solid #000',
-                          padding: '6px 8px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                          minHeight: '130px'
-                        }}
-                      >
-                        <div>
-                          <div style={{ textDecoration: 'underline', fontSize: '10.5px', marginBottom: '2px' }}>
-                            Declaration
-                          </div>
-                          <div style={{ fontSize: '10.5px', color: '#111', lineHeight: '1.3' }}>
-                            We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.
-                          </div>
-                        </div>
-                        <div style={{ fontSize: '11px', fontWeight: '500', paddingTop: '24px' }}>
-                          Customer's Seal and Signature
-                        </div>
-                      </div>
-
-                      {/* Right: Bank Details & Authorised Signatory */}
-                      <div
-                        style={{
-                          width: '50%',
-                          padding: '6px 8px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                          minHeight: '130px'
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontWeight: 'bold', fontSize: '11px', marginBottom: '2px' }}>
-                            Company's Bank Details
-                          </div>
-                          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '10.5px' }}>
-                            <tbody>
-                              <tr>
-                                <td style={{ width: '115px', padding: '1px 0' }}>A/c Holder's Name</td>
-                                <td style={{ padding: '1px 0' }}>: <span style={{ fontWeight: 'bold' }}>{sellerDisplayName}</span></td>
-                              </tr>
-                              <tr>
-                                <td style={{ padding: '1px 0' }}>Bank Name</td>
-                                <td style={{ padding: '1px 0' }}>: <span style={{ fontWeight: 'bold' }}>ICICI Bank</span></td>
-                              </tr>
-                              <tr>
-                                <td style={{ padding: '1px 0' }}>A/c No.</td>
-                                <td style={{ padding: '1px 0' }}>: <span style={{ fontWeight: 'bold' }}>107905001106</span></td>
-                              </tr>
-                              <tr>
-                                <td style={{ padding: '1px 0' }}>Branch & IFS Code</td>
-                                <td style={{ padding: '1px 0' }}>: <span style={{ fontWeight: 'bold' }}>Faridabad Sec7 & ICIC0001079</span></td>
-                              </tr>
-                              <tr>
-                                <td style={{ padding: '1px 0' }}>SWIFT Code</td>
-                                <td style={{ padding: '1px 0' }}>: </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-
-                        <div style={{ textAlign: 'right', paddingTop: '10px' }}>
-                          <div style={{ fontWeight: 'bold', fontSize: '11px' }}>
-                            for {sellerDisplayName}
-                          </div>
-                          <div style={{ height: '35px' }}></div>
-                          <div style={{ fontSize: '11px' }}>Authorised Signatory</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Computer Generated Disclaimer */}
-                  <div style={{ textAlign: 'center', fontSize: '10px', marginTop: '6px', color: '#444' }}>
-                    This is a Computer Generated Invoice
-                  </div>
-                </div>
-              </div>
-
-              <div className="modal-footer border-top py-2.5 px-4 bg-light d-print-none">
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setViewingInvoice(null)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Submodal: Generate E-Way Bill */}
-      {showEwbModal && (
-        <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.65)', zIndex: 1060 }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0 shadow-lg">
-              <div className="modal-header py-2.5 px-3 bg-light border-bottom">
-                <h5 className="modal-title fs-6 fw-bold text-dark d-flex align-items-center gap-1.5 mb-0">
-                  <span>🚚</span> Generate E-Way Bill (NIC)
-                </h5>
-                <button type="button" className="btn-close" onClick={() => setShowEwbModal(false)} />
-              </div>
-              <form onSubmit={handleGenerateEwbSubmit}>
-                <div className="modal-body p-3">
-                  <p className="small text-muted mb-3">
-                    Generate Part-A and Part-B E-Way Bill for IRN:{' '}
-                    <code className="text-dark font-monospace text-break">{viewingInvoice?.irn?.slice(0, 24)}...</code>
-                  </p>
-
-                  <div className="mb-3">
-                    <label className="form-label small fw-semibold text-secondary">Vehicle Number *</label>
-                    <input
-                      type="text"
-                      className="form-control form-control-sm font-monospace text-uppercase"
-                      placeholder="e.g. KA12ER1234"
-                      value={ewbForm.vehicleNo}
-                      onChange={(e) => setEwbForm({ ...ewbForm, vehicleNo: e.target.value.toUpperCase() })}
-                      required
-                    />
-                    <div className="form-text small text-muted">Format: 2-letter state code + RTO + alphanumeric</div>
-                  </div>
-
-                  <div className="row g-2 mb-3">
-                    <div className="col-12 col-sm-6">
-                      <label className="form-label small fw-semibold text-secondary">Transporter GSTIN / ID</label>
-                      <input
-                        type="text"
-                        className="form-control form-control-sm font-monospace text-uppercase"
-                        placeholder="e.g. 29AWGPV7107B1Z1"
-                        value={ewbForm.transporterId}
-                        onChange={(e) => setEwbForm({ ...ewbForm, transporterId: e.target.value.toUpperCase() })}
-                      />
-                    </div>
-                    <div className="col-12 col-sm-6">
-                      <label className="form-label small fw-semibold text-secondary">Transporter Name</label>
-                      <input
-                        type="text"
-                        className="form-control form-control-sm"
-                        placeholder="e.g. Rapid Transport"
-                        value={ewbForm.transporterName}
-                        onChange={(e) => setEwbForm({ ...ewbForm, transporterName: e.target.value })}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mb-2">
-                    <label className="form-label small fw-semibold text-secondary">Approx Distance (KM)</label>
-                    <input
-                      type="number"
-                      className="form-control form-control-sm font-monospace"
-                      placeholder="Leave 0 for automatic Pin-Pin distance"
-                      value={ewbForm.distance}
-                      onChange={(e) => setEwbForm({ ...ewbForm, distance: Number(e.target.value) })}
-                    />
-                    <div className="form-text small text-muted">
-                      Enter <code>0</code> to let NIC automatically calculate exact pin-to-pin distance.
-                    </div>
-                  </div>
-                </div>
-                <div className="modal-footer py-2 px-3 bg-light border-top">
-                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowEwbModal(false)}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn btn-primary btn-sm fw-semibold" disabled={ewbLoading}>
-                    {ewbLoading ? 'Generating EWB...' : 'Issue E-Way Bill'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Submodal: Cancel IRN */}
-      {showCancelModal && (
-        <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.65)', zIndex: 1060 }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0 shadow-lg">
-              <div className="modal-header py-2.5 px-3 bg-light border-bottom">
-                <h5 className="modal-title fs-6 fw-bold text-danger d-flex align-items-center gap-1.5 mb-0">
-                  <span>⚠️</span> Cancel E-Invoice (IRN)
-                </h5>
-                <button type="button" className="btn-close" onClick={() => setShowCancelModal(false)} />
-              </div>
-              <form onSubmit={handleCancelEInvoiceSubmit}>
-                <div className="modal-body p-3">
-                  <div className="alert alert-warning py-2 px-3 small mb-3">
-                    <strong>Note:</strong> IRN cancellation must be reported to the IRP portal within 24 hours of generation.
-                  </div>
-
-                  <div className="mb-3">
-                    <label className="form-label small fw-semibold text-secondary">Cancellation Reason *</label>
-                    <select
-                      className="form-select form-select-sm"
-                      value={cancelForm.reasonCode}
-                      onChange={(e) => setCancelForm({ ...cancelForm, reasonCode: e.target.value })}
-                      required
-                    >
-                      <option value="1">1 - Duplicate Invoice</option>
-                      <option value="2">2 - Data Entry Mistake</option>
-                      <option value="3">3 - Order Cancelled</option>
-                      <option value="4">4 - Others</option>
-                    </select>
-                  </div>
-
-                  <div className="mb-2">
-                    <label className="form-label small fw-semibold text-secondary">Cancellation Remarks *</label>
-                    <input
-                      type="text"
-                      className="form-control form-control-sm"
-                      placeholder="e.g. Incorrect quantity entered"
-                      value={cancelForm.remarks}
-                      onChange={(e) => setCancelForm({ ...cancelForm, remarks: e.target.value })}
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="modal-footer py-2 px-3 bg-light border-top">
-                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowCancelModal(false)}>
-                    Keep Active
-                  </button>
-                  <button type="submit" className="btn btn-danger btn-sm fw-semibold" disabled={cancelLoading}>
-                    {cancelLoading ? 'Cancelling IRN...' : 'Confirm Cancellation'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(deleteTargetId)}
+        title="Delete Invoice"
+        message="Are you sure you want to delete this invoice? This will remove the record from billing and GSTR-1 calculation."
+        confirmLabel="Delete Invoice"
+        cancelLabel="Cancel"
+        isDestructive={true}
+        isLoading={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

@@ -313,10 +313,10 @@ export default function ExcelImportPage() {
             </div>
           )}
 
-          {/* Parsed Preview Table */}
+          {/* Parsed Preview Table & GSTR-1 Section Distribution (Image 3 Blueprint) */}
           {parsedRows.length > 0 && !result && (
             <div className="mt-4 pt-3 border-top">
-              <div className="d-flex justify-content-between align-items-center mb-2">
+              <div className="d-flex justify-content-between align-items-center mb-3">
                 <span className="small fw-semibold text-dark">
                   Found <span className="badge bg-primary text-white">{parsedRows.length}</span> rows in{' '}
                   <code className="text-dark">{selectedFile?.name}</code>
@@ -331,6 +331,91 @@ export default function ExcelImportPage() {
                   Skip existing records if duplicate number
                 </label>
               </div>
+
+              {/* GSTR-1 Section Auto-Distribution Cards (Blueprint Image 3) */}
+              {importType === 'sales' && (() => {
+                const b2bRows = [];
+                const b2clRows = [];
+                const b2csRows = [];
+                const cdnrRows = [];
+                const expRows = [];
+
+                for (const row of parsedRows) {
+                  const gstin = (row['Customer GSTIN'] || row['GSTIN'] || row['customerGstin'] || '').trim();
+                  const rate = Number(row['Rate'] || row['rate'] || 0);
+                  const qty = Number(row['Quantity'] || row['quantity'] || 1);
+                  const taxRate = Number(row['Tax Rate'] || row['taxRate'] || 18);
+                  const rowTotal = (rate * qty) * (1 + taxRate / 100);
+                  const pos = String(row['Place of Supply'] || row['pos'] || '');
+                  const invNum = String(row['Invoice Number'] || row['invoiceNumber'] || '');
+
+                  if (invNum.toLowerCase().startsWith('cn') || invNum.toLowerCase().startsWith('dn')) {
+                    cdnrRows.push({ ...row, rowTotal });
+                  } else if (pos.startsWith('96') || String(row['isExport']).toLowerCase() === 'true') {
+                    expRows.push({ ...row, rowTotal });
+                  } else if (gstin.length === 15) {
+                    b2bRows.push({ ...row, rowTotal });
+                  } else if (rowTotal > 250000 && pos && !pos.startsWith('29')) {
+                    b2clRows.push({ ...row, rowTotal });
+                  } else {
+                    b2csRows.push({ ...row, rowTotal });
+                  }
+                }
+
+                return (
+                  <div className="mb-4 p-3 bg-slate-50 border rounded-3">
+                    <div className="d-flex align-items-center justify-content-between mb-2">
+                      <span className="small fw-bold text-dark d-flex align-items-center gap-1.5">
+                        <span>📊</span>
+                        <span>Auto-Distributed GSTR-1 Sections Preview (Image 3 Flow)</span>
+                      </span>
+                      <span className="text-muted text-[11px]">Click a card to filter rows</span>
+                    </div>
+
+                    <div className="row g-2">
+                      <div className="col-6 col-md">
+                        <div className="p-2.5 bg-white border rounded-2 shadow-2xs">
+                          <div className="text-[10px] text-muted font-monospace fw-bold">TABLE 4 (B2B)</div>
+                          <div className="fw-bold text-dark fs-6 mt-1">{b2bRows.length} Invoices</div>
+                          <div className="text-[11px] text-primary">Registered Buyers</div>
+                        </div>
+                      </div>
+
+                      <div className="col-6 col-md">
+                        <div className="p-2.5 bg-white border rounded-2 shadow-2xs">
+                          <div className="text-[10px] text-muted font-monospace fw-bold">TABLE 5 (B2CL)</div>
+                          <div className="fw-bold text-dark fs-6 mt-1">{b2clRows.length} Invoices</div>
+                          <div className="text-[11px] text-indigo-600">Inter-state &gt; 2.5L</div>
+                        </div>
+                      </div>
+
+                      <div className="col-6 col-md">
+                        <div className="p-2.5 bg-white border rounded-2 shadow-2xs">
+                          <div className="text-[10px] text-muted font-monospace fw-bold">TABLE 7 (B2CS)</div>
+                          <div className="fw-bold text-dark fs-6 mt-1">{b2csRows.length} Invoices</div>
+                          <div className="text-[11px] text-teal-600">Consumer / Small</div>
+                        </div>
+                      </div>
+
+                      <div className="col-6 col-md">
+                        <div className="p-2.5 bg-white border rounded-2 shadow-2xs">
+                          <div className="text-[10px] text-muted font-monospace fw-bold">TABLE 9B (CDNR)</div>
+                          <div className="fw-bold text-dark fs-6 mt-1">{cdnrRows.length} Notes</div>
+                          <div className="text-[11px] text-amber-600">Credit / Debit</div>
+                        </div>
+                      </div>
+
+                      <div className="col-6 col-md">
+                        <div className="p-2.5 bg-white border rounded-2 shadow-2xs">
+                          <div className="text-[10px] text-muted font-monospace fw-bold">TABLE 6A (EXP)</div>
+                          <div className="fw-bold text-dark fs-6 mt-1">{expRows.length} Invoices</div>
+                          <div className="text-[11px] text-purple-600">Exports</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Preview Table snippet */}
               <div className="table-responsive border rounded mb-3" style={{ maxHeight: '220px' }}>
@@ -410,9 +495,14 @@ export default function ExcelImportPage() {
                 </p>
                 <div className="d-flex gap-2">
                   {importType === 'sales' ? (
-                    <Link to="/invoices" className="btn btn-sm btn-outline-dark fw-semibold">
-                      📋 View Invoices
-                    </Link>
+                    <>
+                      <Link to="/returns/gstr1" className="btn btn-sm btn-success fw-semibold">
+                        🚀 Proceed to GSTR-1 Preparation →
+                      </Link>
+                      <Link to="/invoices" className="btn btn-sm btn-outline-dark fw-semibold">
+                        📋 View Invoices
+                      </Link>
+                    </>
                   ) : (
                     <Link to="/bills" className="btn btn-sm btn-outline-dark fw-semibold">
                       📥 View Purchase Bills

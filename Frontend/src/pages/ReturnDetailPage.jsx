@@ -11,6 +11,23 @@ import { formatDate, formatPeriod } from '../utils/format';
 import Gstr1PrepareModal from '../components/Gstr1PrepareModal';
 import ItcReconciliationModal from '../components/ItcReconciliationModal';
 import NilReturnModal from '../components/NilReturnModal';
+import {
+  FileText,
+  Zap,
+  RefreshCw,
+  Scale,
+  Download,
+  CheckCircle2,
+  AlertTriangle,
+  Info,
+  Calendar,
+  Layers,
+  FileSpreadsheet
+} from 'lucide-react';
+import Button from '../components/ui/Button';
+import Badge from '../components/ui/Badge';
+import Card, { CardHeader, CardTitle, CardContent } from '../components/ui/Card';
+import PageHeader from '../components/ui/PageHeader';
 
 export default function ReturnDetailPage() {
   const { type } = useParams();
@@ -108,203 +125,201 @@ export default function ReturnDetailPage() {
   const timestamp = returnData?.fetchedAt || returnData?.updatedAt;
 
   return (
-    <div>
-      {/* Header and Period Selector */}
-      <div className="zoho-page-header d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
-        <div>
-          <div className="d-flex align-items-center gap-2 mb-1">
-            <h1 className="fw-bold fs-4 text-dark mb-0">{formattedType} Return Breakdown</h1>
-            <span className="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace">
-              {formatPeriod(period)}
-            </span>
-          </div>
-          <p className="text-secondary small mb-0">
-            Official line items, tax slabs, and liabilities for {formattedType}.
-          </p>
-        </div>
-        <div className="d-flex align-items-center gap-2 flex-wrap">
-          <PeriodSelector selectedPeriod={period} onPeriodChange={handlePeriodChange} />
-          {(formattedType === 'GSTR1' || formattedType === 'GSTR3B') && (
-            <button
-              type="button"
-              className="btn btn-outline-success btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
-              onClick={() => setIsNilModalOpen(true)}
-              title={`File Nil ${formattedType} return under CGST Rule 67A`}
-            >
-              <span>⚡ File Nil Return</span>
-            </button>
-          )}
-          {formattedType === 'GSTR1' && (
-            <button
-              type="button"
-              className="btn btn-outline-primary btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
-              onClick={() => setIsPrepareOpen(true)}
-              title="Prepare GSTR-1 return from sales invoices"
-            >
-              <span>📋 Prepare GSTR-1</span>
-            </button>
-          )}
-          {formattedType === 'GSTR2B' && (
-            <button
-              type="button"
-              className="btn btn-outline-primary btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
-              onClick={() => setIsReconcileOpen(true)}
-              title="Reconcile GSTR-2B inward supplies with purchase bills"
-            >
-              <span>⚖️ Reconcile ITC</span>
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn btn-primary btn-sm d-flex align-items-center gap-1.5 text-nowrap fw-semibold px-3"
-            onClick={() => executeFetch(type, period)}
-            disabled={loading}
-            title="Fetch return data from GST System"
-          >
-            {loading ? (
-              <>
-                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                <span>Fetching...</span>
-              </>
-            ) : (
-              <>
-                <span>⬇ Fetch Return</span>
-              </>
+    <div className="space-y-6">
+      {/* Header and Actions */}
+      <PageHeader
+        title={`${formattedType} Return Breakdown`}
+        subtitle={`Official line items, tax slabs, and liabilities for ${formattedType}`}
+        badge={`Period: ${formatPeriod(period)}`}
+        badgeVariant="fintech"
+        actions={
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <PeriodSelector selectedPeriod={period} onPeriodChange={handlePeriodChange} />
+
+            {(formattedType === 'GSTR1' || formattedType === 'GSTR3B') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsNilModalOpen(true)}
+                className="text-brand-700 border-brand-200 bg-brand-50/50 hover:bg-brand-50"
+                title={`File Nil ${formattedType} return under CGST Rule 67A`}
+              >
+                <Zap className="w-3.5 h-3.5 mr-1 text-brand-600" />
+                <span>File Nil Return</span>
+              </Button>
             )}
-          </button>
-        </div>
-      </div>
 
-      <div className="zoho-page-body">
-        {/* Nil Return Filed Banner */}
-        {returnData?.isNil && (
-          <div className="alert alert-success border border-success-subtle py-2.5 px-3.5 mb-4 rounded-3 d-flex align-items-center justify-content-between flex-wrap gap-2 shadow-xs">
-            <div className="d-flex align-items-center gap-2">
-              <span className="fs-5">✅</span>
-              <div>
-                <strong className="d-block text-dark">
-                  Nil {formattedType} Return Filed Successfully (CGST Rule 67A)
-                </strong>
-                <span className="text-secondary small">
-                  Application Reference Number (ARN): <strong className="font-monospace text-primary">{returnData.arn}</strong> • Status: <strong>FILED</strong> • Mode: {returnData.filingMode || 'ONLINE'}
-                </span>
-              </div>
-            </div>
-            <span className="badge bg-success font-monospace px-2.5 py-1.5">ARN: {returnData.arn}</span>
-          </div>
-        )}
-        {/* Stale Cache Notice */}
-        {isStale && returnData && (
-          <div
-            className="alert alert-warning py-2 px-3 mb-4 d-flex align-items-center gap-2 small rounded-3"
-            role="status"
-            aria-live="polite"
-          >
-            <span aria-hidden="true">⚠️</span>
-            <span>
-              Showing cached return data from <strong>{formatDate(timestamp)}</strong>. Live GST service is currently unavailable.
-            </span>
-          </div>
-        )}
-
-        {/* Workspace Unlinked Notice */}
-        {returnData?.unlinked && (
-          <div className="alert alert-info border border-info-subtle py-2.5 px-3 mb-4 rounded-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
-            <div className="d-flex align-items-center gap-2">
-              <span className="fs-5">ℹ️</span>
-              <div>
-                <strong className="d-block text-dark">Workspace GSTIN Unlinked</strong>
-                <span className="text-secondary small">
-                  This workspace has not linked a GSTIN yet. To download official returns from the GST Portal, link your GSTIN in Settings or sign in via GSTIN OTP.
-                </span>
-              </div>
-            </div>
             {formattedType === 'GSTR1' && (
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-primary fw-semibold"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setIsPrepareOpen(true)}
+                title="Prepare GSTR-1 return from sales invoices"
               >
-                📋 Prepare GSTR-1 from Invoices
-              </button>
+                <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5" />
+                <span>Prepare GSTR-1</span>
+              </Button>
             )}
-          </div>
-        )}
 
-        {/* Empty Line Items Notice */}
-        {!loading && returnData && !returnData.unlinked && (returnData.rows?.length === 0) && (
-          <div className="alert alert-light border py-2.5 px-3 mb-4 rounded-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
-            <div className="d-flex align-items-center gap-2">
-              <span className="fs-5">📋</span>
-              <div>
-                <strong className="d-block text-dark">No Return Records for {formatPeriod(period)}</strong>
-                <span className="text-muted small">
-                  {formattedType === 'GSTR1'
-                    ? 'No line items saved for this period yet. Create Sales Invoices and click "Prepare GSTR-1" to generate, or click "Fetch Return" to sync from the GST portal.'
-                    : 'No return line items found for this period. Click "Fetch Return" to sync directly from the GST portal.'}
-                </span>
-              </div>
-            </div>
-            {formattedType === 'GSTR1' && (
-              <button
-                type="button"
-                className="btn btn-sm btn-primary fw-semibold"
-                onClick={() => setIsPrepareOpen(true)}
+            {formattedType === 'GSTR2B' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsReconcileOpen(true)}
+                title="Reconcile GSTR-2B inward supplies with purchase bills"
               >
-                📋 Prepare GSTR-1
-              </button>
+                <Scale className="w-3.5 h-3.5 mr-1.5" />
+                <span>Reconcile ITC</span>
+              </Button>
             )}
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => executeFetch(type, period)}
+              disabled={loading}
+              title="Fetch return data from GST System"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>{loading ? 'Fetching...' : 'Fetch Return'}</span>
+            </Button>
           </div>
-        )}
+        }
+      />
 
-        {/* Error Message for real failures */}
-        <ErrorMessage error={error} onRetry={() => executeFetch(type, period)} />
-
-        {/* Loading Indicator */}
-        {loading && (
-          <div className="py-4">
-            <Loader message={`Fetching ${formattedType} return data for period ${period}...`} />
-          </div>
-        )}
-
-        {/* 404 DATA_NOT_AVAILABLE Calm Empty State (PeriodSelector stays visible) */}
-        {!loading && isDataNotAvailable && (
-          <EmptyState
-            title={`No ${formattedType} Data Available`}
-            message="Data for this period is not available yet. Try another month."
-            action={
-              <button
-                type="button"
-                onClick={() => executeFetch(type, period)}
-                className="btn btn-outline-primary btn-sm"
-              >
-                Retry Period
-              </button>
-            }
-          />
-        )}
-
-        {/* Return Table Content */}
-        {!loading && !isDataNotAvailable && returnData && (
-          <div className="card border shadow-sm bg-white overflow-hidden">
-            <div className="d-flex justify-content-between align-items-center py-2.5 px-3.5 border-bottom bg-light small text-muted">
-              <span>
-                Total Rows: <strong className="text-dark">{returnData.rows?.length || 0}</strong> • Last synchronized:{' '}
-                {formatDate(timestamp)}
+      {/* Nil Return Filed Banner */}
+      {returnData?.isNil && (
+        <div className="p-4 rounded-xl border border-success-200 bg-success-50/80 text-success-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-5 h-5 text-success-600 shrink-0" />
+            <div className="text-xs">
+              <strong className="block text-sm font-semibold">
+                Nil {formattedType} Return Filed Successfully (CGST Rule 67A)
+              </strong>
+              <span className="opacity-90">
+                Application Reference Number (ARN): <strong className="font-mono text-brand-700">{returnData.arn}</strong> • Status: <strong>FILED</strong> • Mode: {returnData.filingMode || 'ONLINE'}
               </span>
-              <button
-                type="button"
-                onClick={() => executeFetch(type, period)}
-                className="btn btn-outline-secondary btn-sm py-0.5 px-2"
-                title="Refresh return data"
-              >
-                ↻ Refresh
-              </button>
             </div>
-            <ReturnTable rows={returnData.rows || []} totals={returnData.totals || null} />
           </div>
-        )}
-      </div>
+          <Badge variant="success" size="md" className="font-mono font-bold shrink-0 self-start sm:self-center">
+            ARN: {returnData.arn}
+          </Badge>
+        </div>
+      )}
+
+      {/* Stale Cache Notice */}
+      {isStale && returnData && (
+        <div className="p-3.5 rounded-xl border border-amber-200 bg-amber-50/80 text-amber-900 text-xs flex items-center gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            Showing cached return data from <strong>{formatDate(timestamp)}</strong>. Live GST service is currently unavailable.
+          </span>
+        </div>
+      )}
+
+      {/* Workspace Unlinked Notice */}
+      {returnData?.unlinked && (
+        <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/80 text-blue-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 text-xs">
+            <Info className="w-5 h-5 text-blue-600 shrink-0" />
+            <div>
+              <strong className="block text-sm font-semibold">Workspace GSTIN Unlinked</strong>
+              <span className="opacity-90">
+                This workspace has not linked a GSTIN yet. To download official returns from the GST Portal, link your GSTIN in Settings or sign in via GSTIN OTP.
+              </span>
+            </div>
+          </div>
+          {formattedType === 'GSTR1' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsPrepareOpen(true)}
+              className="shrink-0 bg-white"
+            >
+              Prepare GSTR-1 from Invoices
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Empty Line Items Notice */}
+      {!loading && returnData && !returnData.unlinked && (returnData.rows?.length === 0) && (
+        <div className="p-4 rounded-xl border border-surface-border bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 text-xs">
+            <FileText className="w-5 h-5 text-slate-500 shrink-0" />
+            <div>
+              <strong className="block text-sm font-semibold text-slate-900">
+                No Return Records for {formatPeriod(period)}
+              </strong>
+              <span className="text-slate-500">
+                {formattedType === 'GSTR1'
+                  ? 'No line items saved for this period yet. Create Sales Invoices and click "Prepare GSTR-1" to generate, or click "Fetch Return" to sync from the GST portal.'
+                  : 'No return line items found for this period. Click "Fetch Return" to sync directly from the GST portal.'}
+              </span>
+            </div>
+          </div>
+          {formattedType === 'GSTR1' && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsPrepareOpen(true)}
+              className="shrink-0"
+            >
+              Prepare GSTR-1
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Error Message */}
+      <ErrorMessage error={error} onRetry={() => executeFetch(type, period)} />
+
+      {/* Loading Indicator */}
+      {loading && (
+        <div className="py-12 bg-white rounded-2xl border border-surface-border text-center">
+          <Loader message={`Fetching ${formattedType} return data for period ${period}...`} />
+        </div>
+      )}
+
+      {/* 404 DATA_NOT_AVAILABLE Calm Empty State */}
+      {!loading && isDataNotAvailable && (
+        <EmptyState
+          title={`No ${formattedType} Data Available`}
+          message="Data for this period is not available yet. Try another month or sync from the government portal."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => executeFetch(type, period)}
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              <span>Retry Period</span>
+            </Button>
+          }
+        />
+      )}
+
+      {/* Return Table Content */}
+      {!loading && !isDataNotAvailable && returnData && (
+        <Card className="overflow-hidden">
+          <div className="flex justify-between items-center py-2.5 px-4 border-b border-surface-border bg-slate-50 text-xs text-slate-500">
+            <span>
+              Total Rows: <strong className="text-slate-900">{returnData.rows?.length || 0}</strong> • Last synchronized:{' '}
+              {formatDate(timestamp)}
+            </span>
+            <button
+              type="button"
+              onClick={() => executeFetch(type, period)}
+              className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 font-semibold cursor-pointer"
+              title="Refresh return data"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Refresh</span>
+            </button>
+          </div>
+          <ReturnTable rows={returnData.rows || []} totals={returnData.totals || null} />
+        </Card>
+      )}
 
       {formattedType === 'GSTR1' && (
         <Gstr1PrepareModal

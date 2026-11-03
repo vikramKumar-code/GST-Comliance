@@ -1,21 +1,6 @@
-import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import Loader from './Loader';
+import ProtectedRoute from './guards/ProtectedRoute';
 
 /**
- * ProtectedRoute component - redirects unauthenticated users to /login
+ * Re-export ProtectedRoute for backward compatibility with existing imports
  */
-export default function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
-  const location = useLocation();
-
-  if (loading) {
-    return <Loader message="Verifying session..." />;
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
-  }
-
-  return children;
-}
+export default ProtectedRoute;

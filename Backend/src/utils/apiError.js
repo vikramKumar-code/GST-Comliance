@@ -39,6 +39,10 @@ class ApiError extends Error {
     return new ApiError('FORBIDDEN', message, 403);
   }
 
+  static conflict(message = 'Resource already exists') {
+    return new ApiError('CONFLICT', message, 409);
+  }
+
   static payloadTooLarge(message = 'Request body exceeds the allowed size.') {
     return new ApiError('PAYLOAD_TOO_LARGE', message, 413);
   }

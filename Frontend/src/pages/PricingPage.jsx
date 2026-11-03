@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { getSubscriptionPlans, createSubscriptionOrder, verifySubscriptionPayment } from '../api/subscription.api';
 import Loader from '../components/Loader';
 import ErrorMessage from '../components/ErrorMessage';
 
 export default function PricingPage() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState([]);
   const [currentSub, setCurrentSub] = useState(null);
@@ -45,7 +47,22 @@ export default function PricingPage() {
     setError(null);
   };
 
-  const handleConfirmPayment = async () => {
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleConfirmPayment = async (forceSandbox = false) => {
     if (!selectedPlan) return;
     setProcessing(true);
     setError(null);
@@ -53,14 +70,69 @@ export default function PricingPage() {
     try {
       // 1. Create order intent
       const orderRes = await createSubscriptionOrder(selectedPlan.id, billingCycle);
-      const orderId = orderRes?.order?.orderId;
+      const order = orderRes?.order;
+      const orderId = order?.orderId;
+      const key = order?.key;
 
-      // 2. Verify / Activate payment
+      // If official Razorpay is requested and available
+      if (!forceSandbox && key && !key.includes('xxxx') && typeof window !== 'undefined') {
+        const loaded = await loadRazorpayScript();
+        if (loaded && window.Razorpay) {
+          const options = {
+            key: key,
+            amount: order.amount * 100,
+            currency: order.currency || 'INR',
+            name: 'CandidTax GST SaaS',
+            description: `${selectedPlan.name} Subscription (${billingCycle})`,
+            order_id: orderId,
+            prefill: {
+              name: user?.name || '',
+              email: user?.email || '',
+              contact: user?.mobile || ''
+            },
+            theme: {
+              color: '#4f46e5'
+            },
+            handler: async (response) => {
+              try {
+                const verifyRes = await verifySubscriptionPayment({
+                  planId: selectedPlan.id,
+                  billingCycle,
+                  orderId: response.razorpay_order_id || orderId,
+                  paymentId: response.razorpay_payment_id,
+                  signature: response.razorpay_signature,
+                  paymentMethod
+                });
+                if (verifyRes.success) {
+                  setSuccessMsg(verifyRes.message || `Upgraded to ${selectedPlan.name} successfully!`);
+                  setSelectedPlan(null);
+                  await loadPlans();
+                }
+              } catch (err) {
+                setError(err);
+              }
+            },
+            modal: {
+              ondismiss: () => {
+                setProcessing(false);
+              }
+            }
+          };
+
+          const rzp = new window.Razorpay(options);
+          rzp.open();
+          setProcessing(false);
+          return;
+        }
+      }
+
+      // 2. Direct / Sandbox activation fallback
       const verifyRes = await verifySubscriptionPayment({
         planId: selectedPlan.id,
         billingCycle,
         orderId,
-        paymentId: `PAY_RZP_${Date.now()}`
+        paymentId: `PAY_RZP_${Date.now()}`,
+        paymentMethod
       });
 
       if (verifyRes.success) {
@@ -440,7 +512,7 @@ export default function PricingPage() {
               </div>
 
               {/* Modal Footer */}
-              <div className="modal-footer bg-light border-top px-4 py-3 d-flex justify-content-between">
+              <div className="modal-footer bg-light border-top px-4 py-3 d-flex flex-wrap items-center justify-content-between gap-2">
                 <button
                   type="button"
                   className="btn btn-outline-secondary btn-sm px-3"
@@ -449,23 +521,35 @@ export default function PricingPage() {
                 >
                   Cancel
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-success btn-sm fw-bold px-4 d-flex align-items-center gap-2 shadow-xs"
-                  onClick={handleConfirmPayment}
-                  disabled={processing}
-                >
-                  {processing ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                      <span>Processing Payment...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Pay & Activate Plan ➔</span>
-                    </>
-                  )}
-                </button>
+                <div className="d-flex align-items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary btn-sm fw-semibold px-3"
+                    onClick={() => handleConfirmPayment(true)}
+                    disabled={processing}
+                    title="Simulate instant verification without opening Razorpay popup (Test Mode)"
+                  >
+                    ⚡ Test Sandbox Pay
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-indigo btn-sm fw-bold px-4 text-white d-flex align-items-center gap-2 shadow-xs"
+                    style={{ backgroundColor: '#4f46e5' }}
+                    onClick={() => handleConfirmPayment(false)}
+                    disabled={processing}
+                  >
+                    {processing ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                        <span>Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>💳 Pay with Razorpay</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

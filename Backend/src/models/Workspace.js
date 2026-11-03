@@ -55,6 +55,16 @@ const workspaceSchema = new mongoose.Schema(
         type: String,
         default: ''
       }
+    },
+    limits: {
+      maxClients: {
+        type: Number,
+        default: 1
+      },
+      maxInvoicesPerMonth: {
+        type: Number,
+        default: 50
+      }
     }
   },
   { timestamps: true }
@@ -67,6 +77,20 @@ workspaceSchema.index(
     partialFilterExpression: { gstin: { $type: 'string' } }
   }
 );
+
+workspaceSchema.methods.isSuspended = function () {
+  return this.status === 'SUSPENDED';
+};
+
+workspaceSchema.methods.isSubscriptionActive = function () {
+  if (this.subscription?.status === 'EXPIRED' || this.subscription?.status === 'CANCELLED') {
+    return false;
+  }
+  if (this.subscription?.validUntil && new Date() > new Date(this.subscription.validUntil)) {
+    return false;
+  }
+  return true;
+};
 
 module.exports = mongoose.model('Workspace', workspaceSchema);
 

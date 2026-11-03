@@ -10,6 +10,6 @@ router.get('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), customerCon
 router.get('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), customerController.getCustomer);
 router.post('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), customerController.createCustomer);
 router.put('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), customerController.updateCustomer);
-router.delete('/:id', workspaceRole('OWNER', 'ADMIN'), customerController.deleteCustomer);
+router.delete('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), customerController.deleteCustomer);
 
 module.exports = router;

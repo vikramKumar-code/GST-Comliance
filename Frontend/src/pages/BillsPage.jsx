@@ -1,9 +1,38 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { listBills, createBill, updateBill, deleteBill } from '../api/bills.api';
-import Loader from '../components/Loader';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
+import {
+  ShoppingCart,
+  Plus,
+  Search,
+  Scale,
+  Trash2,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  Building2,
+  Filter,
+} from 'lucide-react';
+import {
+  listBills,
+  createBill,
+  updateBill,
+  deleteBill,
+} from '../api/bills.api';
+import Loader from '../components/common/Loader';
 import ErrorMessage from '../components/ErrorMessage';
+import ConfirmDialog from '../components/common/ConfirmDialog';
+import StatusBadge from '../components/common/StatusBadge';
 import ItcReconciliationModal from '../components/ItcReconciliationModal';
+import {
+  PageHeader,
+  Card,
+  MetricCard,
+  Button,
+  Input,
+  Select,
+  Modal,
+  Badge,
+} from '../components/ui';
 import { formatCurrency, formatDate } from '../utils/format';
 
 const INITIAL_BILL = {
@@ -17,7 +46,7 @@ const INITIAL_BILL = {
   quantity: 1,
   rate: 0,
   gstRate: 18,
-  notes: ''
+  notes: '',
 };
 
 export default function BillsPage() {
@@ -31,6 +60,10 @@ export default function BillsPage() {
   const [showReconcileModal, setShowReconcileModal] = useState(false);
   const [formData, setFormData] = useState(INITIAL_BILL);
   const [saving, setSaving] = useState(false);
+
+  // Confirm delete dialog state
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleOpenCreate = useCallback(() => {
     setFormData(INITIAL_BILL);
@@ -74,6 +107,23 @@ export default function BillsPage() {
     };
   }, [searchParams, handleOpenCreate]);
 
+  // Derived financial statistics
+  const stats = useMemo(() => {
+    let total = 0;
+    let paid = 0;
+    let unpaid = 0;
+    for (const b of bills) {
+      const amt = Number(b.grandTotal || b.totalAmount || 0);
+      total += amt;
+      if (b.status?.toLowerCase() === 'paid') {
+        paid += amt;
+      } else {
+        unpaid += amt;
+      }
+    }
+    return { total, paid, unpaid };
+  }, [bills]);
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!formData.billNumber.trim() || !formData.vendorName.trim()) return;
@@ -94,9 +144,9 @@ export default function BillsPage() {
           description: formData.description.trim() || 'Item',
           quantity: Number(formData.quantity) || 1,
           rate: Number(formData.rate) || 0,
-          gstRate: Number(formData.gstRate) || 0
-        }
-      ]
+          gstRate: Number(formData.gstRate) || 0,
+        },
+      ],
     };
 
     try {
@@ -119,354 +169,395 @@ export default function BillsPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this bill?')) return;
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setIsDeleting(true);
     try {
-      await deleteBill(id);
+      await deleteBill(deleteTargetId);
+      setDeleteTargetId(null);
       fetchBills(searchQuery, categoryFilter);
     } catch (err) {
       setError(err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   return (
-    <div>
-      <div className="zoho-page-header d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3">
-        <div>
-          <h1 className="fw-bold fs-4 text-dark mb-1">Purchases & Vendor Bills</h1>
-          <p className="text-secondary small mb-0">
-            Record supplier bills, track expenses, and reconcile eligible Input Tax Credit (ITC).
-          </p>
-        </div>
-        <div className="d-flex align-items-center gap-2">
-          <button
-            type="button"
-            className="btn btn-outline-primary btn-sm d-flex align-items-center gap-1.5 fw-semibold px-3 py-1.5"
-            onClick={() => setShowReconcileModal(true)}
-          >
-            <span>⚖️ Reconcile ITC & Refund</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm d-flex align-items-center gap-1.5 fw-semibold px-3 py-1.5"
-            onClick={handleOpenCreate}
-          >
-            <span>+ New Purchase Bill</span>
-          </button>
-        </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        title="Purchase Bills"
+        actions={
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowReconcileModal(true)}
+              leftIcon={<Scale className="w-3.5 h-3.5 text-indigo-600" />}
+            >
+              Reconcile ITC
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenCreate}
+              leftIcon={<Plus className="w-3.5 h-3.5" />}
+            >
+              Record Bill
+            </Button>
+          </div>
+        }
+      />
+
+      <ErrorMessage error={error} onRetry={() => fetchBills(searchQuery, categoryFilter)} />
+
+      {/* Financial Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <MetricCard
+          title="Total Purchases & Inward Supplies"
+          value={formatCurrency(stats.total)}
+          subvalue={`${bills.length} bills recorded`}
+          icon={ShoppingCart}
+        />
+        <MetricCard
+          title="Paid Vendor Invoices"
+          value={formatCurrency(stats.paid)}
+          subvalue="Fully settled purchases"
+          icon={CheckCircle2}
+          badge={<Badge status="PAID">Settled</Badge>}
+        />
+        <MetricCard
+          title="Outstanding / Due Amount"
+          value={formatCurrency(stats.unpaid)}
+          subvalue="Payable to suppliers"
+          icon={Clock}
+          badge={<Badge status={stats.unpaid > 0 ? 'OVERDUE' : 'PAID'}>Outstanding</Badge>}
+        />
       </div>
 
-      <div className="zoho-page-body">
-        <ErrorMessage error={error} onRetry={() => fetchBills(searchQuery, categoryFilter)} />
+      {/* Filter & Search Bar */}
+      <Card className="p-3.5 bg-slate-50/60">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 max-w-lg">
+            <div className="relative flex-1">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                <Search className="w-3.5 h-3.5" />
+              </span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by bill #, vendor name, GSTIN..."
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/10 transition"
+              />
+            </div>
 
-        {/* Filter bar */}
-        <div className="card border shadow-sm p-3 mb-4 bg-white">
-          <div className="row g-2 align-items-center">
-            <div className="col-12 col-md-5">
-              <div className="input-group input-group-sm">
-                <span className="input-group-text bg-white border-end-0">🔍</span>
-                <input
-                  type="text"
-                  className="form-control border-start-0"
-                  placeholder="Search by vendor, bill #, GSTIN..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="col-6 col-md-3">
-              <select
-                className="form-select form-select-sm"
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                <option value="">All Categories</option>
-                <option value="Expense">General Expense</option>
-                <option value="Inventory">Inventory Goods</option>
-                <option value="Asset">Capital Asset</option>
-                <option value="Service">Professional Service</option>
-              </select>
-            </div>
-            <div className="col-6 col-md-4 text-end text-muted small">
-              Bills: <strong className="text-dark">{bills.length}</strong>
-            </div>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-hidden focus:border-indigo-600"
+            >
+              <option value="">All Categories</option>
+              <option value="Expense">Expense</option>
+              <option value="Asset">Capital Goods (Asset)</option>
+              <option value="Raw Material">Raw Material</option>
+              <option value="Service">Inward Service</option>
+            </select>
+          </div>
+
+          <div className="text-xs text-slate-500 font-medium">
+            Showing <strong className="font-mono text-slate-700">{bills.length}</strong> purchase bills
           </div>
         </div>
+      </Card>
 
-        {/* Bills Table */}
-        <div className="card border shadow-sm bg-white overflow-hidden">
-          {loading ? (
-            <div className="p-4">
-              <Loader message="Loading purchase bills..." />
-            </div>
-          ) : bills.length > 0 ? (
-            <div className="table-responsive">
-              <table className="table table-hover align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th className="ps-3.5">Bill #</th>
-                    <th>Vendor</th>
-                    <th>Date</th>
-                    <th>Category</th>
-                    <th>Taxable (₹)</th>
-                    <th>Tax / ITC (₹)</th>
-                    <th>Grand Total (₹)</th>
-                    <th>Status</th>
-                    <th className="text-end pe-3.5">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bills.map((b) => (
-                    <tr key={b._id}>
-                      <td className="ps-3.5 font-monospace fw-bold text-dark">{b.billNumber}</td>
-                      <td className="fw-medium text-dark">
-                        <div>{b.vendorName}</div>
-                        {b.vendorGstin && (
-                          <span className="badge bg-light text-secondary border font-monospace" style={{ fontSize: '0.7rem' }}>
-                            {b.vendorGstin}
-                          </span>
-                        )}
-                      </td>
-                      <td className="text-muted small">{formatDate(b.billDate)}</td>
-                      <td>
-                        <span className="badge bg-secondary-subtle text-secondary small">
-                          {b.category || 'Expense'}
-                        </span>
-                      </td>
-                      <td className="font-monospace small">{formatCurrency(b.subTotal)}</td>
-                      <td className="font-monospace small text-info-emphasis">{formatCurrency(b.totalTax)}</td>
-                      <td className="font-monospace fw-bold text-dark">{formatCurrency(b.grandTotal)}</td>
-                      <td>
-                        <span className={`zoho-badge-status zoho-status-${b.status?.toLowerCase()}`}>
-                          {b.status}
-                        </span>
-                      </td>
-                      <td className="text-end pe-3.5" style={{ minWidth: '160px', whiteSpace: 'nowrap' }}>
-                        <div className="ct-action-group">
-                          {b.status !== 'Paid' && (
-                            <button
-                              type="button"
-                              className="ct-action-btn ct-action-btn-paid"
-                              onClick={() => handleStatusChange(b._id, 'Paid')}
-                              title="Mark as Paid"
-                            >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                              <span>Paid</span>
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="ct-action-btn ct-action-btn-delete"
-                            onClick={() => handleDelete(b._id)}
-                            title="Delete Bill"
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M3 6h18" />
-                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                              <line x1="10" y1="11" x2="10" y2="17" />
-                              <line x1="14" y1="11" x2="14" y2="17" />
-                            </svg>
-                          </button>
+      {/* Bills Data Table */}
+      <Card className="overflow-hidden">
+        {loading ? (
+          <div className="py-16">
+            <Loader message="Loading purchase bills..." />
+          </div>
+        ) : bills.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Bill #
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Vendor Details
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Date & Due
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Category
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">
+                    Total Amount
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-center">
+                    Status
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {bills.map((b) => (
+                  <tr key={b._id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-3 px-4 font-mono font-semibold text-slate-900">
+                      {b.billNumber}
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-slate-900">{b.vendorName}</div>
+                      {b.vendorGstin ? (
+                        <div className="font-mono text-[10px] text-slate-400 mt-0.5">
+                          GSTIN: {b.vendorGstin}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-5">
-              <div className="fs-1 mb-2">🧾</div>
-              <h3 className="fs-6 fw-bold text-dark">No purchase bills recorded</h3>
-              <p className="text-muted small mb-3">Record supplier bills to accurately track business ITC.</p>
-              <button
-                type="button"
-                className="btn btn-outline-primary btn-sm"
-                onClick={handleOpenCreate}
-              >
-                + Add Bill
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Bill Create Modal */}
-      {showModal && (
-        <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
-          <div className="modal-dialog modal-dialog-centered modal-lg">
-            <div className="modal-content border-0 shadow-lg">
-              <form onSubmit={handleSave}>
-                <div className="modal-header border-bottom py-3 px-4">
-                  <h5 className="modal-title fw-bold text-dark fs-6">Record Purchase Bill</h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowModal(false)}
-                    disabled={saving}
-                  />
-                </div>
-                <div className="modal-body p-4">
-                  <div className="row g-3">
-                    <div className="col-12 col-md-6">
-                      <label className="form-label small fw-semibold text-secondary">Vendor Name *</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. Amazon Web Services India"
-                        value={formData.vendorName}
-                        onChange={(e) => setFormData({ ...formData, vendorName: e.target.value })}
-                        required
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-6">
-                      <label className="form-label small fw-semibold text-secondary">Vendor GSTIN</label>
-                      <input
-                        type="text"
-                        className="form-control font-monospace text-uppercase"
-                        placeholder="e.g. 29ABCDE1234F1Z5"
-                        maxLength={15}
-                        value={formData.vendorGstin}
-                        onChange={(e) => setFormData({ ...formData, vendorGstin: e.target.value.toUpperCase() })}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-4">
-                      <label className="form-label small fw-semibold text-secondary">Vendor Bill / Ref # *</label>
-                      <input
-                        type="text"
-                        className="form-control font-monospace"
-                        placeholder="e.g. BILL-9842"
-                        value={formData.billNumber}
-                        onChange={(e) => setFormData({ ...formData, billNumber: e.target.value })}
-                        required
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-4">
-                      <label className="form-label small fw-semibold text-secondary">Bill Date *</label>
-                      <input
-                        type="date"
-                        className="form-control"
-                        value={formData.billDate}
-                        onChange={(e) => setFormData({ ...formData, billDate: e.target.value })}
-                        required
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-4">
-                      <label className="form-label small fw-semibold text-secondary">Category</label>
+                      ) : (
+                        <div className="text-[10px] text-slate-400">Unregistered Vendor</div>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-slate-500">
+                      <div>{formatDate(b.billDate)}</div>
+                      {b.dueDate && (
+                        <div className="text-[10px] text-amber-700 font-mono">
+                          Due: {formatDate(b.dueDate)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <Badge variant="neutral" size="xs">
+                        {b.category || 'Expense'}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-4 font-mono font-semibold text-right tabular-nums text-slate-900">
+                      {formatCurrency(b.grandTotal || b.totalAmount || 0)}
+                    </td>
+                    <td className="py-3 px-4 text-center">
                       <select
-                        className="form-select"
-                        value={formData.category}
-                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                        disabled={saving}
+                        value={b.status || 'Draft'}
+                        onChange={(e) => handleStatusChange(b._id, e.target.value)}
+                        className={`text-xs px-2 py-0.5 rounded-md border font-medium focus:outline-hidden cursor-pointer ${
+                          b.status?.toLowerCase() === 'paid'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}
                       >
-                        <option value="Expense">Expense</option>
-                        <option value="Inventory">Inventory</option>
-                        <option value="Asset">Capital Asset</option>
-                        <option value="Service">Professional Service</option>
+                        <option value="Draft">Draft</option>
+                        <option value="Unpaid">Unpaid</option>
+                        <option value="Paid">Paid</option>
                       </select>
-                    </div>
-
-                    <div className="col-12 mt-3">
-                      <div className="fw-semibold text-dark small border-bottom pb-1 mb-2">Item & Pricing</div>
-                      <div className="row g-2">
-                        <div className="col-12 col-md-5">
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Description / Product Name"
-                            value={formData.description}
-                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            required
-                            disabled={saving}
-                          />
-                        </div>
-                        <div className="col-4 col-md-2">
-                          <input
-                            type="number"
-                            min="1"
-                            className="form-control font-monospace"
-                            placeholder="Qty"
-                            value={formData.quantity}
-                            onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                            required
-                            disabled={saving}
-                          />
-                        </div>
-                        <div className="col-4 col-md-3">
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="form-control font-monospace"
-                            placeholder="Rate (₹)"
-                            value={formData.rate}
-                            onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
-                            required
-                            disabled={saving}
-                          />
-                        </div>
-                        <div className="col-4 col-md-2">
-                          <select
-                            className="form-select"
-                            value={formData.gstRate}
-                            onChange={(e) => setFormData({ ...formData, gstRate: Number(e.target.value) })}
-                            disabled={saving}
-                          >
-                            <option value={0}>0%</option>
-                            <option value={5}>5%</option>
-                            <option value={12}>12%</option>
-                            <option value={18}>18%</option>
-                            <option value={28}>28%</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="col-12">
-                      <label className="form-label small fw-semibold text-secondary">Notes</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Optional internal remarks"
-                        value={formData.notes}
-                        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                        disabled={saving}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="modal-footer border-top py-2.5 px-4 bg-light">
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary btn-sm"
-                    onClick={() => setShowModal(false)}
-                    disabled={saving}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary btn-sm px-4 fw-semibold"
-                    disabled={saving}
-                  >
-                    {saving ? 'Saving...' : 'Save Purchase Bill'}
-                  </button>
-                </div>
-              </form>
-            </div>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTargetId(b._id)}
+                        className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                        title="Delete Bill"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="py-16 text-center text-slate-400">
+            <ShoppingCart className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+            <h4 className="text-sm font-semibold text-slate-700">No purchase bills recorded</h4>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              Record supplier bills to auto-calculate input tax credit and reconcile against GSTR-2B.
+            </p>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenCreate}
+              className="mt-4"
+              leftIcon={<Plus className="w-3.5 h-3.5" />}
+            >
+              Record First Bill
+            </Button>
+          </div>
+        )}
+      </Card>
 
+      {/* Record Bill Modal */}
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        title="Record Purchase Bill"
+        subtitle="Inward supplies will contribute to your eligible Input Tax Credit pool"
+        size="lg"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowModal(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSave}
+              isLoading={saving}
+            >
+              Save Purchase Bill
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <Input
+              label="Supplier / Vendor Bill Number *"
+              value={formData.billNumber}
+              onChange={(e) =>
+                setFormData({ ...formData, billNumber: e.target.value })
+              }
+              placeholder="e.g. BILL-2026-091"
+              required
+              className="font-mono uppercase"
+            />
+            <Input
+              label="Supplier / Vendor Name *"
+              value={formData.vendorName}
+              onChange={(e) =>
+                setFormData({ ...formData, vendorName: e.target.value })
+              }
+              placeholder="e.g. Reliance Corporate IT Ltd"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <Input
+              label="Vendor GSTIN"
+              value={formData.vendorGstin}
+              onChange={(e) =>
+                setFormData({ ...formData, vendorGstin: e.target.value.toUpperCase() })
+              }
+              placeholder="27AAACR5055K1ZI"
+              maxLength={15}
+              className="font-mono uppercase"
+            />
+            <Input
+              label="Bill Date *"
+              type="date"
+              value={formData.billDate}
+              onChange={(e) =>
+                setFormData({ ...formData, billDate: e.target.value })
+              }
+              required
+            />
+            <Input
+              label="Payment Due Date"
+              type="date"
+              value={formData.dueDate}
+              onChange={(e) =>
+                setFormData({ ...formData, dueDate: e.target.value })
+              }
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <Select
+              label="Accounting Category"
+              value={formData.category}
+              onChange={(e) =>
+                setFormData({ ...formData, category: e.target.value })
+              }
+            >
+              <option value="Expense">Operational Expense</option>
+              <option value="Asset">Capital Goods / Assets</option>
+              <option value="Raw Material">Raw Material / Inventory</option>
+              <option value="Service">Inward Services</option>
+            </Select>
+            <Input
+              label="Expense / Line Description"
+              value={formData.description}
+              onChange={(e) =>
+                setFormData({ ...formData, description: e.target.value })
+              }
+              placeholder="e.g. Office Cloud Hosting Servers"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3.5 p-3.5 rounded-lg bg-slate-50 border border-slate-200/80">
+            <Input
+              label="Quantity"
+              type="number"
+              step="1"
+              value={formData.quantity}
+              onChange={(e) =>
+                setFormData({ ...formData, quantity: e.target.value })
+              }
+              className="font-mono"
+            />
+            <Input
+              label="Taxable Rate (₹)"
+              type="number"
+              step="0.01"
+              value={formData.rate}
+              onChange={(e) =>
+                setFormData({ ...formData, rate: e.target.value })
+              }
+              className="font-mono"
+            />
+            <Select
+              label="GST Tax Rate (%)"
+              value={formData.gstRate}
+              onChange={(e) =>
+                setFormData({ ...formData, gstRate: Number(e.target.value) })
+              }
+            >
+              <option value={0}>0%</option>
+              <option value={5}>5%</option>
+              <option value={12}>12%</option>
+              <option value={18}>18%</option>
+              <option value={28}>28%</option>
+            </Select>
+          </div>
+
+          <div className="flex justify-between items-center text-xs px-1">
+            <span className="text-slate-500">Estimated Total Amount:</span>
+            <span className="font-mono font-bold text-sm text-slate-900">
+              {formatCurrency(
+                (Number(formData.quantity) || 1) *
+                  (Number(formData.rate) || 0) *
+                  (1 + (Number(formData.gstRate) || 0) / 100)
+              )}
+            </span>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ITC Reconciliation Modal */}
       <ItcReconciliationModal
         isOpen={showReconcileModal}
         onClose={() => setShowReconcileModal(false)}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(deleteTargetId)}
+        title="Delete Purchase Bill"
+        message="Are you sure you want to delete this bill? This action cannot be undone."
+        confirmLabel="Delete Bill"
+        cancelLabel="Cancel"
+        isDestructive={true}
+        isLoading={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
       />
     </div>
   );

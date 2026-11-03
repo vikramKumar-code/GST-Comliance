@@ -3,6 +3,8 @@ import { searchGstin, requestOtp } from '../api/auth.api';
 import { isValidGstin } from '../utils/validators';
 import ConsentBox from './ConsentBox';
 import ErrorMessage from './ErrorMessage';
+import { Building2, ArrowRight, CheckCircle2, ShieldCheck, Loader2 } from 'lucide-react';
+import Button from './ui/Button';
 
 export default function GstinForm({ initialGstin = '', onOtpSent }) {
   const [gstin, setGstin] = useState(initialGstin.toUpperCase());
@@ -31,18 +33,14 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
     try {
       const data = await searchGstin(cleanGstin);
 
-      // Check if legalName is present and verified !== false
       if (data && data.legalName && data.verified !== false) {
         setBusinessInfo(data);
       } else {
-        // Skip confirmation if legalName is null or verified is false
         setBusinessInfo({ legalName: null, status: data?.status || 'Active' });
       }
       return data;
     } catch {
       setBusinessInfo(null);
-      // Public search is optional and not enabled on TaxPro Sandbox for this test account.
-      // Provide actionable guidance so user knows they can proceed directly to OTP.
       setError({
         code: 'LOOKUP_UNAVAILABLE',
         message: 'Public business lookup is currently unavailable. You can proceed directly to enter your GST Portal username and click "Send GSTN Verification OTP".',
@@ -120,19 +118,19 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
   const isFormBusy = searching || sendingOtp;
 
   return (
-    <form onSubmit={handleSendOtp} noValidate className="gstin-form">
+    <form onSubmit={handleSendOtp} noValidate className="space-y-4">
       <ErrorMessage error={error} onRetry={() => setError(null)} />
 
       {/* GSTIN Input Field */}
-      <div className="mb-3">
-        <label htmlFor="gstin-input" className="form-label">
+      <div>
+        <label htmlFor="gstin-input" className="block text-xs font-semibold text-slate-700 mb-1.5">
           GSTIN (Goods & Services Tax Identification)
         </label>
-        <div className="input-group">
+        <div className="relative flex items-center">
           <input
             id="gstin-input"
             type="text"
-            className="form-control text-uppercase font-monospace fs-6"
+            className="w-full pl-3 pr-24 py-2.5 text-xs font-mono font-bold uppercase rounded-xl border border-surface-border bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
             placeholder="e.g. 29ABCDE1234F1Z5"
             maxLength={15}
             value={gstin}
@@ -147,83 +145,79 @@ export default function GstinForm({ initialGstin = '', onOtpSent }) {
           />
           <button
             type="button"
-            className="btn btn-outline-primary fw-semibold"
+            className="absolute right-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-200 transition disabled:opacity-40 cursor-pointer"
             onClick={handleSearch}
             disabled={gstin.length < 15 || isFormBusy}
             aria-label="Verify GSTIN"
           >
             {searching ? (
-              <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
             ) : (
               'Verify'
             )}
           </button>
         </div>
-        <div id="gstin-help" className="form-text small text-muted">
+        <p id="gstin-help" className="text-[11px] text-slate-400 mt-1">
           15-character alphanumeric GSTIN. Click Verify to auto-fetch registered business name.
-        </div>
+        </p>
       </div>
 
-      {/* Business Name Confirmation (Shown if legalName is present) */}
+      {/* Business Name Confirmation */}
       {businessInfo && businessInfo.legalName && (
         <div
-          className="alert alert-success d-flex align-items-center gap-3 py-2 px-3 mb-3 border-success-subtle bg-success-subtle text-success-emphasis rounded-3"
+          className="p-3.5 rounded-xl bg-success-50 border border-success-200 text-success-950 flex items-center gap-3"
           role="status"
           aria-live="polite"
         >
-          <span className="fs-4" aria-hidden="true">🏢</span>
-          <div className="small">
-            <div className="fw-bold">{businessInfo.legalName}</div>
+          <Building2 className="w-5 h-5 text-success-600 shrink-0" />
+          <div className="text-xs">
+            <div className="font-bold text-slate-900">{businessInfo.legalName}</div>
             {businessInfo.tradeName && (
-              <div className="text-secondary">{businessInfo.tradeName} • Status: {businessInfo.status || 'Active'}</div>
+              <div className="text-slate-500 mt-0.5">{businessInfo.tradeName} • Status: {businessInfo.status || 'Active'}</div>
             )}
           </div>
         </div>
       )}
 
       {/* GST Portal Username Input Field */}
-      <div className="mb-3">
-        <label htmlFor="username-input" className="form-label">
+      <div>
+        <label htmlFor="username-input" className="block text-xs font-semibold text-slate-700 mb-1.5">
           GST Portal Username
         </label>
         <input
           id="username-input"
           type="text"
-          className="form-control"
+          className="w-full px-3 py-2.5 text-xs rounded-xl border border-surface-border bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
           placeholder="Enter GST Portal username"
           value={username}
           disabled={isFormBusy}
           onChange={(e) => setUsername(e.target.value)}
           required
         />
-        <div className="form-text small text-muted">
+        <p className="text-[11px] text-slate-400 mt-1">
           Your registered username on the official GST portal.
-        </div>
+        </p>
       </div>
 
       {/* Mandatory Taxpayer Consent */}
       <ConsentBox checked={consent} onChange={setConsent} disabled={isFormBusy} />
 
       {/* Submit Button */}
-      <button
+      <Button
         type="submit"
-        className="btn btn-primary w-100 py-2.5 fw-semibold shadow-xs mt-3"
+        variant="fintech"
+        className="w-full justify-center py-2.5"
         disabled={gstin.length < 15 || !consent || isFormBusy}
       >
         {sendingOtp ? (
-          <>
-            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />
-            Requesting GSTN OTP...
-          </>
+          <span>Requesting GSTN OTP...</span>
         ) : (
           <>
-            Send GSTN Verification OTP
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="ms-2">
-              <path fillRule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
-            </svg>
+            <span>Send GSTN Verification OTP</span>
+            <ArrowRight className="w-4 h-4 ml-1.5" />
           </>
         )}
-      </button>
+      </Button>
     </form>
   );
 }

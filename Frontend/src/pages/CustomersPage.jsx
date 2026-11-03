@@ -1,8 +1,49 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { listCustomers, createCustomer, updateCustomer, deleteCustomer } from '../api/customers.api';
-import Loader from '../components/Loader';
+import {
+  Users,
+  Plus,
+  Search,
+  Building2,
+  Phone,
+  Mail,
+  MapPin,
+  Edit2,
+  Trash2,
+  CheckCircle2,
+  ShieldCheck,
+  RefreshCw,
+  AlertCircle
+} from 'lucide-react';
+import {
+  listCustomers,
+  createCustomer,
+  updateCustomer,
+  deleteCustomer,
+} from '../api/customers.api';
+import { searchGstin } from '../api/auth.api';
+import Loader from '../components/common/Loader';
 import ErrorMessage from '../components/ErrorMessage';
+import ConfirmDialog from '../components/common/ConfirmDialog';
+import StatusBadge from '../components/common/StatusBadge';
+import {
+  PageHeader,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  Button,
+  Input,
+  Select,
+  Modal,
+  Badge,
+} from '../components/ui';
 
 const INITIAL_FORM = {
   name: '',
@@ -16,7 +57,7 @@ const INITIAL_FORM = {
   billingCity: '',
   billingState: '',
   billingStateCode: '',
-  billingPincode: ''
+  billingPincode: '',
 };
 
 export default function CustomersPage() {
@@ -30,9 +71,64 @@ export default function CustomersPage() {
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [saving, setSaving] = useState(false);
 
+  // Confirm delete dialog state
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Live GSTIN Public Verification & Profiler State
+  const [verifyingGstin, setVerifyingGstin] = useState(false);
+  const [gstinVerifySuccess, setGstinVerifySuccess] = useState(null);
+  const [gstinVerifyError, setGstinVerifyError] = useState(null);
+
+  const handleVerifyGstin = async () => {
+    if (!formData.gstin || formData.gstin.trim().length < 15) {
+      setGstinVerifyError('Please enter a valid 15-character GSTIN first.');
+      return;
+    }
+    setVerifyingGstin(true);
+    setGstinVerifyError(null);
+    setGstinVerifySuccess(null);
+    try {
+      const cleanGstin = formData.gstin.trim().toUpperCase();
+      const res = await searchGstin(cleanGstin);
+      const tp = res?.taxpayer || res;
+      const legalName = tp?.legalName || tp?.tradeName || 'Registered Taxpayer';
+      const tradeName = tp?.tradeName || legalName;
+      const addr = tp?.pradr?.addr || {};
+      const stateCode = cleanGstin.slice(0, 2);
+
+      const street = [addr.bno, addr.bnm, addr.st].filter(Boolean).join(', ');
+      const city = addr.loc || addr.dst || '';
+      const state = addr.stcd || '';
+      const pincode = addr.pncd || '';
+
+      setFormData((prev) => ({
+        ...prev,
+        gstin: cleanGstin,
+        name: legalName || prev.name,
+        companyName: tradeName || prev.companyName,
+        placeOfSupply: stateCode || prev.placeOfSupply,
+        billingStreet: street || prev.billingStreet,
+        billingCity: city || prev.billingCity,
+        billingState: state || prev.billingState,
+        billingStateCode: stateCode || prev.billingStateCode,
+        billingPincode: pincode || prev.billingPincode,
+        gstType: tp?.dty?.toLowerCase()?.includes('composition') ? 'Composition' : 'Regular'
+      }));
+
+      setGstinVerifySuccess(`Verified: ${legalName} • Status: ${tp?.status || 'Active'}`);
+    } catch (err) {
+      setGstinVerifyError(err?.message || 'Taxpayer details could not be retrieved from GSTN.');
+    } finally {
+      setVerifyingGstin(false);
+    }
+  };
+
   const handleOpenCreate = useCallback(() => {
     setEditingCustomer(null);
     setFormData(INITIAL_FORM);
+    setGstinVerifySuccess(null);
+    setGstinVerifyError(null);
     setShowModal(true);
   }, []);
 
@@ -88,7 +184,7 @@ export default function CustomersPage() {
       billingCity: customer.billingAddress?.city || '',
       billingState: customer.billingAddress?.state || '',
       billingStateCode: customer.billingAddress?.stateCode || '',
-      billingPincode: customer.billingAddress?.pincode || ''
+      billingPincode: customer.billingAddress?.pincode || '',
     });
     setShowModal(true);
   };
@@ -100,6 +196,10 @@ export default function CustomersPage() {
     setSaving(true);
     setError(null);
 
+    const pos =
+      formData.placeOfSupply.trim() ||
+      (formData.gstin ? formData.gstin.slice(0, 2) : '');
+
     const payload = {
       name: formData.name.trim(),
       companyName: formData.companyName.trim(),
@@ -107,15 +207,15 @@ export default function CustomersPage() {
       email: formData.email.trim(),
       phone: formData.phone.trim(),
       gstType: formData.gstType,
-      placeOfSupply: formData.placeOfSupply || (formData.gstin ? formData.gstin.slice(0, 2) : ''),
+      placeOfSupply: pos,
       billingAddress: {
         street: formData.billingStreet,
         city: formData.billingCity,
         state: formData.billingState,
-        stateCode: formData.billingStateCode || (formData.gstin ? formData.gstin.slice(0, 2) : ''),
+        stateCode: formData.billingStateCode || pos,
         pincode: formData.billingPincode,
-        country: 'India'
-      }
+        country: 'India',
+      },
     };
 
     try {
@@ -133,333 +233,388 @@ export default function CustomersPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this customer?')) return;
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setIsDeleting(true);
     try {
-      await deleteCustomer(id);
+      await deleteCustomer(deleteTargetId);
+      setDeleteTargetId(null);
       fetchCustomers(searchQuery);
     } catch (err) {
       setError(err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   return (
-    <div>
-      <div className="zoho-page-header d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3">
-        <div>
-          <h1 className="fw-bold fs-4 text-dark mb-1">Customers</h1>
-          <p className="text-secondary small mb-0">
-            Manage client profiles, GSTINs, and default places of supply.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn-primary btn-sm d-flex align-items-center gap-1.5 fw-semibold px-3 py-1.5"
-          onClick={handleOpenCreate}
-        >
-          <span>+ New Customer</span>
-        </button>
-      </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        title="Customers"
+        actions={
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleOpenCreate}
+            leftIcon={<Plus className="w-3.5 h-3.5" />}
+          >
+            New Customer
+          </Button>
+        }
+      />
 
-      <div className="zoho-page-body">
-        <ErrorMessage error={error} onRetry={() => fetchCustomers(searchQuery)} />
+      <ErrorMessage error={error} onRetry={() => fetchCustomers(searchQuery)} />
 
-        {/* Filter & Search Bar */}
-        <div className="card border shadow-sm p-3 mb-4 bg-white">
-          <div className="row g-2 align-items-center">
-            <div className="col-12 col-md-5">
-              <div className="input-group input-group-sm">
-                <span className="input-group-text bg-white border-end-0">🔍</span>
-                <input
-                  type="text"
-                  className="form-control border-start-0"
-                  placeholder="Search by customer name, GSTIN, phone..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="col-12 col-md-7 text-md-end text-muted small">
-              Total Customers: <strong className="text-dark">{customers.length}</strong>
-            </div>
+      {/* Search Bar & Counter */}
+      <Card className="p-3.5 bg-slate-50/60">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-md">
+            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <Search className="w-3.5 h-3.5" />
+            </span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by customer name, company, GSTIN, phone..."
+              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/10 transition"
+            />
+          </div>
+
+          <div className="text-xs text-slate-500 font-medium">
+            Showing <strong className="font-mono text-slate-700">{customers.length}</strong> registered clients
           </div>
         </div>
+      </Card>
 
-        {/* Customers Table */}
-        <div className="card border shadow-sm bg-white overflow-hidden">
-          {loading ? (
-            <div className="p-4">
-              <Loader message="Loading customers..." />
-            </div>
-          ) : customers.length > 0 ? (
-            <div className="table-responsive">
-              <table className="table table-hover align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th className="ps-3.5">Customer Name</th>
-                    <th>Company</th>
-                    <th>GSTIN</th>
-                    <th>State / POS</th>
-                    <th>Phone</th>
-                    <th>GST Type</th>
-                    <th className="text-end pe-3.5">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {customers.map((c) => (
-                    <tr key={c._id}>
-                      <td className="ps-3.5 fw-semibold text-dark">{c.name}</td>
-                      <td className="text-muted">{c.companyName || '—'}</td>
-                      <td className="font-monospace small">
-                        {c.gstin ? (
-                          <span className="badge bg-light text-dark border font-monospace">
-                            {c.gstin}
-                          </span>
-                        ) : (
-                          <span className="text-muted">Unregistered</span>
-                        )}
-                      </td>
-                      <td className="text-dark small">
-                        {c.placeOfSupply ? `Code ${c.placeOfSupply}` : c.billingAddress?.state || '—'}
-                      </td>
-                      <td className="text-muted small">{c.phone || '—'}</td>
-                      <td>
-                        <span className="badge bg-secondary-subtle text-secondary small">
-                          {c.gstType || 'Regular'}
+      {/* Customers Data Table */}
+      <Card className="overflow-hidden">
+        {loading ? (
+          <div className="py-16">
+            <Loader message="Loading customer records..." />
+          </div>
+        ) : customers.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Customer Name
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Company Name
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    GSTIN
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    State / POS
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Contact
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-center">
+                    GST Type
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {customers.map((c) => (
+                  <tr key={c._id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-3 px-4 font-semibold text-slate-900">
+                      {c.name}
+                    </td>
+                    <td className="py-3 px-4 text-slate-600">
+                      {c.companyName || '—'}
+                    </td>
+                    <td className="py-3 px-4">
+                      {c.gstin ? (
+                        <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-800">
+                          {c.gstin}
                         </span>
-                      </td>
-                      <td className="text-end pe-3.5">
+                      ) : (
+                        <span className="text-slate-400 text-[11px]">Unregistered</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-slate-600">
+                      {c.placeOfSupply
+                        ? `State Code ${c.placeOfSupply}`
+                        : c.billingAddress?.state || '—'}
+                    </td>
+                    <td className="py-3 px-4 text-slate-500">
+                      <div>{c.phone || '—'}</div>
+                      {c.email && (
+                        <div className="text-[11px] text-slate-400">{c.email}</div>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <Badge variant={c.gstType === 'Composition' ? 'warning' : 'neutral'} size="xs">
+                        {c.gstType || 'Regular'}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
-                          className="btn btn-sm btn-link text-primary text-decoration-none p-1 me-2"
                           onClick={() => handleOpenEdit(c)}
+                          className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition cursor-pointer"
+                          title="Edit Customer"
                         >
-                          Edit
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
-                          className="btn btn-sm btn-link text-danger text-decoration-none p-1"
-                          onClick={() => handleDelete(c._id)}
+                          onClick={() => setDeleteTargetId(c._id)}
+                          className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                          title="Delete Customer"
                         >
-                          Delete
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-5">
-              <div className="fs-1 mb-2">👥</div>
-              <h3 className="fs-6 fw-bold text-dark">No customers found</h3>
-              <p className="text-muted small mb-3">Add customers to issue tax invoices and track balances.</p>
-              <button
-                type="button"
-                className="btn btn-outline-primary btn-sm"
-                onClick={handleOpenCreate}
-              >
-                + Add Customer
-              </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="py-16 text-center text-slate-400">
+            <Users className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+            <h4 className="text-sm font-semibold text-slate-700">No customers found</h4>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              {searchQuery
+                ? `No customers matching "${searchQuery}". Try a different keyword.`
+                : 'Start by creating your first customer to streamline invoicing.'}
+            </p>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenCreate}
+              className="mt-4"
+              leftIcon={<Plus className="w-3.5 h-3.5" />}
+            >
+              Add First Customer
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* Add / Edit Customer Modal */}
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        title={editingCustomer ? 'Edit Customer Profile' : 'Add New Customer'}
+        subtitle="Customer details will auto-populate during invoice creation"
+        size="lg"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowModal(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSave}
+              isLoading={saving}
+            >
+              {editingCustomer ? 'Save Changes' : 'Create Customer'}
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <Input
+              label="Contact / Primary Name *"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g. Rajesh Kumar"
+              required
+            />
+            <Input
+              label="Company / Trade Name"
+              value={formData.companyName}
+              onChange={(e) =>
+                setFormData({ ...formData, companyName: e.target.value })
+              }
+              placeholder="e.g. Acme Enterprises Ltd"
+            />
+          </div>
+
+          {gstinVerifySuccess && (
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-semibold">{gstinVerifySuccess}</span>
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Customer Create/Edit Modal */}
-      {showModal && (
-        <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
-          <div className="modal-dialog modal-dialog-centered modal-lg">
-            <div className="modal-content border-0 shadow-lg">
-              <form onSubmit={handleSave}>
-                <div className="modal-header border-bottom py-3 px-4">
-                  <h5 className="modal-title fw-bold text-dark fs-6">
-                    {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
-                  </h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowModal(false)}
-                    disabled={saving}
-                  />
-                </div>
-                <div className="modal-body p-4">
-                  <div className="row g-3">
-                    <div className="col-12 col-md-6">
-                      <label className="form-label small fw-semibold text-secondary">
-                        Primary Contact / Name *
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. Ramesh Patel"
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        required
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-6">
-                      <label className="form-label small fw-semibold text-secondary">
-                        Company / Trade Name
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. Patel Enterprises Pvt Ltd"
-                        value={formData.companyName}
-                        onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-6">
-                      <label className="form-label small fw-semibold text-secondary">
-                        Customer GSTIN (15-Digit)
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control font-monospace text-uppercase"
-                        placeholder="e.g. 29ABCDE1234F1Z5"
-                        maxLength={15}
-                        value={formData.gstin}
-                        onChange={(e) => {
-                          const val = e.target.value.toUpperCase();
-                          setFormData({
-                            ...formData,
-                            gstin: val,
-                            placeOfSupply: val.length >= 2 ? val.slice(0, 2) : formData.placeOfSupply
-                          });
-                        }}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-6">
-                      <label className="form-label small fw-semibold text-secondary">
-                        GST Treatment
-                      </label>
-                      <select
-                        className="form-select"
-                        value={formData.gstType}
-                        onChange={(e) => setFormData({ ...formData, gstType: e.target.value })}
-                        disabled={saving}
-                      >
-                        <option value="Regular">Registered Business - Regular</option>
-                        <option value="Composition">Registered Business - Composition</option>
-                        <option value="Consumer">Consumer</option>
-                        <option value="Unregistered">Unregistered Business</option>
-                        <option value="Overseas">Overseas / SEZ</option>
-                      </select>
-                    </div>
-                    <div className="col-12 col-md-4">
-                      <label className="form-label small fw-semibold text-secondary">
-                        Email Address
-                      </label>
-                      <input
-                        type="email"
-                        className="form-control"
-                        placeholder="billing@example.com"
-                        value={formData.email}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-4">
-                      <label className="form-label small fw-semibold text-secondary">
-                        Phone Number
-                      </label>
-                      <input
-                        type="tel"
-                        className="form-control"
-                        placeholder="9876543210"
-                        value={formData.phone}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        disabled={saving}
-                      />
-                    </div>
-                    <div className="col-12 col-md-4">
-                      <label className="form-label small fw-semibold text-secondary">
-                        Place of Supply (POS State Code)
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control font-monospace"
-                        placeholder="e.g. 29"
-                        maxLength={2}
-                        value={formData.placeOfSupply}
-                        onChange={(e) => setFormData({ ...formData, placeOfSupply: e.target.value })}
-                        disabled={saving}
-                      />
-                    </div>
+          {gstinVerifyError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{gstinVerifyError}</span>
+            </div>
+          )}
 
-                    <div className="col-12 mt-3">
-                      <div className="fw-semibold text-dark small border-bottom pb-1 mb-2">Billing Address</div>
-                      <div className="row g-2">
-                        <div className="col-12">
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Street Address / Building"
-                            value={formData.billingStreet}
-                            onChange={(e) => setFormData({ ...formData, billingStreet: e.target.value })}
-                            disabled={saving}
-                          />
-                        </div>
-                        <div className="col-12 col-md-4">
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="City"
-                            value={formData.billingCity}
-                            onChange={(e) => setFormData({ ...formData, billingCity: e.target.value })}
-                            disabled={saving}
-                          />
-                        </div>
-                        <div className="col-12 col-md-4">
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="State"
-                            value={formData.billingState}
-                            onChange={(e) => setFormData({ ...formData, billingState: e.target.value })}
-                            disabled={saving}
-                          />
-                        </div>
-                        <div className="col-12 col-md-4">
-                          <input
-                            type="text"
-                            className="form-control"
-                            placeholder="Pincode"
-                            value={formData.billingPincode}
-                            onChange={(e) => setFormData({ ...formData, billingPincode: e.target.value })}
-                            disabled={saving}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="modal-footer border-top py-2.5 px-4 bg-light">
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary btn-sm"
-                    onClick={() => setShowModal(false)}
-                    disabled={saving}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary btn-sm px-4 fw-semibold"
-                    disabled={saving}
-                  >
-                    {saving ? 'Saving...' : editingCustomer ? 'Update Customer' : 'Save Customer'}
-                  </button>
-                </div>
-              </form>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                GSTIN (15 Alphanumeric)
+              </label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={formData.gstin}
+                  onChange={(e) => {
+                    const val = e.target.value.toUpperCase();
+                    setFormData({
+                      ...formData,
+                      gstin: val,
+                      placeOfSupply:
+                        val.length >= 2 && !formData.placeOfSupply
+                          ? val.slice(0, 2)
+                          : formData.placeOfSupply,
+                    });
+                  }}
+                  placeholder="29AABCU9603R1Z2"
+                  maxLength={15}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-surface-border font-mono uppercase bg-white focus:outline-hidden focus:border-indigo-600"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleVerifyGstin}
+                  disabled={verifyingGstin || !formData.gstin || formData.gstin.length < 15}
+                  className="shrink-0 text-xs px-2.5 py-2 border-indigo-200 bg-indigo-50/60 text-indigo-700 hover:bg-indigo-100"
+                  title="Verify with GST Portal & Auto-fill Address"
+                >
+                  {verifyingGstin ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                  )}
+                  <span className="ml-1 text-[11px] font-bold">Verify</span>
+                </Button>
+              </div>
+            </div>
+            <Input
+              label="Place of Supply (POS Code)"
+              value={formData.placeOfSupply}
+              onChange={(e) =>
+                setFormData({ ...formData, placeOfSupply: e.target.value })
+              }
+              placeholder="e.g. 29 for Karnataka"
+              maxLength={2}
+              className="font-mono"
+            />
+            <Select
+              label="GST Registration Type"
+              value={formData.gstType}
+              onChange={(e) =>
+                setFormData({ ...formData, gstType: e.target.value })
+              }
+            >
+              <option value="Regular">Regular Taxpayer</option>
+              <option value="Composition">Composition Scheme</option>
+              <option value="Unregistered">Unregistered Consumer</option>
+              <option value="SEZ">Special Economic Zone (SEZ)</option>
+              <option value="Overseas">Export / Overseas</option>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <Input
+              label="Email Address"
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              placeholder="billing@company.com"
+            />
+            <Input
+              label="Phone Number"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              placeholder="+91 98765 43210"
+            />
+          </div>
+
+          <div className="pt-2 border-t border-slate-100">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2 block">
+              Billing Address Details
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="sm:col-span-2">
+                <Input
+                  label="Street Address"
+                  value={formData.billingStreet}
+                  onChange={(e) =>
+                    setFormData({ ...formData, billingStreet: e.target.value })
+                  }
+                  placeholder="Plot No, Industrial Area, Main Road"
+                />
+              </div>
+              <Input
+                label="City"
+                value={formData.billingCity}
+                onChange={(e) =>
+                  setFormData({ ...formData, billingCity: e.target.value })
+                }
+                placeholder="Bengaluru"
+              />
+              <Input
+                label="State"
+                value={formData.billingState}
+                onChange={(e) =>
+                  setFormData({ ...formData, billingState: e.target.value })
+                }
+                placeholder="Karnataka"
+              />
+              <Input
+                label="State Code"
+                value={formData.billingStateCode}
+                onChange={(e) =>
+                  setFormData({ ...formData, billingStateCode: e.target.value })
+                }
+                placeholder="29"
+                maxLength={2}
+                className="font-mono"
+              />
+              <Input
+                label="PIN Code"
+                value={formData.billingPincode}
+                onChange={(e) =>
+                  setFormData({ ...formData, billingPincode: e.target.value })
+                }
+                placeholder="560001"
+                maxLength={6}
+                className="font-mono"
+              />
             </div>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(deleteTargetId)}
+        title="Delete Customer"
+        message="Are you sure you want to delete this customer? This action cannot be undone."
+        confirmLabel="Delete Customer"
+        cancelLabel="Cancel"
+        isDestructive={true}
+        isLoading={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

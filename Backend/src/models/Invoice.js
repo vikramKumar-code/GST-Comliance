@@ -81,6 +81,26 @@ const invoiceSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    documentType: {
+      type: String,
+      enum: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE'],
+      default: 'INVOICE',
+      index: true
+    },
+    originalInvoiceNumber: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    originalInvoiceDate: {
+      type: Date,
+      default: null
+    },
+    noteReason: {
+      type: String,
+      trim: true,
+      default: ''
+    },
     invoiceDate: {
       type: Date,
       required: true,
@@ -259,5 +279,7 @@ invoiceSchema.index({ workspaceId: 1, invoiceNumber: 1 }, { unique: true });
 invoiceSchema.index({ workspaceId: 1, invoiceDate: -1 });
 invoiceSchema.index({ workspaceId: 1, status: 1 });
 invoiceSchema.index({ workspaceId: 1, einvoiceStatus: 1 });
+invoiceSchema.index({ workspaceId: 1, invoiceDate: -1, status: 1 });
+invoiceSchema.index({ workspaceId: 1, customerId: 1 });
 
 module.exports = mongoose.model('Invoice', invoiceSchema);

@@ -81,8 +81,8 @@ export const getReturnByType = async (type, period) => {
  * Prepare GSTR-1 payload from workspace invoices for review
  * @param {string} period - Required period in MMYYYY format
  */
-export const prepareGstr1 = async (period) => {
-  return client.get('/returns/gstr1/prepare', {
+export const prepareGstr1 = async (period, excludedInvoiceIds = []) => {
+  return client.post('/returns/gstr1/prepare', { excludedInvoiceIds }, {
     params: { period },
   });
 };
@@ -90,11 +90,24 @@ export const prepareGstr1 = async (period) => {
 /**
  * Save / Upload GSTR-1 payload to GSTN (or execute safe dry-run)
  * @param {string} period - Required period in MMYYYY format
+ * @param {string[]} [excludedInvoiceIds] - Optional array of invoice IDs to exclude
  */
-export const saveGstr1 = async (period) => {
-  return client.post('/returns/gstr1/save', {}, {
+export const saveGstr1 = async (period, excludedInvoiceIds = []) => {
+  return client.post('/returns/gstr1/save', { excludedInvoiceIds }, {
     params: { period },
   });
+};
+
+/**
+ * File GSTR-1 with Electronic Verification Code (EVC - Aadhaar / PAN OTP)
+ * @param {Object} payload
+ * @param {string} payload.period - MMYYYY
+ * @param {string} payload.otp - 6-digit EVC OTP
+ * @param {string} [payload.pan] - Signatory PAN
+ * @param {string[]} [payload.excludedInvoiceIds] - Array of excluded IDs
+ */
+export const fileGstr1WithEvc = async ({ period, otp, pan, excludedInvoiceIds = [] }) => {
+  return client.post('/returns/gstr1/file-evc', { period, otp, pan, excludedInvoiceIds });
 };
 
 /**
@@ -116,3 +129,10 @@ export const fileNilReturn = async (data) => {
   return client.post('/returns/nil-file', data);
 };
 
+/**
+ * Seed sample demo invoices for current workspace & period
+ * @param {string} period - MMYYYY format
+ */
+export const seedSampleInvoices = async (period) => {
+  return client.post('/returns/seed-sample-invoices', { period });
+};

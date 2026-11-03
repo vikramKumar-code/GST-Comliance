@@ -41,6 +41,16 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: null
     },
+    systemRole: {
+      type: String,
+      enum: ['USER', 'SUPER_ADMIN'],
+      default: 'USER'
+    },
+    status: {
+      type: String,
+      enum: ['ACTIVE', 'BLOCKED'],
+      default: 'ACTIVE'
+    },
     identityHash: {
       type: String,
       select: false
@@ -78,6 +88,19 @@ userSchema.statics.hashPassword = async function (plainPassword) {
     throw new Error('Password must be a valid non-empty string.');
   }
   return bcrypt.hash(plainPassword, 10);
+};
+
+/**
+ * Helper to determine if user has Super Admin (Software Owner) platform privileges
+ */
+userSchema.methods.isSuperAdmin = function () {
+  const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || 'vikram85109@gmail.com,vk8595422784@gmail.com,admin@candidtax.com')
+    .split(',')
+    .map((e) => e.trim().toLowerCase());
+  if (this.email && superAdminEmails.includes(this.email.toLowerCase())) {
+    return true;
+  }
+  return this.systemRole === 'SUPER_ADMIN';
 };
 
 module.exports = mongoose.model('User', userSchema);

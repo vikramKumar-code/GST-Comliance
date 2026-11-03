@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { verifyOtp, requestOtp } from '../api/auth.api';
 import { isValidOtp } from '../utils/validators';
 import ErrorMessage from './ErrorMessage';
+import { RefreshCw, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
+import Button from './ui/Button';
 
 export default function OtpForm({ gstin, username, onSuccess }) {
   const [otp, setOtp] = useState('');
@@ -77,30 +79,29 @@ export default function OtpForm({ gstin, username, onSuccess }) {
   const isBusy = verifying || resending;
 
   return (
-    <form onSubmit={handleVerify} noValidate className="otp-form">
+    <form onSubmit={handleVerify} noValidate className="space-y-4">
       <ErrorMessage error={error} onRetry={() => setError(null)} />
 
       {resendStatus && (
         <div
-          className="alert alert-info py-2 px-3 mb-3 small d-flex align-items-center gap-2 rounded-3"
+          className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center gap-2"
           role="status"
           aria-live="polite"
         >
-          <span aria-hidden="true">ℹ️</span>
+          <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
           <span>{resendStatus}</span>
         </div>
       )}
 
-      <div className="mb-4">
-        <label htmlFor="otp-input" className="form-label text-center d-block mb-2">
+      <div>
+        <label htmlFor="otp-input" className="block text-xs font-semibold text-slate-700 text-center mb-2">
           One-Time Password (OTP)
         </label>
-        <div className="d-flex justify-content-center">
+        <div className="flex justify-center">
           <input
             id="otp-input"
             type="text"
-            className="form-control text-center font-monospace fs-2 fw-bold tracking-wide"
-            style={{ maxWidth: '280px', letterSpacing: '0.25em', padding: '0.65rem 1rem' }}
+            className="w-full max-w-[280px] py-3 px-4 text-center font-mono text-2xl font-bold tracking-widest rounded-xl border border-surface-border bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 shadow-xs"
             placeholder="••••••"
             maxLength={8}
             inputMode="numeric"
@@ -114,52 +115,56 @@ export default function OtpForm({ gstin, username, onSuccess }) {
             }}
             required
             aria-describedby="otp-help"
+            autoFocus
           />
         </div>
-        <div id="otp-help" className="form-text text-center text-muted small mt-2">
+        <p id="otp-help" className="text-center text-slate-400 text-[11px] mt-2">
           Enter the 4-8 digit verification code sent to your GST-registered mobile number or email.
-        </div>
+        </p>
       </div>
 
-      <button
+      <Button
         type="submit"
-        className="btn btn-primary w-100 py-2.5 fw-semibold shadow-xs mb-3"
+        variant="fintech"
+        className="w-full justify-center py-2.5"
         disabled={otp.length < 4 || isBusy}
       >
         {verifying ? (
-          <>
-            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />
-            Verifying Session Handshake...
-          </>
+          <span>Verifying Session Handshake...</span>
         ) : (
           <>
-            Verify & Open Dashboard
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="ms-2">
-              <path fillRule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z"/>
-            </svg>
+            <span>Verify & Open Dashboard</span>
+            <ArrowRight className="w-4 h-4 ml-1.5" />
           </>
         )}
-      </button>
+      </Button>
 
-      <div className="d-grid">
+      <div className="pt-1 text-center">
         <button
           type="button"
           onClick={handleResend}
-          className="btn btn-outline-secondary btn-sm py-2"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 disabled:opacity-50 transition cursor-pointer"
           disabled={countdown > 0 || isBusy}
           aria-label={countdown > 0 ? `Resend OTP disabled for ${countdown} seconds` : 'Resend OTP'}
         >
           {resending ? (
             <>
-              <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true" />
-              Dispatching fresh OTP...
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>Dispatching fresh OTP...</span>
             </>
           ) : countdown > 0 ? (
-            `Resend OTP in ${countdown}s`
+            <span>Resend OTP in <strong>{countdown}s</strong></span>
           ) : (
-            '↻ Resend OTP'
+            <>
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Resend OTP</span>
+            </>
           )}
         </button>
+      </div>
+
+      <div className="p-3 bg-slate-50 rounded-xl border border-surface-border text-center text-[11px] text-slate-500">
+        <span>Sandbox Test Credentials: Use OTP <strong>575757</strong> or <strong>123456</strong></span>
       </div>
     </form>
   );

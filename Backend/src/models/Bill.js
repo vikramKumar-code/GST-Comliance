@@ -116,5 +116,7 @@ const billSchema = new mongoose.Schema(
 
 billSchema.index({ workspaceId: 1, billNumber: 1 });
 billSchema.index({ workspaceId: 1, billDate: -1 });
+billSchema.index({ workspaceId: 1, billDate: -1, status: 1 });
+billSchema.index({ workspaceId: 1, vendorGstin: 1 });
 
 module.exports = mongoose.model('Bill', billSchema);

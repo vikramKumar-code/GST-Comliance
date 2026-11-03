@@ -1,8 +1,32 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { listItems, createItem, updateItem, deleteItem } from '../api/items.api';
-import Loader from '../components/Loader';
+import {
+  Package,
+  Plus,
+  Search,
+  Tag,
+  Edit2,
+  Trash2,
+  Layers,
+} from 'lucide-react';
+import {
+  listItems,
+  createItem,
+  updateItem,
+  deleteItem,
+} from '../api/items.api';
+import Loader from '../components/common/Loader';
 import ErrorMessage from '../components/ErrorMessage';
+import ConfirmDialog from '../components/common/ConfirmDialog';
+import {
+  PageHeader,
+  Card,
+  Button,
+  Input,
+  Select,
+  Modal,
+  Badge,
+} from '../components/ui';
 import { formatCurrency } from '../utils/format';
 
 const INITIAL_ITEM = {
@@ -13,7 +37,7 @@ const INITIAL_ITEM = {
   sellingPrice: '',
   purchasePrice: '',
   gstRate: 18,
-  description: ''
+  description: '',
 };
 
 export default function ItemsPage() {
@@ -27,6 +51,10 @@ export default function ItemsPage() {
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState(INITIAL_ITEM);
   const [saving, setSaving] = useState(false);
+
+  // Delete dialog
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleOpenCreate = useCallback(() => {
     setEditingItem(null);
@@ -81,7 +109,7 @@ export default function ItemsPage() {
       sellingPrice: item.sellingPrice || '',
       purchasePrice: item.purchasePrice || '',
       gstRate: item.gstRate !== undefined ? item.gstRate : 18,
-      description: item.description || ''
+      description: item.description || '',
     });
     setShowModal(true);
   };
@@ -101,7 +129,7 @@ export default function ItemsPage() {
       sellingPrice: Number(formData.sellingPrice) || 0,
       purchasePrice: Number(formData.purchasePrice) || 0,
       gstRate: Number(formData.gstRate) || 0,
-      description: formData.description.trim()
+      description: formData.description.trim(),
     };
 
     try {
@@ -119,305 +147,336 @@ export default function ItemsPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this item?')) return;
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setIsDeleting(true);
     try {
-      await deleteItem(id);
+      await deleteItem(deleteTargetId);
+      setDeleteTargetId(null);
       fetchItems(searchQuery, typeFilter);
     } catch (err) {
       setError(err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   return (
-    <div>
-      <div className="zoho-page-header d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3">
-        <div>
-          <h1 className="fw-bold fs-4 text-dark mb-1">Items & Services</h1>
-          <p className="text-secondary small mb-0">
-            Configure goods, services, HSN/SAC codes, pricing, and default GST rates.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn-primary btn-sm d-flex align-items-center gap-1.5 fw-semibold px-3 py-1.5"
-          onClick={handleOpenCreate}
-        >
-          <span>+ New Item / Service</span>
-        </button>
-      </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        title="Items & HSN"
+        actions={
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleOpenCreate}
+            leftIcon={<Plus className="w-3.5 h-3.5" />}
+          >
+            New Item
+          </Button>
+        }
+      />
 
-      <div className="zoho-page-body">
-        <ErrorMessage error={error} onRetry={() => fetchItems(searchQuery, typeFilter)} />
+      <ErrorMessage error={error} onRetry={() => fetchItems(searchQuery, typeFilter)} />
 
-        {/* Search & Filter Toolbar */}
-        <div className="card border shadow-sm p-3 mb-4 bg-white">
-          <div className="row g-2 align-items-center">
-            <div className="col-12 col-md-5">
-              <div className="input-group input-group-sm">
-                <span className="input-group-text bg-white border-end-0">🔍</span>
-                <input
-                  type="text"
-                  className="form-control border-start-0"
-                  placeholder="Search item by name, HSN/SAC code..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
+      {/* Filter & Search Bar */}
+      <Card className="p-3.5 bg-slate-50/60">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 max-w-lg">
+            <div className="relative flex-1">
+              <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                <Search className="w-3.5 h-3.5" />
+              </span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search items by name, HSN/SAC code..."
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/10 transition"
+              />
             </div>
-            <div className="col-6 col-md-3">
-              <select
-                className="form-select form-select-sm"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-              >
-                <option value="">All Types (Goods & Services)</option>
-                <option value="goods">Goods Only</option>
-                <option value="service">Services Only</option>
-              </select>
-            </div>
-            <div className="col-6 col-md-4 text-end text-muted small">
-              Total Items: <strong className="text-dark">{items.length}</strong>
-            </div>
+
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-hidden focus:border-indigo-600"
+            >
+              <option value="">All Types</option>
+              <option value="goods">Goods (HSN)</option>
+              <option value="services">Services (SAC)</option>
+            </select>
+          </div>
+
+          <div className="text-xs text-slate-500 font-medium">
+            Showing <strong className="font-mono text-slate-700">{items.length}</strong> items
           </div>
         </div>
+      </Card>
 
-        {/* Items Table */}
-        <div className="card border shadow-sm bg-white overflow-hidden">
-          {loading ? (
-            <div className="p-4">
-              <Loader message="Loading items..." />
-            </div>
-          ) : items.length > 0 ? (
-            <div className="table-responsive">
-              <table className="table table-hover align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th className="ps-3.5">Name</th>
-                    <th>Type</th>
-                    <th>HSN / SAC</th>
-                    <th>Unit</th>
-                    <th>Selling Price</th>
-                    <th>GST Rate</th>
-                    <th className="text-end pe-3.5">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((it) => (
-                    <tr key={it._id}>
-                      <td className="ps-3.5">
-                        <div className="fw-semibold text-dark">{it.name}</div>
-                        {it.description && <div className="text-muted small text-truncate" style={{ maxWidth: '240px' }}>{it.description}</div>}
-                      </td>
-                      <td>
-                        <span className={`badge ${it.type === 'service' ? 'bg-info-subtle text-info-emphasis' : 'bg-primary-subtle text-primary'}`}>
-                          {it.type === 'service' ? 'Service' : 'Goods'}
+      {/* Items Table */}
+      <Card className="overflow-hidden">
+        {loading ? (
+          <div className="py-16">
+            <Loader message="Loading items catalog..." />
+          </div>
+        ) : items.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Item Name
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    HSN / SAC
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Type
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                    Unit
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">
+                    Selling Price
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">
+                    Purchase Price
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-center">
+                    GST Rate
+                  </th>
+                  <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {items.map((it) => (
+                  <tr key={it._id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-3 px-4">
+                      <div className="font-semibold text-slate-900">{it.name}</div>
+                      {it.description && (
+                        <div className="text-[11px] text-slate-400 truncate max-w-xs">
+                          {it.description}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {it.hsnSac ? (
+                        <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-800">
+                          {it.hsnSac}
                         </span>
-                      </td>
-                      <td className="font-monospace small text-muted">{it.hsnSac || '—'}</td>
-                      <td className="text-dark small">{it.unit || 'PCS'}</td>
-                      <td className="fw-bold text-dark">{formatCurrency(it.sellingPrice)}</td>
-                      <td>
-                        <span className="badge bg-secondary-subtle text-secondary font-monospace">
-                          {it.gstRate}%
-                        </span>
-                      </td>
-                      <td className="text-end pe-3.5">
+                      ) : (
+                        <span className="text-slate-400 text-[11px]">Unspecified</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <Badge
+                        variant={it.type === 'services' ? 'purple' : 'blue'}
+                        size="xs"
+                      >
+                        {it.type === 'services' ? 'Service' : 'Goods'}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-slate-600">
+                      {it.unit || 'PCS'}
+                    </td>
+                    <td className="py-3 px-4 font-mono font-medium text-right tabular-nums text-slate-900">
+                      {it.sellingPrice ? formatCurrency(it.sellingPrice) : '—'}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-slate-500 text-right tabular-nums">
+                      {it.purchasePrice ? formatCurrency(it.purchasePrice) : '—'}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200/80 font-mono">
+                        {it.gstRate || 0}%
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
-                          className="btn btn-sm btn-link text-primary text-decoration-none p-1 me-2"
                           onClick={() => handleOpenEdit(it)}
+                          className="p-1 rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition cursor-pointer"
+                          title="Edit Item"
                         >
-                          Edit
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
-                          className="btn btn-sm btn-link text-danger text-decoration-none p-1"
-                          onClick={() => handleDelete(it._id)}
+                          onClick={() => setDeleteTargetId(it._id)}
+                          className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                          title="Delete Item"
                         >
-                          Delete
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-5">
-              <div className="fs-1 mb-2">📦</div>
-              <h3 className="fs-6 fw-bold text-dark">No items or services registered</h3>
-              <p className="text-muted small mb-3">Add items to speed up line item entry during invoice creation.</p>
-              <button
-                type="button"
-                className="btn btn-outline-primary btn-sm"
-                onClick={handleOpenCreate}
-              >
-                + Add Item
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Item Create/Edit Modal */}
-      {showModal && (
-        <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content border-0 shadow-lg">
-              <form onSubmit={handleSave}>
-                <div className="modal-header border-bottom py-3 px-4">
-                  <h5 className="modal-title fw-bold text-dark fs-6">
-                    {editingItem ? 'Edit Item' : 'New Item / Service'}
-                  </h5>
-                  <button
-                    type="button"
-                    className="btn-close"
-                    onClick={() => setShowModal(false)}
-                    disabled={saving}
-                  />
-                </div>
-                <div className="modal-body p-4">
-                  <div className="row g-3">
-                    <div className="col-12">
-                      <label className="form-label small fw-semibold text-secondary">Type *</label>
-                      <div className="d-flex gap-3">
-                        <div className="form-check">
-                          <input
-                            className="form-check-input"
-                            type="radio"
-                            name="itemType"
-                            id="typeGoods"
-                            value="goods"
-                            checked={formData.type === 'goods'}
-                            onChange={() => setFormData({ ...formData, type: 'goods' })}
-                            disabled={saving}
-                          />
-                          <label className="form-check-label small" htmlFor="typeGoods">Goods</label>
-                        </div>
-                        <div className="form-check">
-                          <input
-                            className="form-check-input"
-                            type="radio"
-                            name="itemType"
-                            id="typeService"
-                            value="service"
-                            checked={formData.type === 'service'}
-                            onChange={() => setFormData({ ...formData, type: 'service' })}
-                            disabled={saving}
-                          />
-                          <label className="form-check-label small" htmlFor="typeService">Service</label>
-                        </div>
                       </div>
-                    </div>
-
-                    <div className="col-12">
-                      <label className="form-label small fw-semibold text-secondary">Item Name *</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. Dell UltraSharp 27 Monitor"
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        required
-                        disabled={saving}
-                      />
-                    </div>
-
-                    <div className="col-6">
-                      <label className="form-label small fw-semibold text-secondary">HSN / SAC Code</label>
-                      <input
-                        type="text"
-                        className="form-control font-monospace"
-                        placeholder="e.g. 8471"
-                        value={formData.hsnSac}
-                        onChange={(e) => setFormData({ ...formData, hsnSac: e.target.value })}
-                        disabled={saving}
-                      />
-                    </div>
-
-                    <div className="col-6">
-                      <label className="form-label small fw-semibold text-secondary">Unit</label>
-                      <select
-                        className="form-select"
-                        value={formData.unit}
-                        onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                        disabled={saving}
-                      >
-                        <option value="PCS">PCS (Pieces)</option>
-                        <option value="NOS">NOS (Numbers)</option>
-                        <option value="BOX">BOX (Boxes)</option>
-                        <option value="KGS">KGS (Kilograms)</option>
-                        <option value="MTR">MTR (Meters)</option>
-                        <option value="HRS">HRS (Hours)</option>
-                      </select>
-                    </div>
-
-                    <div className="col-6">
-                      <label className="form-label small fw-semibold text-secondary">Selling Price (₹) *</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="form-control font-monospace"
-                        placeholder="0.00"
-                        value={formData.sellingPrice}
-                        onChange={(e) => setFormData({ ...formData, sellingPrice: e.target.value })}
-                        required
-                        disabled={saving}
-                      />
-                    </div>
-
-                    <div className="col-6">
-                      <label className="form-label small fw-semibold text-secondary">GST Tax Rate *</label>
-                      <select
-                        className="form-select"
-                        value={formData.gstRate}
-                        onChange={(e) => setFormData({ ...formData, gstRate: Number(e.target.value) })}
-                        disabled={saving}
-                      >
-                        <option value={0}>0% (Nil / Exempt)</option>
-                        <option value={5}>5%</option>
-                        <option value={12}>12%</option>
-                        <option value={18}>18% (Standard)</option>
-                        <option value={28}>28%</option>
-                      </select>
-                    </div>
-
-                    <div className="col-12">
-                      <label className="form-label small fw-semibold text-secondary">Description</label>
-                      <textarea
-                        className="form-control"
-                        rows={2}
-                        placeholder="Optional details or specifications"
-                        value={formData.description}
-                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                        disabled={saving}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div className="modal-footer border-top py-2.5 px-4 bg-light">
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary btn-sm"
-                    onClick={() => setShowModal(false)}
-                    disabled={saving}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary btn-sm px-4 fw-semibold"
-                    disabled={saving}
-                  >
-                    {saving ? 'Saving...' : editingItem ? 'Update Item' : 'Save Item'}
-                  </button>
-                </div>
-              </form>
-            </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="py-16 text-center text-slate-400">
+            <Package className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+            <h4 className="text-sm font-semibold text-slate-700">No items found</h4>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              Add products or services with HSN/SAC codes to auto-populate invoices.
+            </p>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenCreate}
+              className="mt-4"
+              leftIcon={<Plus className="w-3.5 h-3.5" />}
+            >
+              Add First Item
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* Add / Edit Item Modal */}
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        title={editingItem ? 'Edit Item / Product' : 'Add New Item / Service'}
+        subtitle="Used for automatic HSN tax calculations in sales invoices"
+        size="md"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowModal(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSave}
+              isLoading={saving}
+            >
+              {editingItem ? 'Save Changes' : 'Create Item'}
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleSave} className="space-y-4">
+          <Input
+            label="Item / Service Name *"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            placeholder="e.g. Dell UltraSharp 27 Monitor"
+            required
+          />
+
+          <div className="grid grid-cols-2 gap-3.5">
+            <Select
+              label="Item Classification"
+              value={formData.type}
+              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+            >
+              <option value="goods">Goods (Physical Product)</option>
+              <option value="services">Services (Professional / Consulting)</option>
+            </Select>
+
+            <Input
+              label="HSN / SAC Code"
+              value={formData.hsnSac}
+              onChange={(e) => setFormData({ ...formData, hsnSac: e.target.value })}
+              placeholder="e.g. 84713010 or 998311"
+              className="font-mono"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3.5">
+            <Select
+              label="GST Tax Rate (%)"
+              value={formData.gstRate}
+              onChange={(e) =>
+                setFormData({ ...formData, gstRate: Number(e.target.value) })
+              }
+            >
+              <option value={0}>0% (Nil / Exempt)</option>
+              <option value={5}>5%</option>
+              <option value={12}>12%</option>
+              <option value={18}>18% (Standard)</option>
+              <option value={28}>28% (Luxury / Sin)</option>
+            </Select>
+
+            <Input
+              label="Selling Price (₹)"
+              type="number"
+              step="0.01"
+              value={formData.sellingPrice}
+              onChange={(e) =>
+                setFormData({ ...formData, sellingPrice: e.target.value })
+              }
+              placeholder="0.00"
+              className="font-mono"
+            />
+
+            <Select
+              label="Unit of Measure"
+              value={formData.unit}
+              onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+            >
+              <option value="PCS">PCS (Pieces)</option>
+              <option value="NOS">NOS (Numbers)</option>
+              <option value="KGS">KGS (Kilograms)</option>
+              <option value="BOX">BOX (Box)</option>
+              <option value="HRS">HRS (Hours)</option>
+              <option value="MTR">MTR (Meters)</option>
+              <option value="SET">SET (Sets)</option>
+            </Select>
+          </div>
+
+          <Input
+            label="Purchase Price (₹)"
+            type="number"
+            step="0.01"
+            value={formData.purchasePrice}
+            onChange={(e) =>
+              setFormData({ ...formData, purchasePrice: e.target.value })
+            }
+            placeholder="0.00"
+            className="font-mono"
+          />
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Description / Notes
+            </label>
+            <textarea
+              className="w-full text-xs font-normal text-slate-900 bg-white rounded-lg border border-slate-300 p-2.5 focus:outline-hidden focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600/10"
+              rows={2}
+              value={formData.description}
+              onChange={(e) =>
+                setFormData({ ...formData, description: e.target.value })
+              }
+              placeholder="Product details, technical specifications..."
+            />
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(deleteTargetId)}
+        title="Delete Item"
+        message="Are you sure you want to delete this item? It will no longer appear in invoice suggestions."
+        confirmLabel="Delete Item"
+        cancelLabel="Cancel"
+        isDestructive={true}
+        isLoading={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

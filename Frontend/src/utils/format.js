@@ -36,13 +36,29 @@ export const formatPeriod = (period) => {
  */
 export const formatDate = (dateString) => {
   if (!dateString) return '—';
+  if (typeof dateString === 'string') {
+    // Match Indian portal date formats: DD-MM-YYYY or DD/MM/YYYY
+    const ddmmyyyy = dateString.trim().match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (ddmmyyyy) {
+      const [, day, month, year] = ddmmyyyy;
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      const mName = months[parseInt(month, 10) - 1] || month;
+      return `${String(day).padStart(2, '0')} ${mName} ${year}`;
+    }
+  }
   try {
-    return new Date(dateString).toLocaleString('en-IN', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return String(dateString);
+    return d.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
     });
   } catch {
-    return dateString;
+    return String(dateString);
   }
 };
 

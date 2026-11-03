@@ -10,6 +10,6 @@ router.get('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), billControl
 router.get('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), billController.getBill);
 router.post('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), billController.createBill);
 router.put('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), billController.updateBill);
-router.delete('/:id', workspaceRole('OWNER', 'ADMIN'), billController.deleteBill);
+router.delete('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), billController.deleteBill);
 
 module.exports = router;

@@ -1,9 +1,42 @@
 import { Link } from 'react-router-dom';
+import {
+  FileText,
+  Receipt,
+  Inbox,
+  Scale,
+  RefreshCw,
+  Plus,
+  UploadCloud,
+  Search,
+  BarChart3,
+  ArrowRight,
+  ShieldAlert,
+  CheckCircle2,
+  Calendar,
+} from 'lucide-react';
 import useReturns from '../hooks/useReturns';
 import { useAuth } from '../context/AuthContext';
 import PeriodSelector from '../components/PeriodSelector';
-import Loader from '../components/Loader';
+import Loader from '../components/common/Loader';
 import ErrorMessage from '../components/ErrorMessage';
+import StatusBadge from '../components/common/StatusBadge';
+import {
+  PageHeader,
+  MetricCard,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+  Button,
+  Badge,
+} from '../components/ui';
 import { formatCurrency, formatDate } from '../utils/format';
 
 export default function DashboardPage() {
@@ -14,7 +47,7 @@ export default function DashboardPage() {
     dashboardData,
     loading,
     error,
-    refresh
+    refresh,
   } = useReturns();
 
   const billing = dashboardData?.billing || {};
@@ -28,359 +61,402 @@ export default function DashboardPage() {
   const pendingPurchases = billing.pendingPurchases || 0;
   const billCount = billing.billCount || 0;
 
-  const salesReturnTax = (dashboardData?.sales?.cgst || 0) + (dashboardData?.sales?.sgst || 0) + (dashboardData?.sales?.igst || 0);
+  const salesReturnTax =
+    (dashboardData?.sales?.cgst || 0) +
+    (dashboardData?.sales?.sgst || 0) +
+    (dashboardData?.sales?.igst || 0);
   const itcAvailable = dashboardData?.itc?.available || 0;
-  const netTaxPayable = dashboardData?.taxPayable || Math.max(0, salesReturnTax - itcAvailable);
+  const netTaxPayable =
+    dashboardData?.taxPayable !== undefined
+      ? dashboardData.taxPayable
+      : Math.max(0, salesReturnTax - itcAvailable);
 
   const hasGstin = Boolean(user?.gstin || dashboardData?.gstin);
   const activeGstin = user?.gstin || dashboardData?.gstin || '';
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* ====================================================================
-          TOP PAGE HEADER & PERIOD CONTROLS
+          STANDARDIZED PAGE HEADER & PERIOD SELECTION
           ==================================================================== */}
-      <div className="zoho-page-header d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
-        <div>
-          <div className="d-flex align-items-center gap-2 mb-1 flex-wrap">
-            <h1 className="fw-bold fs-4 text-dark mb-0">Business & GST Compliance Dashboard</h1>
-            {activeGstin && (
-              <span className="badge bg-success-subtle text-success border border-success-subtle font-monospace px-2.5 py-1 small">
-                ✓ {activeGstin}
-              </span>
-            )}
+      <PageHeader
+        title="Business Dashboard"
+        actions={
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <PeriodSelector selectedPeriod={period} onPeriodChange={setPeriod} />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refresh}
+              leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />}
+              title="Refresh dashboard metrics"
+            >
+              Refresh
+            </Button>
           </div>
-          <p className="text-secondary small mb-0">
-            Real-time sales invoices, purchase expenses, and GST return reconciliations.
-          </p>
-        </div>
+        }
+      />
 
-        <div className="d-flex align-items-center gap-2 flex-wrap">
-          <PeriodSelector selectedPeriod={period} onPeriodChange={setPeriod} />
-          <button
-            type="button"
-            onClick={refresh}
-            className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1.5 shadow-xs"
-            title="Refresh dashboard metrics"
-          >
-            <span>↻</span>
-            <span className="d-none d-sm-inline">Refresh</span>
-          </button>
-        </div>
-      </div>
+      <ErrorMessage error={error} onRetry={refresh} />
 
-      <div className="zoho-page-body">
-        <ErrorMessage error={error} onRetry={refresh} />
-
-        {/* GSTIN Link Banner for Non-Linked Accounts */}
-        {!hasGstin && (
-          <div className="card border-0 bg-primary-subtle text-primary p-3.5 mb-4 rounded-3 shadow-xs d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3">
-            <div className="d-flex align-items-center gap-3">
-              <span className="fs-3">💡</span>
+      {/* GSTIN Link Banner for Non-Linked Accounts */}
+      {!hasGstin && (
+        <Card className="border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-indigo-50/40 to-white p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700 shrink-0">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
               <div>
-                <strong className="d-block mb-0.5 text-dark" style={{ fontSize: '0.92rem' }}>
+                <h4 className="text-xs font-semibold text-slate-900">
                   Operating in Billing & Invoicing Mode
-                </strong>
-                <span className="small text-secondary">
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5 max-w-xl">
                   You can create tax invoices, bills, and track customers. Connect your 15-digit GSTIN to auto-sync official GSTR-1, GSTR-2B, and GSTR-3B filings.
-                </span>
+                </p>
               </div>
             </div>
-            <Link to="/taxpayer-search" className="btn btn-primary btn-sm px-3.5 text-nowrap align-self-start align-self-md-center shadow-xs">
-              + Link GSTIN
+            <Link to="/taxpayer-search">
+              <Button variant="primary" size="sm" className="whitespace-nowrap">
+                + Link GSTIN
+              </Button>
             </Link>
           </div>
-        )}
+        </Card>
+      )}
 
-        {loading && (
-          <div className="py-5 text-center">
-            <Loader message="Loading business metrics and return records..." />
+      {loading ? (
+        <div className="py-16">
+          <Loader message="Loading business metrics and return records..." />
+        </div>
+      ) : (
+        <>
+          {/* ====================================================================
+              4 KEY BUSINESS & TAX METRIC CARDS (Ramp / Stripe Style)
+              ==================================================================== */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {/* Card 1: Total Sales Invoices */}
+            <MetricCard
+              title="Total Sales (Invoices)"
+              value={formatCurrency(totalSales)}
+              subvalue={
+                <div className="flex justify-between items-center text-[11px] text-slate-500 mt-1">
+                  <span>Collected: <strong className="text-emerald-700 font-mono">{formatCurrency(paidSales)}</strong></span>
+                  <span>Due: <strong className="text-amber-700 font-mono">{formatCurrency(pendingSales)}</strong></span>
+                </div>
+              }
+              icon={FileText}
+              badge={<Badge status="PAID">{invoiceCount} Invoices</Badge>}
+              description={
+                totalSales > 0 ? (
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
+                    <div
+                      className="bg-indigo-600 h-1.5 rounded-full"
+                      style={{ width: `${Math.min(100, (paidSales / totalSales) * 100)}%` }}
+                    />
+                  </div>
+                ) : null
+              }
+            />
+
+            {/* Card 2: Purchases & Expenses */}
+            <MetricCard
+              title="Purchases & Bills"
+              value={formatCurrency(totalPurchases)}
+              subvalue={
+                <div className="flex justify-between items-center text-[11px] text-slate-500 mt-1">
+                  <span>Paid: <strong className="text-emerald-700 font-mono">{formatCurrency(paidPurchases)}</strong></span>
+                  <span>Payable: <strong className="text-rose-700 font-mono">{formatCurrency(pendingPurchases)}</strong></span>
+                </div>
+              }
+              icon={Receipt}
+              badge={<Badge status="SENT">{billCount} Bills</Badge>}
+              description={
+                totalPurchases > 0 ? (
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
+                    <div
+                      className="bg-sky-500 h-1.5 rounded-full"
+                      style={{ width: `${Math.min(100, (paidPurchases / totalPurchases) * 100)}%` }}
+                    />
+                  </div>
+                ) : null
+              }
+            />
+
+            {/* Card 3: Eligible Input Tax Credit (ITC) */}
+            <MetricCard
+              title="Eligible ITC (GSTR-2B)"
+              value={formatCurrency(itcAvailable)}
+              subvalue="Auto-drafted purchase tax credits"
+              icon={Inbox}
+              badge={<Badge status="VERIFIED">Period {period}</Badge>}
+              trend="View 2B"
+              trendType="neutral"
+              onClick={() => {}}
+              description={
+                <Link
+                  to={`/returns?period=${period}&return=gstr2b`}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-decoration-none mt-1"
+                >
+                  <span>Reconcile ITC</span>
+                  <ArrowRight className="w-3 h-3" />
+                </Link>
+              }
+            />
+
+            {/* Card 4: Net GST Payable */}
+            <MetricCard
+              title="Net GST Payable"
+              value={formatCurrency(netTaxPayable)}
+              subvalue={`Output Tax: ${formatCurrency(salesReturnTax)}`}
+              icon={Scale}
+              badge={
+                <Badge status={netTaxPayable > 0 ? 'OVERDUE' : 'PAID'}>
+                  {netTaxPayable > 0 ? 'Tax Due' : 'Zero Liability'}
+                </Badge>
+              }
+              description={
+                <Link
+                  to={`/returns?period=${period}&return=gstr3b`}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-decoration-none mt-1"
+                >
+                  <span>View GSTR-3B Tax Offset</span>
+                  <ArrowRight className="w-3 h-3" />
+                </Link>
+              }
+            />
           </div>
-        )}
 
-        {!loading && (
-          <>
-            {/* ====================================================================
-                4 KEY BUSINESS & TAX METRIC CARDS
-                ==================================================================== */}
-            <div className="row g-3 mb-4">
-              {/* Card 1: Total Sales Invoices */}
-              <div className="col-12 col-sm-6 col-xl-3">
-                <div className="metric-card">
-                  <div>
-                    <div className="d-flex justify-content-between align-items-center mb-2">
-                      <div className="d-flex align-items-center gap-1.5">
-                        <span className="fs-6">📄</span>
-                        <span className="metric-card-title">Total Sales (Invoices)</span>
-                      </div>
-                      <span className="status-badge status-paid">{invoiceCount} Invoices</span>
-                    </div>
-                    <div className="metric-card-value text-dark">
-                      {formatCurrency(totalSales)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="small text-muted d-flex justify-content-between mb-1.5" style={{ fontSize: '0.78rem' }}>
-                      <span>Collected: <strong className="text-success">{formatCurrency(paidSales)}</strong></span>
-                      <span>Due: <strong className="text-warning">{formatCurrency(pendingSales)}</strong></span>
-                    </div>
-                    <div className="progress rounded-pill" style={{ height: '6px', backgroundColor: '#e2e8f0' }}>
-                      <div
-                        className="progress-bar rounded-pill"
-                        role="progressbar"
-                        style={{
-                          width: `${totalSales > 0 ? Math.min(100, (paidSales / totalSales) * 100) : 0}%`,
-                          background: 'linear-gradient(90deg, #10b981, #059669)'
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
+          {/* ====================================================================
+              QUICK ACTION LAUNCHPAD
+              ==================================================================== */}
+          <Card className="p-3.5 bg-slate-50/60">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center flex-wrap gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mr-1">
+                  Quick Actions:
+                </span>
+                <Link to="/sales/invoices">
+                  <Button variant="primary" size="xs" leftIcon={<Plus className="w-3 h-3" />}>
+                    New Invoice
+                  </Button>
+                </Link>
+                <Link to="/purchases/bills">
+                  <Button variant="outline" size="xs" leftIcon={<Plus className="w-3 h-3" />}>
+                    Record Bill
+                  </Button>
+                </Link>
+                <Link to="/customers">
+                  <Button variant="outline" size="xs" leftIcon={<Plus className="w-3 h-3" />}>
+                    New Customer
+                  </Button>
+                </Link>
+                <Link to="/excel-import">
+                  <Button variant="outline" size="xs" leftIcon={<UploadCloud className="w-3 h-3" />}>
+                    Excel Import
+                  </Button>
+                </Link>
               </div>
 
-              {/* Card 2: Purchases & Expenses */}
-              <div className="col-12 col-sm-6 col-xl-3">
-                <div className="metric-card">
-                  <div>
-                    <div className="d-flex justify-content-between align-items-center mb-2">
-                      <div className="d-flex align-items-center gap-1.5">
-                        <span className="fs-6">🧾</span>
-                        <span className="metric-card-title">Purchases & Bills</span>
-                      </div>
-                      <span className="status-badge status-sent">{billCount} Bills</span>
-                    </div>
-                    <div className="metric-card-value text-dark">
-                      {formatCurrency(totalPurchases)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="small text-muted d-flex justify-content-between mb-1.5" style={{ fontSize: '0.78rem' }}>
-                      <span>Paid: <strong className="text-success">{formatCurrency(paidPurchases)}</strong></span>
-                      <span>Payable: <strong className="text-danger">{formatCurrency(pendingPurchases)}</strong></span>
-                    </div>
-                    <div className="progress rounded-pill" style={{ height: '6px', backgroundColor: '#e2e8f0' }}>
-                      <div
-                        className="progress-bar bg-info rounded-pill"
-                        role="progressbar"
-                        style={{ width: `${totalPurchases > 0 ? Math.min(100, (paidPurchases / totalPurchases) * 100) : 0}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 3: Eligible Input Tax Credit (ITC) */}
-              <div className="col-12 col-sm-6 col-xl-3">
-                <div className="metric-card">
-                  <div>
-                    <div className="d-flex justify-content-between align-items-center mb-2">
-                      <div className="d-flex align-items-center gap-1.5">
-                        <span className="fs-6">📥</span>
-                        <span className="metric-card-title">Eligible ITC (GSTR-2B)</span>
-                      </div>
-                      <span className="status-badge status-active">Period {period}</span>
-                    </div>
-                    <div className="metric-card-value" style={{ color: '#0d6e59' }}>
-                      {formatCurrency(itcAvailable)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="small text-muted d-flex align-items-center justify-content-between" style={{ fontSize: '0.78rem' }}>
-                      <span>Auto-drafted purchase tax credits</span>
-                      <Link to={`/returns/gstr2b?period=${period}`} className="text-primary text-decoration-none fw-semibold">
-                        View 2B →
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 4: Net GST Payable */}
-              <div className="col-12 col-sm-6 col-xl-3">
-                <div className="metric-card">
-                  <div>
-                    <div className="d-flex justify-content-between align-items-center mb-2">
-                      <div className="d-flex align-items-center gap-1.5">
-                        <span className="fs-6">⚖️</span>
-                        <span className="metric-card-title">Net GST Payable</span>
-                      </div>
-                      <span className={`status-badge ${netTaxPayable > 0 ? 'status-overdue' : 'status-paid'}`}>
-                        {netTaxPayable > 0 ? 'Tax Due' : 'Zero Liability'}
-                      </span>
-                    </div>
-                    <div className="metric-card-value text-dark">
-                      {formatCurrency(netTaxPayable)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="small text-muted d-flex align-items-center justify-content-between" style={{ fontSize: '0.78rem' }}>
-                      <span>Output Tax: <strong>{formatCurrency(salesReturnTax)}</strong></span>
-                      <Link to={`/returns/gstr3b?period=${period}`} className="text-primary text-decoration-none fw-semibold">
-                        View 3B →
-                      </Link>
-                    </div>
-                  </div>
-                </div>
+              <div className="flex items-center gap-2">
+                <Link to="/taxpayer-search">
+                  <Button variant="ghost" size="xs" leftIcon={<Search className="w-3 h-3" />}>
+                    Verify GSTIN
+                  </Button>
+                </Link>
+                <Link to="/reports">
+                  <Button variant="ghost" size="xs" leftIcon={<BarChart3 className="w-3 h-3" />}>
+                    Audit Reports
+                  </Button>
+                </Link>
               </div>
             </div>
+          </Card>
 
-            {/* ====================================================================
-                QUICK ACTION LAUNCHPAD
-                ==================================================================== */}
-            <div className="card p-3 mb-4 bg-white shadow-xs">
-              <div className="d-flex align-items-center justify-content-between flex-wrap gap-2.5">
-                <div className="d-flex align-items-center flex-wrap gap-2">
-                  <span className="text-secondary small fw-bold me-1 text-uppercase" style={{ fontSize: '0.74rem', letterSpacing: '0.04em' }}>
-                    Quick Actions:
-                  </span>
-                  <Link to="/sales/invoices?action=new" className="btn btn-primary btn-sm py-1.5 px-3 shadow-xs">
-                    + New Invoice
-                  </Link>
-                  <Link to="/purchases/bills?action=new" className="btn btn-outline-secondary btn-sm py-1.5 px-3">
-                    + Record Purchase Bill
-                  </Link>
-                  <Link to="/customers?action=new" className="btn btn-outline-secondary btn-sm py-1.5 px-3">
-                    + New Customer
-                  </Link>
-                  <Link to="/excel-import" className="btn btn-light btn-sm py-1.5 px-3 border">
-                    📤 Excel Import
-                  </Link>
-                </div>
-                <div className="d-flex align-items-center gap-2">
-                  <Link to="/taxpayer-search" className="btn btn-light btn-sm py-1.5 px-3 text-secondary border">
-                    🔍 Verify GSTIN
-                  </Link>
-                  <Link to="/reports" className="btn btn-light btn-sm py-1.5 px-3 text-secondary border">
-                    📊 Audit Reports
-                  </Link>
-                </div>
-              </div>
-            </div>
-
-            {/* ====================================================================
-                TWO-COLUMN LAYOUT: RECENT INVOICES & GST RETURN CARDS
-                ==================================================================== */}
-            <div className="row g-4 mb-4">
-              {/* Left Column: Recent Sales Invoices */}
-              <div className="col-12 col-lg-8">
-                <div className="card h-100 shadow-sm overflow-hidden">
-                  <div className="card-header d-flex justify-content-between align-items-center">
-                    <div>
-                      <h2 className="fs-6 fw-bold text-dark mb-0">Recent Sales Invoices</h2>
-                      <span className="text-muted small">Latest generated invoices with GST details</span>
-                    </div>
-                    <Link to="/sales/invoices" className="btn btn-link btn-sm text-primary text-decoration-none p-0 fw-semibold">
-                      View All ({invoiceCount}) →
-                    </Link>
+          {/* ====================================================================
+              TWO-COLUMN LAYOUT: RECENT INVOICES & STATUTORY RETURNS
+              ==================================================================== */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left 2 Cols: Recent Sales Invoices */}
+            <div className="lg:col-span-2">
+              <Card className="overflow-hidden">
+                <CardHeader>
+                  <div>
+                    <CardTitle>Recent Sales Invoices</CardTitle>
+                    <CardDescription>
+                      Latest generated invoices with GST breakdown
+                    </CardDescription>
                   </div>
+                  <Link
+                    to="/sales/invoices"
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition flex items-center gap-1 text-decoration-none"
+                  >
+                    <span>View All ({invoiceCount})</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </CardHeader>
 
-                  <div className="table-responsive">
-                    <table className="table table-hover align-middle mb-0">
-                      <thead>
-                        <tr>
-                          <th>Invoice #</th>
-                          <th>Customer</th>
-                          <th>Date</th>
-                          <th>Amount</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {billing.recentInvoices && billing.recentInvoices.length > 0 ? (
-                          billing.recentInvoices.map((inv) => (
-                            <tr key={inv._id}>
-                              <td className="font-monospace fw-semibold">
-                                <Link to={`/sales/invoices?id=${inv._id}`} className="text-primary text-decoration-none">
-                                  {inv.invoiceNumber}
-                                </Link>
-                              </td>
-                              <td className="fw-medium text-dark">{inv.customerName}</td>
-                              <td className="text-muted small">{formatDate(inv.invoiceDate)}</td>
-                              <td className="fw-bold text-dark">{formatCurrency(inv.grandTotal)}</td>
-                              <td>
-                                <span className={`status-badge status-${inv.status?.toLowerCase()}`}>
-                                  {inv.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={5} className="text-center py-5 text-muted small">
-                              <div className="mb-2" style={{ fontSize: '2rem' }}>📄</div>
-                              <p className="mb-2 fw-medium text-secondary">No invoices created yet</p>
-                              <Link to="/sales/invoices?action=new" className="btn btn-primary btn-sm px-3.5">
-                                + Create your first invoice
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                          Invoice #
+                        </th>
+                        <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                          Customer
+                        </th>
+                        <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider">
+                          Date
+                        </th>
+                        <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-right">
+                          Amount
+                        </th>
+                        <th className="py-3 px-4 text-[11px] font-semibold uppercase tracking-wider text-center">
+                          Status
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {billing.recentInvoices && billing.recentInvoices.length > 0 ? (
+                        billing.recentInvoices.map((inv) => (
+                          <tr key={inv._id} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-3 px-4 font-mono font-medium text-indigo-600">
+                              <Link
+                                to={`/sales/invoices?id=${inv._id}`}
+                                className="text-indigo-600 hover:underline"
+                              >
+                                {inv.invoiceNumber}
                               </Link>
                             </td>
+                            <td className="py-3 px-4 font-medium text-slate-900">
+                              {inv.customerName}
+                            </td>
+                            <td className="py-3 px-4 text-slate-500">
+                              {formatDate(inv.invoiceDate)}
+                            </td>
+                            <td className="py-3 px-4 font-mono font-semibold text-right tabular-nums text-slate-900">
+                              {formatCurrency(inv.grandTotal)}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <StatusBadge status={inv.status} size="xs" />
+                            </td>
                           </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="py-12 text-center text-slate-400">
+                            <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                            <p className="text-xs font-medium text-slate-600 mb-2">
+                              No invoices created yet
+                            </p>
+                            <Link to="/sales/invoices">
+                              <Button variant="primary" size="xs">
+                                + Create your first invoice
+                              </Button>
+                            </Link>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
+              </Card>
+            </div>
 
-              {/* Right Column: GST Returns Compliance Breakdown */}
-              <div className="col-12 col-lg-4">
-                <div className="card h-100 shadow-sm overflow-hidden">
-                  <div className="card-header">
-                    <h2 className="fs-6 fw-bold text-dark mb-0">GST Return Statements</h2>
-                    <span className="text-muted small">Statutory filings for Period {period}</span>
-                  </div>
+            {/* Right 1 Col: GST Return Compliance Breakdown */}
+            <div>
+              <Card className="h-full flex flex-col justify-between">
+                <div>
+                  <CardHeader>
+                    <div>
+                      <CardTitle>GST Return Statements</CardTitle>
+                      <CardDescription>
+                        Statutory filings for Period {period}
+                      </CardDescription>
+                    </div>
+                  </CardHeader>
 
-                  <div className="p-3 d-flex flex-column gap-3">
+                  <CardContent className="space-y-3">
                     {/* GSTR-1 Outward Supplies */}
-                    <div className="p-3 border rounded-3 bg-light transition-all">
-                      <div className="d-flex justify-content-between align-items-center mb-1.5">
-                        <strong className="text-dark small">GSTR-1 (Outward Sales)</strong>
-                        <span className="status-badge status-paid">Sales</span>
+                    <div className="p-3.5 rounded-lg border border-slate-200/90 bg-slate-50/60 hover:bg-slate-50 hover:border-slate-300 transition">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <strong className="text-xs font-semibold text-slate-900">
+                          GSTR-1 (Outward Sales)
+                        </strong>
+                        <Badge status="PAID" size="xs">Sales</Badge>
                       </div>
-                      <div className="small text-muted mb-2">
-                        Taxable Turnover: <strong>{formatCurrency(dashboardData?.sales?.taxable || 0)}</strong>
+                      <div className="text-xs text-slate-500 mb-2">
+                        Taxable Turnover: <strong className="font-mono text-slate-800">{formatCurrency(dashboardData?.sales?.taxable || 0)}</strong>
                       </div>
-                      <Link to={`/returns/gstr1?period=${period}`} className="small text-primary text-decoration-none fw-semibold d-inline-flex align-items-center gap-1">
+                      <Link
+                        to={`/returns?period=${period}&return=gstr1`}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-decoration-none"
+                      >
                         <span>Inspect GSTR-1 Breakdown</span>
-                        <span>→</span>
+                        <ArrowRight className="w-3 h-3" />
                       </Link>
                     </div>
 
                     {/* GSTR-2B Inward Supplies */}
-                    <div className="p-3 border rounded-3 bg-light transition-all">
-                      <div className="d-flex justify-content-between align-items-center mb-1.5">
-                        <strong className="text-dark small">GSTR-2B (Inward ITC)</strong>
-                        <span className="status-badge status-sent">Input Credit</span>
+                    <div className="p-3.5 rounded-lg border border-slate-200/90 bg-slate-50/60 hover:bg-slate-50 hover:border-slate-300 transition">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <strong className="text-xs font-semibold text-slate-900">
+                          GSTR-2B (Inward ITC)
+                        </strong>
+                        <Badge status="SENT" size="xs">Input Credit</Badge>
                       </div>
-                      <div className="small text-muted mb-2">
-                        Eligible ITC: <strong>{formatCurrency(itcAvailable)}</strong>
+                      <div className="text-xs text-slate-500 mb-2">
+                        Eligible ITC: <strong className="font-mono text-slate-800">{formatCurrency(itcAvailable)}</strong>
                       </div>
-                      <Link to={`/returns/gstr2b?period=${period}`} className="small text-primary text-decoration-none fw-semibold d-inline-flex align-items-center gap-1">
+                      <Link
+                        to={`/returns?period=${period}&return=gstr2b`}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-decoration-none"
+                      >
                         <span>Inspect GSTR-2B ITC Match</span>
-                        <span>→</span>
+                        <ArrowRight className="w-3 h-3" />
                       </Link>
                     </div>
 
                     {/* GSTR-3B Monthly Summary */}
-                    <div className="p-3 border rounded-3 bg-light transition-all">
-                      <div className="d-flex justify-content-between align-items-center mb-1.5">
-                        <strong className="text-dark small">GSTR-3B (Tax Summary)</strong>
-                        <span className="status-badge status-active">Net Liability</span>
+                    <div className="p-3.5 rounded-lg border border-slate-200/90 bg-slate-50/60 hover:bg-slate-50 hover:border-slate-300 transition">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <strong className="text-xs font-semibold text-slate-900">
+                          GSTR-3B (Tax Summary)
+                        </strong>
+                        <Badge status="DRAFT" size="xs">Net Liability</Badge>
                       </div>
-                      <div className="small text-muted mb-2">
-                        Net Cash Due: <strong>{formatCurrency(netTaxPayable)}</strong>
+                      <div className="text-xs text-slate-500 mb-2">
+                        Net Cash Due: <strong className="font-mono text-slate-800">{formatCurrency(netTaxPayable)}</strong>
                       </div>
-                      <Link to={`/returns/gstr3b?period=${period}`} className="small text-primary text-decoration-none fw-semibold d-inline-flex align-items-center gap-1">
+                      <Link
+                        to={`/returns?period=${period}&return=gstr3b`}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 text-decoration-none"
+                      >
                         <span>Inspect GSTR-3B Tax Offset</span>
-                        <span>→</span>
+                        <ArrowRight className="w-3 h-3" />
                       </Link>
                     </div>
-                  </div>
+                  </CardContent>
                 </div>
-              </div>
+
+                <div className="p-4 border-t border-slate-100 bg-slate-50/80 rounded-b-xl flex items-center justify-between text-xs text-slate-500">
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Active Period: {period}</span>
+                  </span>
+                  <Link
+                    to="/returns"
+                    className="font-semibold text-indigo-600 hover:text-indigo-800 text-decoration-none"
+                  >
+                    Launch Hub →
+                  </Link>
+                </div>
+              </Card>
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

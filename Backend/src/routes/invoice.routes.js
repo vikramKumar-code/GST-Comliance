@@ -10,7 +10,7 @@ router.get('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), invoiceCont
 router.get('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), invoiceController.getInvoice);
 router.post('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.createInvoice);
 router.put('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.updateInvoice);
-router.delete('/:id', workspaceRole('OWNER', 'ADMIN'), invoiceController.deleteInvoice);
+router.delete('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.deleteInvoice);
 
 // E-Invoice (IRN) & E-Way Bill operations
 router.post('/:id/einvoice/generate', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), invoiceController.generateEInvoice);

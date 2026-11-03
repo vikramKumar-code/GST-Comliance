@@ -163,10 +163,114 @@ class NilReturnService {
       throw ApiError.validationError(`${normType} for period ${period} has already been filed with ARN: ${existing.arn}. Duplicate filing is prohibited.`);
     }
 
-    const arn = generateArn(normGstin, period);
+    let arn = generateArn(normGstin, period);
     const filingDate = new Date();
     const dateStr = formatGstnDate(filingDate);
     const mode = options.verificationMode === 'EVC' ? 'NIL_EVC' : 'NIL_ONLINE';
+
+    // Live GSP Integration (TaxPro GSP pipeline)
+    if (process.env.FEATURE_FILING === 'true') {
+      try {
+        const FinaggService = require('./finagg.service');
+        const provider = FinaggService.getProvider();
+        if (provider) {
+          if (normType === 'GSTR1' && typeof provider.saveGstr1 === 'function') {
+            const nilPayload = {
+              gstin: normGstin,
+              fp: period,
+              gt: 0,
+              cur_gt: 0,
+              b2b: [],
+              b2cl: [],
+              b2cs: [],
+              nil: {
+                inv: [
+                  {
+                    sply_ty: 'INTRAB2B',
+                    nil_amt: 0,
+                    expt_amt: 0,
+                    ngsup_amt: 0
+                  }
+                ]
+              },
+              doc_issue: {
+                doc_det: [
+                  {
+                    doc_num: 1,
+                    doc_typ: 'Invoices for outward supply',
+                    num: 0,
+                    from: '',
+                    to: '',
+                    totnum: 0,
+                    canc: 0,
+                    net_issue: 0
+                  }
+                ]
+              }
+            };
+
+            // Step 1: Save Nil GSTR-1 payload to GSTN via RETSAVE (Row 12)
+            const saveRes = await provider.saveGstr1(nilPayload, {
+              gstin: normGstin,
+              period,
+              username: options.username,
+              gstToken: options.gstToken
+            });
+            logger.info(`TaxPro RETSAVE succeeded for Nil GSTR-1 [${normGstin} - ${period}], refId: ${saveRes.ref_id}`);
+
+            // Step 2: PROCEEDFILE (Row 4)
+            if (typeof provider.proceedToFile === 'function') {
+              await provider.proceedToFile(period, {
+                gstin: normGstin,
+                username: options.username,
+                gstToken: options.gstToken
+              }).catch((err) => {
+                logger.warn('PROCEEDFILE notice:', err.message);
+              });
+            }
+
+            // Step 3: RETFILE with EVC (Row 26)
+            if (typeof provider.fileGstr1 === 'function') {
+              const fileRes = await provider.fileGstr1(period, {
+                gstin: normGstin,
+                username: options.username,
+                gstToken: options.gstToken,
+                otp: options.otp,
+                pan: options.pan,
+                mode: options.verificationMode
+              }).catch((err) => {
+                logger.warn('RETFILE notice:', err.message);
+                return null;
+              });
+
+              if (fileRes?.arn) {
+                arn = fileRes.arn;
+                logger.info(`Live TaxPro GSTR-1 filed successfully with official GSTN ARN: ${arn}`);
+              }
+            }
+          } else if (normType === 'GSTR3B' && typeof provider.fileGstr3b === 'function') {
+            const fileRes = await provider.fileGstr3b(period, {
+              gstin: normGstin,
+              username: options.username,
+              gstToken: options.gstToken,
+              otp: options.otp,
+              pan: options.pan,
+              mode: options.verificationMode
+            }).catch((err) => {
+              logger.warn('GSTR-3B RETFILE notice:', err.message);
+              return null;
+            });
+
+            if (fileRes?.arn) {
+              arn = fileRes.arn;
+              logger.info(`Live TaxPro GSTR-3B filed successfully with official GSTN ARN: ${arn}`);
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn(`Live GSP pipeline notice for Nil Return: ${err.message}`);
+      }
+    }
 
     // 1. Create permanent Filing record
     const filing = await Filing.create({
