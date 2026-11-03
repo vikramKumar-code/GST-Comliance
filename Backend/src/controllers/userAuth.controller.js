@@ -511,30 +511,24 @@ exports.createWorkspace = async (req, res, next) => {
       }
       const existing = await Workspace.findOne({ gstin: normGstin });
       if (existing) {
-        // Update client name if a verified name is provided
-        if (name && name.trim() && existing.name !== name.trim()) {
+        const membership = await WorkspaceMember.findOne({
+          workspaceId: existing._id,
+          userId,
+          status: 'ACTIVE'
+        });
+        if (!membership) {
+          throw ApiError.forbidden('You must be invited to or already belong to this organization to link it.');
+        }
+
+        if (
+          ['OWNER', 'ADMIN'].includes(membership.role) &&
+          name.trim() &&
+          existing.name !== name.trim()
+        ) {
           existing.name = name.trim();
           await existing.save();
         }
 
-        // Grant CA OWNER access to this client workspace
-        let membership = await WorkspaceMember.findOne({
-          workspaceId: existing._id,
-          userId
-        });
-        if (!membership) {
-          membership = await WorkspaceMember.create({
-            workspaceId: existing._id,
-            userId,
-            role: 'OWNER',
-            status: 'ACTIVE'
-          });
-        } else if (membership.role !== 'OWNER' && membership.role !== 'ADMIN') {
-          membership.role = 'OWNER';
-          await membership.save();
-        }
-
-        // Auto-switch to this client workspace
         if (req.session) {
           req.session.workspaceId = existing._id;
           req.session.memberId = membership._id;
@@ -551,12 +545,12 @@ exports.createWorkspace = async (req, res, next) => {
 
         return res.status(200).json({
           success: true,
-          message: `Client "${existing.name}" linked and switched successfully.`,
+          message: `Organization "${existing.name}" linked and switched successfully.`,
           workspace: {
             id: existing._id,
             name: existing.name,
             gstin: existing.gstin,
-            role: 'OWNER'
+            role: membership.role
           }
         });
       }
@@ -619,6 +613,5 @@ exports.switchRole = async (req, res, next) => {
     next(error);
   }
 };
-
 
 

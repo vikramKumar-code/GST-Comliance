@@ -10,6 +10,7 @@
     "test:security": "node scripts/test-security.js",
     "test:e2e": "node scripts/run-e2e.js",
     "test:tenancy": "node --require ./scripts/e2e-no-dotenv.js scripts/test-tenancy.js",
+    "test:workspace-claim": "node --require ./scripts/e2e-no-dotenv.js scripts/test-workspace-claim.js",
     "test:config": "node scripts/test-config.js",
     "test:rate-limit-store": "node scripts/test-rate-limit-store.js",
     "test:all": "node scripts/run-all-tests.js",

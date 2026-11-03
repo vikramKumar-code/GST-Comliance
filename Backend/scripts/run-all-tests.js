@@ -25,6 +25,14 @@ const SUITES = [
     ]
   },
   {
+    name: 'test-workspace-claim',
+    args: [
+      '--require',
+      path.join(__dirname, 'e2e-no-dotenv.js'),
+      path.join(__dirname, 'test-workspace-claim.js')
+    ]
+  },
+  {
     name: 'test-rate-limit-store',
     args: [path.join(__dirname, 'test-rate-limit-store.js')]
   },
