@@ -1,11 +1,72 @@
+# ==============================================================================
+# Environment & Sensitive Credentials (STRICTLY FORBIDDEN IN GIT)
+# ==============================================================================
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.pk8
+cookies.txt
+token*.json
+session*.json
+secrets/
+
+# ==============================================================================
+# Dependencies & Package Managers
+# ==============================================================================
 node_modules/
+.pnp
+.pnp.js
+
+# ==============================================================================
+# Build Artifacts & Output
+# ==============================================================================
+dist/
+dist-ssr/
+build/
+*.local
+
+# ==============================================================================
+# Logs & Diagnostic Dumps
+# ==============================================================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==============================================================================
+# Temporary & Diagnostic Test Dumps
+# ==============================================================================
 raw*.json
 *.raw.json
+test-save.js
 docs
 doc
-cookies.txt
 scratch/
-AGENTS.md
 .agents/
+coverage/
+.nyc_output/
+tmp/
+temp/
+
+# ==============================================================================
+# Operating System & Editor Files
+# ==============================================================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
