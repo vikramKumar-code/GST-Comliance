@@ -27,17 +27,19 @@ async function main() {
   // Test 2: requireSuperAdmin middleware
   let nextCalled = false;
   const mockReqAdmin = { isSuperAdmin: true, user: configSuperAdmin, session: { _id: 's1' } };
-  requireSuperAdmin(mockReqAdmin, {}, () => { nextCalled = true; });
+  await requireSuperAdmin(mockReqAdmin, {}, (err) => {
+    if (!err) nextCalled = true;
+  });
   assert.equal(nextCalled, true, 'requireSuperAdmin allows super admin');
 
   let forbiddenCaught = false;
   const mockReqUser = { isSuperAdmin: false, user: regularUser, session: { _id: 's2' } };
-  try {
-    requireSuperAdmin(mockReqUser, {}, () => {});
-  } catch (err) {
-    forbiddenCaught = true;
-    assert.equal(err.statusCode, 403, 'Should return 403 FORBIDDEN');
-  }
+  await requireSuperAdmin(mockReqUser, {}, (err) => {
+    if (err) {
+      forbiddenCaught = true;
+      assert.equal(err.statusCode, 403, 'Should return 403 FORBIDDEN');
+    }
+  });
   assert.equal(forbiddenCaught, true, 'requireSuperAdmin rejects non-admin users');
   console.log('  ✓ 2. requireSuperAdmin guards routes with 403 Forbidden for non-admins');
 

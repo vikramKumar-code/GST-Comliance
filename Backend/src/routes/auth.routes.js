@@ -3,6 +3,7 @@ const router = express.Router();
 const authController = require('../controllers/auth.controller');
 const userAuthController = require('../controllers/userAuth.controller');
 const auth = require('../middleware/auth');
+const workspaceRole = require('../middleware/workspaceRole');
 const { otpLimiter, otpVerifyLimiter, authLimiter } = require('../middleware/rateLimit');
 const {
   validate,
@@ -21,7 +22,7 @@ const {
 router.post('/otp/request', validate(requestOtpSchema), otpLimiter, authController.requestOtp);
 router.post('/otp/verify', validate(verifyOtpSchema), otpVerifyLimiter, authController.verifyOtp);
 router.post('/token/refresh', auth, otpLimiter, authController.refreshToken);
-router.post('/otp/evc', auth, validate(evcOtpSchema), otpLimiter, authController.requestEvcOtp);
+router.post('/otp/evc', auth, workspaceRole('OWNER', 'ADMIN', 'CA'), validate(evcOtpSchema), otpLimiter, authController.requestEvcOtp);
 
 // Standard User & OAuth 2.0 Authentication (with credential rate limiting)
 router.post('/signup', authLimiter, validate(signupSchema), userAuthController.signup);
@@ -35,6 +36,8 @@ router.get('/workspaces', auth, userAuthController.getWorkspaces);
 router.post('/switch-workspace', auth, validate(switchWorkspaceSchema), userAuthController.switchWorkspace);
 router.post('/workspace/link-gstin', auth, validate(linkGstinSchema), userAuthController.linkGstin);
 router.post('/workspace/create', auth, userAuthController.createWorkspace);
+router.put('/workspace', auth, userAuthController.updateWorkspace);
+router.put('/workspace/:id', auth, userAuthController.updateWorkspace);
 router.post('/workspace/switch-role', auth, validate(switchRoleSchema), userAuthController.switchRole);
 
 // Current Session Profile

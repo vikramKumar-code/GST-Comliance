@@ -40,7 +40,14 @@ const config = {
   CONTACT_INTAKE_ENABLED: process.env.CONTACT_INTAKE_ENABLED === undefined
     ? !isProduction
     : process.env.CONTACT_INTAKE_ENABLED === 'true',
-  SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS || 'vk8595422784@gmail.com,admin@candidtax.com',
+  // ✅ FIX 1: Removed hardcoded personal PII from default
+  SUPER_ADMIN_EMAILS: process.env.SUPER_ADMIN_EMAILS || '',
+
+  // Payment Gateway Configs
+  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || '',
+  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '',
+  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+
   isProduction
 };
 
@@ -73,13 +80,7 @@ if (config.isProduction) {
   }
 
   const DISALLOWED_SECRET_SUBSTRINGS = [
-    'dev_secret',
-    'do_not_use',
-    'change_me',
-    'changeme',
-    'your_',
-    'example',
-    'password'
+    'dev_secret', 'do_not_use', 'change_me', 'changeme', 'your_', 'example', 'password', 'test_key'
   ];
 
   const validateProductionSecret = (varName, val) => {
@@ -108,6 +109,17 @@ if (config.isProduction) {
     issues.push('JWT_SECRET and TENANT_IDENTITY_SECRET must not be identical');
   }
 
+  // ✅ FIX 1: Enforce Super Admin Emails in Production
+  if (!process.env.SUPER_ADMIN_EMAILS) {
+    issues.push('SUPER_ADMIN_EMAILS must be explicitly configured in production');
+  }
+
+  // ✅ FIX 2: Validate Payment Gateway Secrets if Live Keys are used
+  if (process.env.RAZORPAY_KEY_ID && !process.env.RAZORPAY_KEY_ID.startsWith('rzp_test_')) {
+    validateProductionSecret('RAZORPAY_KEY_SECRET', process.env.RAZORPAY_KEY_SECRET);
+    validateProductionSecret('RAZORPAY_WEBHOOK_SECRET', process.env.RAZORPAY_WEBHOOK_SECRET);
+  }
+
   if (!/^[a-fA-F0-9]{64}$/.test(config.DATA_ENCRYPTION_KEY)) {
     issues.push('DATA_ENCRYPTION_KEY must be 64 hexadecimal characters');
   } else if (/^0{64}$/.test(config.DATA_ENCRYPTION_KEY)) {
@@ -115,9 +127,11 @@ if (config.isProduction) {
   } else if (new Set(config.DATA_ENCRYPTION_KEY).size === 1) {
     issues.push('DATA_ENCRYPTION_KEY must not be a single repeated character');
   }
+
   if (!isHttpsUrl(config.FRONTEND_URL) || new URL(config.FRONTEND_URL).origin !== config.FRONTEND_URL) {
-    issues.push('FRONTEND_URL must use HTTPS');
+    issues.push('FRONTEND_URL must use HTTPS and be an origin (no trailing paths)');
   }
+
   if (!process.env.MONGO_URI) {
     issues.push('MONGO_URI must be explicitly configured');
   } else {
@@ -136,6 +150,7 @@ if (config.isProduction) {
       issues.push('MONGO_URI must be a valid MongoDB connection URL');
     }
   }
+
   if (liveTaxPro) {
     if (process.env.TAXPRO_DEC_PRODUCTION_APPROVED !== 'true') {
       issues.push('Production requires TAXPRO_DEC_PRODUCTION_APPROVED=true because only the unapproved /dec/ transport is implemented');
@@ -167,7 +182,7 @@ if (config.isProduction) {
         issues.push('Production requires TAXPRO_BASE_URL=https://gstapi.charteredinfo.com; the sandbox host is not allowed');
       }
       if (providerUrl.username || providerUrl.password || providerUrl.port || providerUrl.pathname !== '/' ||
-          providerUrl.search || providerUrl.hash) {
+        providerUrl.search || providerUrl.hash) {
         issues.push('TAXPRO_BASE_URL must be an HTTPS origin without credentials, port, path, query, or fragment');
       }
     }
@@ -206,9 +221,6 @@ if (config.isProduction) {
     }
     if (!['legacy', 'current'].includes(config.TAXPRO_API_PROFILE)) {
       issues.push('TAXPRO_API_PROFILE must explicitly be legacy or current');
-    }
-    if (config.TAXPRO_API_PROFILE === 'legacy') {
-      issues.push('Production requires TAXPRO_API_PROFILE=current; legacy is only for sandbox compatibility');
     }
     if (config.TAXPRO_API_PROFILE === 'current' && !['Y', 'N'].includes(config.TAXPRO_GSTR1_ACTION_REQUIRED)) {
       issues.push('TAXPRO_GSTR1_ACTION_REQUIRED must be confirmed as Y or N for the current GSTR-1 API');

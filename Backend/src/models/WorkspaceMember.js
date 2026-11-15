@@ -11,32 +11,35 @@ const workspaceMemberSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true
+      required: true,
+      index: true
     },
     role: {
       type: String,
-      enum: ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
+      enum: ['OWNER', 'ADMIN', 'MEMBER', 'CA', 'ACCOUNTANT', 'VIEWER'],
+      default: 'CA',
       required: true
     },
     subRole: {
       type: String,
-      enum: ['CA', 'ACCOUNTANT', 'STAFF'],
+      enum: ['CA', 'ACCOUNTANT', 'STAFF', 'VIEWER'],
       default: function () {
-        if (this.role === 'OWNER' || this.role === 'ADMIN') return 'CA';
-        if (this.role === 'MEMBER') return 'ACCOUNTANT';
-        return 'STAFF';
+        if (this.role === 'CA' || this.role === 'OWNER' || this.role === 'ADMIN') return 'CA';
+        if (this.role === 'ACCOUNTANT') return 'ACCOUNTANT';
+        if (this.role === 'VIEWER') return 'VIEWER';
+        return 'CA';
       }
     },
     permissions: {
       type: [String],
       default: function () {
-        if (this.role === 'OWNER' || this.role === 'CA' || this.role === 'ADMIN') {
-          return ['ALL', 'GSTR_FILE', 'GSTR_VIEW', 'INVOICE_MANAGE', 'SETTINGS_MANAGE', 'USER_INVITE'];
+        if (this.role === 'OWNER' || this.role === 'CA' || this.role === 'ADMIN' || this.subRole === 'CA') {
+          return ['ALL', 'GSTR_FILE', 'GSTR_VIEW', 'INVOICE_MANAGE', 'SETTINGS_MANAGE', 'USER_INVITE', 'CLIENT_MANAGE'];
         }
-        if (this.role === 'ACCOUNTANT') {
+        if (this.role === 'ACCOUNTANT' || this.subRole === 'ACCOUNTANT') {
           return ['INVOICE_MANAGE', 'BILL_MANAGE', 'REPORT_VIEW', 'GSTR_VIEW'];
         }
-        if (this.role === 'VIEWER') {
+        if (this.role === 'VIEWER' || this.subRole === 'VIEWER') {
           return ['REPORT_VIEW', 'GSTR_VIEW'];
         }
         return ['INVOICE_MANAGE', 'GSTR_VIEW'];
@@ -55,11 +58,19 @@ const workspaceMemberSchema = new mongoose.Schema(
 workspaceMemberSchema.index({ workspaceId: 1, userId: 1 }, { unique: true });
 
 workspaceMemberSchema.methods.canFileReturns = function () {
-  return ['OWNER', 'CA', 'ADMIN'].includes(this.role) || this.permissions.includes('GSTR_FILE') || this.permissions.includes('ALL');
+  return (
+    ['OWNER', 'CA', 'ADMIN'].includes(this.role) ||
+    this.subRole === 'CA' ||
+    (Array.isArray(this.permissions) && (this.permissions.includes('GSTR_FILE') || this.permissions.includes('ALL')))
+  );
 };
 
 workspaceMemberSchema.methods.canManageBilling = function () {
-  return ['OWNER', 'CA', 'ACCOUNTANT', 'ADMIN', 'MEMBER'].includes(this.role) || this.permissions.includes('INVOICE_MANAGE') || this.permissions.includes('ALL');
+  return (
+    ['OWNER', 'CA', 'ACCOUNTANT', 'ADMIN', 'MEMBER'].includes(this.role) ||
+    ['CA', 'ACCOUNTANT'].includes(this.subRole) ||
+    (Array.isArray(this.permissions) && (this.permissions.includes('INVOICE_MANAGE') || this.permissions.includes('ALL')))
+  );
 };
 
 module.exports = mongoose.model('WorkspaceMember', workspaceMemberSchema);

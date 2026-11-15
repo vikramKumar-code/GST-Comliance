@@ -8,10 +8,13 @@ const ApiError = require('../utils/apiError');
 const { resolveWorkspaceId } = require('../utils/workspaceHelper');
 const {
   createRazorpayOrder,
-  verifyPaymentSignature,
   calculateSettlement,
   getRazorpayKey
 } = require('../utils/razorpay');
+
+// ✅ FIX 3: Bank details from ENV (Fallback to HDFC for local dev)
+const COMPANY_BANK_NAME = process.env.COMPANY_BANK_NAME || 'HDFC Bank Ltd';
+const COMPANY_BANK_ACCOUNT_MASKED = process.env.COMPANY_BANK_ACCOUNT_MASKED || 'Current A/C Ending in **8492';
 
 const PLANS_CATALOG = [
   {
@@ -105,7 +108,6 @@ exports.getPlans = async (req, res, next) => {
       }
     }
 
-    // Get user's past payment history for this workspace
     let pastPayments = [];
     if (workspaceId) {
       pastPayments = await Payment.find({ workspaceId })
@@ -119,11 +121,7 @@ exports.getPlans = async (req, res, next) => {
       success: true,
       plans: PLANS_CATALOG,
       currentSubscription: activeSub,
-      workspace: {
-        id: workspaceId,
-        name: workspaceName,
-        gstin
-      },
+      workspace: { id: workspaceId, name: workspaceName, gstin },
       pastPayments,
       razorpayKey: getRazorpayKey()
     });
@@ -150,18 +148,11 @@ exports.createOrder = async (req, res, next) => {
       amount,
       currency: 'INR',
       receipt,
-      notes: {
-        workspaceId: workspaceId.toString(),
-        planId: plan.id,
-        billingCycle
-      }
+      notes: { workspaceId: workspaceId.toString(), planId: plan.id, billingCycle }
     });
 
-    // Store pending order intent on workspace
     await Workspace.findByIdAndUpdate(workspaceId, {
-      $set: {
-        'subscription.orderId': rzpOrder.orderId
-      }
+      $set: { 'subscription.orderId': rzpOrder.orderId }
     });
 
     res.status(200).json({
@@ -195,14 +186,33 @@ exports.verifyPayment = async (req, res, next) => {
       throw ApiError.validationError('Both paymentId and orderId are required for payment verification.');
     }
 
+    // ✅ FIX 2: Idempotency Check (Prevent duplicate subscription extension on webhook retry)
+    const existingPayment = await Payment.findOne({
+      $or: [{ razorpayPaymentId: paymentId }, { gatewayPaymentId: paymentId }]
+    }).lean();
+
+    if (existingPayment) {
+      return res.status(200).json({
+        success: true,
+        message: 'Payment already verified and processed previously.',
+        subscription: existingPayment.metadata?.subscriptionSnapshot || null,
+        payment: {
+          receiptNumber: existingPayment.receiptNumber,
+          amount: existingPayment.amount,
+          paymentId: existingPayment.razorpayPaymentId || existingPayment.gatewayPaymentId,
+          status: existingPayment.status
+        }
+      });
+    }
+
     const ws = await Workspace.findById(workspaceId);
     if (!ws) throw ApiError.notFound('Workspace not found.');
 
+    // Signature Verification
     const secret = process.env.RAZORPAY_KEY_SECRET;
     if (secret && secret !== 'your_secret_key_here' && secret !== 'demo_secret_key_candidtax_2026') {
-      if (!signature) {
-        throw ApiError.validationError('Payment signature is required.');
-      }
+      if (!signature) throw ApiError.validationError('Payment signature is required.');
+
       const expectedSignature = crypto
         .createHmac('sha256', secret)
         .update(`${orderId}|${paymentId}`)
@@ -210,13 +220,13 @@ exports.verifyPayment = async (req, res, next) => {
 
       const sigBuffer = Buffer.from(signature);
       const expectedBuffer = Buffer.from(expectedSignature);
+
       if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
         throw ApiError.validationError('Payment verification failed: invalid signature.');
       }
     } else if (process.env.NODE_ENV === 'production') {
       throw ApiError.serverError('Payment gateway secret is not configured in production.');
     } else {
-      // In dev/test when secret is not configured, verify that orderId matches active workspace order
       if (ws.subscription?.orderId && ws.subscription.orderId !== orderId) {
         throw ApiError.validationError('orderId does not match current pending workspace order.');
       }
@@ -226,15 +236,10 @@ exports.verifyPayment = async (req, res, next) => {
     const validUntil = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
     const amount = billingCycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
 
-    // Determine plan limits
     let updatedLimits = { maxClients: 1, maxInvoicesPerMonth: 50 };
-    if (plan.id === 'PRO') {
-      updatedLimits = { maxClients: 10, maxInvoicesPerMonth: 1000 };
-    } else if (plan.id === 'ENTERPRISE') {
-      updatedLimits = { maxClients: 999999, maxInvoicesPerMonth: 999999 };
-    }
+    if (plan.id === 'PRO') updatedLimits = { maxClients: 10, maxInvoicesPerMonth: 1000 };
+    else if (plan.id === 'ENTERPRISE') updatedLimits = { maxClients: 999999, maxInvoicesPerMonth: 999999 };
 
-    // Update Workspace
     const updatedWs = await Workspace.findByIdAndUpdate(
       workspaceId,
       {
@@ -251,18 +256,16 @@ exports.verifyPayment = async (req, res, next) => {
       { new: true }
     ).lean();
 
-    // Fetch User details who initiated this payment
     const userDoc = req.userId ? await User.findById(req.userId).lean() : null;
     const userEmail = userDoc?.email || req.session?.email || 'user@candidtax.com';
     const userName = userDoc?.name || req.session?.name || 'Verified Taxpayer';
 
-    // Calculate Financial settlement (Razorpay 2% fee + 18% GST deduction)
     const settlement = calculateSettlement(amount);
     const settlementId = `setl_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     const utr = `UTR_RZP_${Date.now()}`;
     const receiptNumber = `INV-CT-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    // Create durable Payment transaction ledger entry
+    // Create Payment Ledger Entry (Aligned with updated Payment.js model)
     const paymentRecord = await Payment.create({
       userId: req.userId || userDoc?._id || ws.ownerUserId || ws.createdById || null,
       userEmail,
@@ -275,9 +278,13 @@ exports.verifyPayment = async (req, res, next) => {
       billingCycle,
       amount,
       currency: 'INR',
-      razorpayOrderId: orderId,
-      razorpayPaymentId: paymentId,
-      razorpaySignature: signature || null,
+      gatewayProvider: 'RAZORPAY',
+      gatewayOrderId: orderId,
+      gatewayPaymentId: paymentId,
+      gatewaySignature: signature || null,
+      razorpayOrderId: orderId, // Legacy support
+      razorpayPaymentId: paymentId, // Legacy support
+      razorpaySignature: signature || null, // Legacy support
       paymentMethod: ['UPI', 'CARD', 'NETBANKING', 'WALLET'].includes(paymentMethod) ? paymentMethod : 'UPI',
       status: 'SUCCESS',
       receiptNumber,
@@ -285,25 +292,27 @@ exports.verifyPayment = async (req, res, next) => {
       bankSettlement: {
         settlementId,
         utr,
-        bankAccount: 'HDFC Bank - Current A/C **8492',
+        bankAccount: COMPANY_BANK_ACCOUNT_MASKED, // ✅ FIX 3
         grossAmount: settlement.grossAmount,
         gatewayFee: settlement.gatewayFee,
-        tax: settlement.tax,
+        gatewayTax: settlement.tax,
         netWithdrawnToBank: settlement.netWithdrawnToBank,
         settledAt: new Date()
       },
       metadata: {
         ipAddress: req.ip || '',
-        userAgent: req.headers?.['user-agent'] || ''
+        userAgent: req.headers?.['user-agent'] || '',
+        subscriptionSnapshot: updatedWs.subscription // For idempotency response
       }
     });
 
-    // Create or append Bank Settlement payout record
+    // ✅ FIX 1: Added workspaceId to BankSettlement
     await BankSettlement.create({
+      workspaceId: ws._id, // ✅ CRITICAL FIX
       settlementId,
       utr,
-      bankName: 'HDFC Bank Ltd',
-      accountMasked: 'Current A/C Ending in **8492',
+      bankName: COMPANY_BANK_NAME, // ✅ FIX 3
+      accountMasked: COMPANY_BANK_ACCOUNT_MASKED, // ✅ FIX 3
       grossAmount: settlement.grossAmount,
       gatewayFees: settlement.gatewayFee,
       taxOnFees: settlement.tax,
@@ -314,7 +323,6 @@ exports.verifyPayment = async (req, res, next) => {
       notes: `Subscription payment for ${plan.name} (${billingCycle}) by ${userName} (${userEmail})`
     }).catch((err) => console.warn('[BankSettlement] Log warning:', err.message));
 
-    // Audit log
     await AuditLog.create({
       workspaceId,
       userId: req.userId || null,
@@ -323,15 +331,9 @@ exports.verifyPayment = async (req, res, next) => {
       gstin: updatedWs?.gstin || 'UNKNOWN',
       action: 'SUBSCRIPTION_UPGRADED',
       status: 'SUCCESS',
-      details: `Purchased ${plan.name} (${billingCycle}) for ₹${amount}. Receipt: ${receiptNumber}, Bank Settled: ₹${settlement.netWithdrawnToBank}.`,
-      metadata: {
-        amount,
-        planId: plan.id,
-        paymentId,
-        orderId,
-        utr
-      }
-    }).catch(() => {});
+      details: `Purchased ${plan.name} (${billingCycle}) for ₹${amount}. Receipt: ${receiptNumber}`,
+      metadata: { amount, planId: plan.id, paymentId, orderId, utr }
+    }).catch(() => { });
 
     res.status(200).json({
       success: true,
@@ -359,11 +361,7 @@ exports.cancelSubscription = async (req, res, next) => {
 
     const updatedWs = await Workspace.findByIdAndUpdate(
       workspaceId,
-      {
-        $set: {
-          'subscription.status': 'CANCELLED'
-        }
-      },
+      { $set: { 'subscription.status': 'CANCELLED' } },
       { new: true }
     ).lean();
 
@@ -373,7 +371,7 @@ exports.cancelSubscription = async (req, res, next) => {
       action: 'SUBSCRIPTION_CANCELLED',
       status: 'SUCCESS',
       details: 'User initiated subscription cancellation. Plan active until period end.'
-    }).catch(() => {});
+    }).catch(() => { });
 
     res.status(200).json({
       success: true,

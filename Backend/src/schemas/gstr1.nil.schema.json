@@ -1,0 +1,68 @@
+{
+  "id": "Get-NIL-Schema",
+  "type": "object",
+  "properties": {
+    "nil": {
+      "type": "object",
+      "properties": {
+        "flag": {
+          "description": "Status of Invoice",
+          "type": "string"
+        },
+        "chksum": {
+          "maxLength": 64,
+          "description": "Invoice checksum value",
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9]+$",
+          "minLength": 1
+        },
+        "inv": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "expt_amt": {
+                "description": "Total Exempted outward supplies",
+                "type": "number",
+                "multipleOf": 0.01
+              },
+              "ngsup_amt": {
+                "description": "Total Non GST outward supplies",
+                "type": "number",
+                "multipleOf": 0.01
+              },
+              "nil_amt": {
+                "description": "Total Nil rated outward supplies",
+                "type": "number",
+                "multipleOf": 0.01
+              },
+              "sply_ty": {
+                "description": "Supply Type",
+                "type": "string",
+                "enum": [
+                  "INTRB2B",
+                  "INTRB2C",
+                  "INTRAB2B",
+                  "INTRAB2C"
+                ]
+              }
+            },
+            "required": [
+              "expt_amt",
+              "sply_ty",
+              "ngsup_amt",
+              "nil_amt"
+            ]
+          }
+        }
+      },
+      "required": [
+        "inv"
+      ]
+    }
+  },
+  "required": [
+    "nil"
+  ]
+}
+

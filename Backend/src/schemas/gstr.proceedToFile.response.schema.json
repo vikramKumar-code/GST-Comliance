@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "All - Proceed to File Response Schema",
+  "type": "object",
+  "properties": {
+    "reference_id": {
+      "type": "string",
+      "description": "Reference ID"
+    },
+    "isSync": {
+      "type": "string",
+      "description": "Synchronous request flag",
+      "enum": [
+        "Y"
+      ]
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "reference_id"
+      ]
+    },
+    {
+      "required": [
+        "isSync"
+      ]
+    }
+  ]
+}
+

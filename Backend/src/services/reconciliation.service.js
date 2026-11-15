@@ -36,22 +36,17 @@ function getPeriodDateRange(period) {
 class ReconciliationService {
   /**
    * Reconcile Purchase Bills against GSTR-2B Inward Supplies
-   *
-   * @param {string|mongoose.Types.ObjectId} workspaceId
-   * @param {string} period MMYYYY format
-   * @param {Object} options { gstin, token, username }
    */
   static async reconcileItc(workspaceId, period, options = {}) {
-    if (!workspaceId) {
-      throw ApiError.validationError('Workspace ID is required.');
-    }
+    if (!workspaceId) throw ApiError.validationError('Workspace ID is required.');
+
     const { startDate, endDate } = getPeriodDateRange(period);
 
-    // 1. Fetch Purchase Bills for this workspace within this period
+    // ✅ FIX 1: Exclude 'Cancelled' AND 'Draft' statuses
     const bills = await Bill.find({
       workspaceId,
       billDate: { $gte: startDate, $lt: endDate },
-      status: { $ne: 'Cancelled' }
+      status: { $nin: ['Cancelled', 'Draft', 'cancelled', 'draft'] }
     }).lean();
 
     // 2. Fetch GSTR-2B Inward Supplies from provider/cache
@@ -61,21 +56,14 @@ class ReconciliationService {
     try {
       if (options.gstin) {
         rawGstr2b = await FinaggService.getReturn(
-          'GSTR2B',
-          options.gstin,
-          period,
-          options.token,
-          options.username,
-          options
+          'GSTR2B', options.gstin, period, options.token, options.username, options
         );
       }
     } catch (err) {
       if (err.code === 'DATA_NOT_AVAILABLE' || err.statusCode === 404) {
         gstr2bAvailable = false;
       } else {
-        logger.warn('Failed to fetch GSTR-2B for reconciliation, falling back to books', {
-          code: err.code || err.statusCode
-        });
+        logger.warn('Failed to fetch GSTR-2B for reconciliation', { code: err.code || err.statusCode });
         gstr2bAvailable = false;
       }
     }
@@ -87,7 +75,6 @@ class ReconciliationService {
     const gstr2bMap = new Map();
     for (const inv of gstr2bInvoices) {
       const key = `${normalizeGstin(inv.supplierGstin)}_${normalizeInvoiceNumber(inv.invoiceNumber)}`;
-      // Support multiple items per invoice by aggregating if key repeats
       if (gstr2bMap.has(key)) {
         const existing = gstr2bMap.get(key);
         existing.taxableAmount = roundToTwo(existing.taxableAmount + inv.taxableAmount);
@@ -123,6 +110,9 @@ class ReconciliationService {
       totalBooksTaxable = roundToTwo(totalBooksTaxable + billTaxable);
       totalBooksTax = roundToTwo(totalBooksTax + billTax);
 
+      // ✅ FIX 2: Check if CA explicitly blocked ITC in books (Section 17(5))
+      const isBookIneligible = bill.itcEligible === false;
+
       const billKey = `${normalizeGstin(bill.vendorGstin)}_${normalizeInvoiceNumber(bill.billNumber)}`;
       const g2bMatch = gstr2bMap.get(billKey);
 
@@ -132,70 +122,84 @@ class ReconciliationService {
         const diffTaxable = roundToTwo(Math.abs(billTaxable - g2bMatch.taxableAmount));
         const diffTax = roundToTwo(Math.abs(billTax - g2bMatch.totalTax));
 
-        // Matching tolerance: <= ₹1.00 difference allows for rounding differences
+        // Matching tolerance: <= ₹1.00 difference
         if (diffTaxable <= 1.0 && diffTax <= 1.0) {
+          // ITC is eligible ONLY IF GSTR-2B says yes AND Books don't block it
+          const itcEligible = g2bMatch.itcEligible !== false && !isBookIneligible;
+
           matched.push({
-            billId: bill._id,
-            billNumber: bill.billNumber,
-            vendorName: bill.vendorName,
-            vendorGstin: bill.vendorGstin,
-            billDate: bill.billDate,
-            taxableAmount: billTaxable,
-            cgst: billCgst,
-            sgst: billSgst,
-            igst: billIgst,
-            totalTax: billTax,
+            billId: bill._id, billNumber: bill.billNumber, vendorName: bill.vendorName,
+            vendorGstin: bill.vendorGstin, billDate: bill.billDate,
+            taxableAmount: billTaxable, cgst: billCgst, sgst: billSgst, igst: billIgst, totalTax: billTax,
             gstr2b: {
-              taxableAmount: g2bMatch.taxableAmount,
-              cgst: g2bMatch.cgst,
-              sgst: g2bMatch.sgst,
-              igst: g2bMatch.igst,
-              totalTax: g2bMatch.totalTax
+              taxableAmount: g2bMatch.taxableAmount, cgst: g2bMatch.cgst, sgst: g2bMatch.sgst,
+              igst: g2bMatch.igst, totalTax: g2bMatch.totalTax
             },
             status: 'MATCHED',
-            itcEligible: true
+            itcEligible,
+            ...(!itcEligible && {
+              itcReason: isBookIneligible
+                ? 'ITC blocked under Section 17(5) in books.'
+                : 'GSTR-2B marks this invoice ITC as ineligible.'
+            })
           });
 
-          eligibleItcCgst = roundToTwo(eligibleItcCgst + g2bMatch.cgst);
-          eligibleItcSgst = roundToTwo(eligibleItcSgst + g2bMatch.sgst);
-          eligibleItcIgst = roundToTwo(eligibleItcIgst + g2bMatch.igst);
+          if (itcEligible) {
+            eligibleItcCgst = roundToTwo(eligibleItcCgst + g2bMatch.cgst);
+            eligibleItcSgst = roundToTwo(eligibleItcSgst + g2bMatch.sgst);
+            eligibleItcIgst = roundToTwo(eligibleItcIgst + g2bMatch.igst);
+          } else {
+            atRiskTax = roundToTwo(atRiskTax + g2bMatch.totalTax);
+          }
         } else {
-          mismatched.push({
-            billId: bill._id,
-            billNumber: bill.billNumber,
-            vendorName: bill.vendorName,
-            vendorGstin: bill.vendorGstin,
-            billDate: bill.billDate,
-            taxableAmount: billTaxable,
-            totalTax: billTax,
-            gstr2b: {
-              taxableAmount: g2bMatch.taxableAmount,
-              totalTax: g2bMatch.totalTax
-            },
-            discrepancy: {
-              diffTaxable,
-              diffTax,
-              reason: 'Taxable value or tax amount does not match GSTR-2B'
-            },
-            status: 'MISMATCHED_VALUE',
-            itcEligible: false
-          });
+          // 🔥 CHECK FOR GSTR-1A DOWNWARD MODIFICATION
+          const isDownwardModification = g2bMatch.taxableAmount < billTaxable && g2bMatch.taxableAmount > 0;
 
-          atRiskTax = roundToTwo(atRiskTax + billTax);
+          if (isDownwardModification && !isBookIneligible) {
+            const confirmedTax = g2bMatch.totalTax;
+            const downwardDiffTax = roundToTwo(billTax - g2bMatch.totalTax);
+            const downwardDiffTaxable = roundToTwo(billTaxable - g2bMatch.taxableAmount);
+
+            matched.push({
+              billId: bill._id, billNumber: bill.billNumber, vendorName: bill.vendorName,
+              vendorGstin: bill.vendorGstin, billDate: bill.billDate,
+              taxableAmount: billTaxable, totalTax: billTax,
+              gstr2b: { taxableAmount: g2bMatch.taxableAmount, totalTax: g2bMatch.totalTax },
+              status: 'GSTR1A_DOWNWARD_AMENDMENT',
+              itcEligible: true,
+              confirmedItc: { cgst: g2bMatch.cgst, sgst: g2bMatch.sgst, igst: g2bMatch.igst, totalTax: confirmedTax },
+              watchlist: {
+                isWatchlisted: true,
+                reason: 'GSTR-1A Downward Amendment detected. Monitored for subsequent period Table 5 / DRC-01C.',
+                excessClaimedTaxable: downwardDiffTaxable,
+                excessClaimedTax: downwardDiffTax,
+                targetPeriod: 'SUBSEQUENT_TABLE_5'
+              }
+            });
+
+            eligibleItcCgst = roundToTwo(eligibleItcCgst + g2bMatch.cgst);
+            eligibleItcSgst = roundToTwo(eligibleItcSgst + g2bMatch.sgst);
+            eligibleItcIgst = roundToTwo(eligibleItcIgst + g2bMatch.igst);
+            atRiskTax = roundToTwo(atRiskTax + downwardDiffTax);
+          } else {
+            mismatched.push({
+              billId: bill._id, billNumber: bill.billNumber, vendorName: bill.vendorName,
+              vendorGstin: bill.vendorGstin, billDate: bill.billDate,
+              taxableAmount: billTaxable, totalTax: billTax,
+              gstr2b: { taxableAmount: g2bMatch.taxableAmount, totalTax: g2bMatch.totalTax },
+              discrepancy: { diffTaxable, diffTax, reason: 'Taxable value or tax amount does not match GSTR-2B' },
+              status: 'MISMATCHED_VALUE',
+              itcEligible: false
+            });
+            atRiskTax = roundToTwo(atRiskTax + billTax);
+          }
         }
       } else {
         // Missing in GSTR-2B
         missingIn2b.push({
-          billId: bill._id,
-          billNumber: bill.billNumber,
-          vendorName: bill.vendorName,
-          vendorGstin: bill.vendorGstin,
-          billDate: bill.billDate,
-          taxableAmount: billTaxable,
-          cgst: billCgst,
-          sgst: billSgst,
-          igst: billIgst,
-          totalTax: billTax,
+          billId: bill._id, billNumber: bill.billNumber, vendorName: bill.vendorName,
+          vendorGstin: bill.vendorGstin, billDate: bill.billDate,
+          taxableAmount: billTaxable, cgst: billCgst, sgst: billSgst, igst: billIgst, totalTax: billTax,
           status: 'MISSING_IN_2B',
           reason: gstr2bAvailable
             ? 'Vendor has not filed GSTR-1 yet. ITC is blocked until reported.'
@@ -203,24 +207,21 @@ class ReconciliationService {
           itcEligible: false
         });
 
-        atRiskTax = roundToTwo(atRiskTax + billTax);
+        // Only add to atRisk if it was supposed to be eligible in books
+        if (!isBookIneligible) {
+          atRiskTax = roundToTwo(atRiskTax + billTax);
+        }
       }
     }
 
-    // 6. Any GSTR-2B invoices that were NOT in Purchase Bills
+    // 6. Extra in 2B
     const extraIn2b = [];
     for (const [_, inv] of gstr2bMap) {
       if (!inv.matched) {
         extraIn2b.push({
-          invoiceNumber: inv.invoiceNumber,
-          supplierGstin: inv.supplierGstin,
-          invoiceDate: inv.invoiceDate,
-          taxableAmount: inv.taxableAmount,
-          cgst: inv.cgst,
-          sgst: inv.sgst,
-          igst: inv.igst,
-          totalTax: inv.totalTax,
-          grandTotal: inv.grandTotal,
+          invoiceNumber: inv.invoiceNumber, supplierGstin: inv.supplierGstin, invoiceDate: inv.invoiceDate,
+          taxableAmount: inv.taxableAmount, cgst: inv.cgst, sgst: inv.sgst, igst: inv.igst,
+          totalTax: inv.totalTax, grandTotal: inv.grandTotal,
           status: 'EXTRA_IN_2B',
           reason: 'Present in GSTR-2B from supplier, but missing from your purchase bills.'
         });
@@ -240,42 +241,27 @@ class ReconciliationService {
         mismatchedCount: mismatched.length,
         missingIn2bCount: missingIn2b.length,
         extraIn2bCount: extraIn2b.length,
-        eligibleItc: {
-          cgst: eligibleItcCgst,
-          sgst: eligibleItcSgst,
-          igst: eligibleItcIgst,
-          total: eligibleTotal
-        },
-        atRiskItc: {
-          total: atRiskTax
-        }
+        eligibleItc: { cgst: eligibleItcCgst, sgst: eligibleItcSgst, igst: eligibleItcIgst, total: eligibleTotal },
+        atRiskItc: { total: atRiskTax }
       },
-      matched,
-      mismatched,
-      missingIn2b,
-      extraIn2b,
+      matched, mismatched, missingIn2b, extraIn2b,
       reconciledAt: new Date().toISOString()
     };
   }
 
   /**
    * Calculate Estimated GST Refund or Net Tax Payable
-   *
-   * @param {string|mongoose.Types.ObjectId} workspaceId
-   * @param {string} period MMYYYY format
-   * @param {Object} options { gstin, token, username }
    */
   static async calculateRefundEstimate(workspaceId, period, options = {}) {
-    if (!workspaceId) {
-      throw ApiError.validationError('Workspace ID is required.');
-    }
+    if (!workspaceId) throw ApiError.validationError('Workspace ID is required.');
+
     const { startDate, endDate } = getPeriodDateRange(period);
 
-    // 1. Calculate Output Tax from Sales Invoices
+    // ✅ FIX 1: Exclude 'Cancelled' AND 'Draft' statuses for Output Liability
     const invoices = await Invoice.find({
       workspaceId,
       invoiceDate: { $gte: startDate, $lt: endDate },
-      status: { $ne: 'Cancelled' }
+      status: { $nin: ['Cancelled', 'Draft', 'cancelled', 'draft'] }
     }).lean();
 
     let outputTaxable = 0;
@@ -295,7 +281,7 @@ class ReconciliationService {
     const reconciliation = await ReconciliationService.reconcileItc(workspaceId, period, options);
     const itc = reconciliation.summary.eligibleItc;
 
-    // 3. Compute Net Position (Output Tax Liability - Eligible ITC)
+    // 3. Compute Net Position
     const netCgst = roundToTwo(outputCgst - itc.cgst);
     const netSgst = roundToTwo(outputSgst - itc.sgst);
     const netIgst = roundToTwo(outputIgst - itc.igst);
@@ -308,25 +294,15 @@ class ReconciliationService {
     return {
       period,
       outputLiability: {
-        totalInvoices: invoices.length,
-        taxable: outputTaxable,
-        cgst: outputCgst,
-        sgst: outputSgst,
-        igst: outputIgst,
-        total: outputTotalTax
+        totalInvoices: invoices.length, taxable: outputTaxable,
+        cgst: outputCgst, sgst: outputSgst, igst: outputIgst, total: outputTotalTax
       },
       inputTaxCredit: {
         matchedBills: reconciliation.summary.matchedCount,
-        cgst: itc.cgst,
-        sgst: itc.sgst,
-        igst: itc.igst,
-        total: itc.total
+        cgst: itc.cgst, sgst: itc.sgst, igst: itc.igst, total: itc.total
       },
       netPosition: {
-        cgst: netCgst,
-        sgst: netSgst,
-        igst: netIgst,
-        total: netTotal,
+        cgst: netCgst, sgst: netSgst, igst: netIgst, total: netTotal,
         status: isRefundEligible ? 'REFUND_OR_CARRY_FORWARD' : 'TAX_PAYABLE',
         estimatedRefundAmount: surplusItc,
         estimatedTaxPayable: netPayable,
@@ -340,7 +316,7 @@ class ReconciliationService {
   }
 
   /**
-   * Helper to parse and flatten 2B invoice records from provider or mock shapes
+   * Helper to parse and flatten 2B invoice records
    */
   static _extract2bInvoices(raw) {
     if (!raw || typeof raw !== 'object') return [];
@@ -353,17 +329,22 @@ class ReconciliationService {
       for (const sup of b2bSupplies) {
         const supplierGstin = sup.ctin || '';
         for (const inv of (sup.inv || [])) {
-          let itmTaxable = 0;
-          let itmCgst = 0;
-          let itmSgst = 0;
-          let itmIgst = 0;
+          let itmTaxable = 0, itmCgst = 0, itmSgst = 0, itmIgst = 0;
 
-          for (const itm of (inv.itms || [])) {
+          const items = inv.itms || inv.items || [];
+          for (const itm of items) {
             const det = itm.itm_det || itm;
             itmTaxable += Number(det.txval || 0);
             itmCgst += Number(det.camt || 0);
             itmSgst += Number(det.samt || 0);
             itmIgst += Number(det.iamt || 0);
+          }
+
+          if (items.length === 0) {
+            itmTaxable = Number(inv.txval || 0);
+            itmCgst = Number(inv.camt || inv.cgst || 0);
+            itmSgst = Number(inv.samt || inv.sgst || 0);
+            itmIgst = Number(inv.iamt || inv.igst || 0);
           }
 
           const totalTax = roundToTwo(itmCgst + itmSgst + itmIgst);
@@ -379,12 +360,11 @@ class ReconciliationService {
             igst: roundToTwo(itmIgst),
             totalTax,
             grandTotal,
-            itcEligible: inv.itc_elg !== 'N'
+            itcEligible: !['N', 'NO', 'FALSE'].includes(String(inv.itc_elg || 'Y').trim().toUpperCase())
           });
         }
       }
     }
-
     return result;
   }
 }

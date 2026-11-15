@@ -16,9 +16,12 @@ class EInvoiceService {
    */
   formatNicDate(dateInput) {
     const d = dateInput ? new Date(dateInput) : new Date();
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
+    if (isNaN(d.getTime())) return '';
+    const tzOffsetMin = Number(process.env.GST_TZ_OFFSET_MIN || 330);
+    const local = new Date(d.getTime() + tzOffsetMin * 60 * 1000);
+    const day = String(local.getUTCDate()).padStart(2, '0');
+    const month = String(local.getUTCMonth() + 1).padStart(2, '0');
+    const year = local.getUTCFullYear();
     return `${day}/${month}/${year}`;
   }
 
@@ -109,7 +112,7 @@ class EInvoiceService {
   buildNicPayload(invoice, workspace) {
     const sellerGstin = config.TAXPRO_EINV_GSTIN || workspace?.gstin || '34AACCC1596Q002';
     const sellerState = sellerGstin.slice(0, 2);
-    
+
     // Customer / Buyer details
     let buyerGstin = invoice.customerGstin ? invoice.customerGstin.trim().toUpperCase() : '';
     // For sandbox, if customer GSTIN is missing, fallback to sandbox buyer GSTIN
@@ -201,7 +204,7 @@ class EInvoiceService {
         Loc: (invoice.billingAddress?.city || 'Banagalore').slice(0, 50),
         Pin: buyerPin,
         Stcd: buyerState,
-        Ph: '91111111111',
+        Ph: '9999999999',
         Em: 'accounts@customer.com'
       },
       ItemList: lineItems,
@@ -229,7 +232,10 @@ class EInvoiceService {
     }
 
     const workspace = await Workspace.findById(workspaceId).lean();
-    const sellerGstin = config.TAXPRO_EINV_GSTIN || workspace?.gstin || '34AACCC1596Q002';
+    const sellerGstin = config.TAXPRO_EINV_GSTIN || workspace?.gstin;
+    if (!sellerGstin || sellerGstin.length !== 15) {
+      throw ApiError.validationError('Valid Seller GSTIN is required for E-Invoice generation. Please check environment variables or workspace settings.');
+    }
     const payload = this.buildNicPayload(invoice, workspace);
 
     if (config.USE_MOCK) {

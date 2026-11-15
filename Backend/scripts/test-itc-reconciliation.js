@@ -217,6 +217,7 @@ async function main() {
                   inum: 'INV8899',
                   dt: '12-10-2026',
                   val: 59000,
+                  itc_elg: 'N',
                   itms: [
                     {
                       itm_det: {
@@ -294,14 +295,16 @@ async function main() {
       assert.equal(result.summary.missingIn2bCount, 1, 'Bill 4 should be MISSING_IN_2B');
       assert.equal(result.summary.extraIn2bCount, 1, 'EXTRA-2B-999 should be EXTRA_IN_2B');
 
-      // Verify Eligible ITC sum: 9000 (Bill 1 CGST) + 9000 (Bill 1 SGST) + 9000 (Bill 2 IGST from 2B) = 27000
-      assert.equal(result.summary.eligibleItc.total, 27000);
+      // Bill 2 matches by value but is explicitly ineligible for ITC.
+      assert.equal(result.matched.find((bill) => bill.billNumber === 'BILL/2026/001').itcEligible, true);
+      assert.equal(result.matched.find((bill) => bill.billNumber === 'INV-8899').itcEligible, false);
+      assert.equal(result.summary.eligibleItc.total, 18000);
       assert.equal(result.summary.eligibleItc.cgst, 9000);
       assert.equal(result.summary.eligibleItc.sgst, 9000);
-      assert.equal(result.summary.eligibleItc.igst, 9000);
+      assert.equal(result.summary.eligibleItc.igst, 0);
 
-      // Verify At-Risk ITC: Bill 3 (4500) + Bill 4 (5400) = 9900
-      assert.equal(result.summary.atRiskItc.total, 9900);
+      // Bill 2's ineligible ₹9000 tax is at risk alongside Bills 3 and 4.
+      assert.equal(result.summary.atRiskItc.total, 18900);
     });
 
     // TEST 2: Tenancy Isolation
@@ -356,11 +359,11 @@ async function main() {
         gstin: testGstin
       });
 
-      // Output Tax = 36000, Eligible ITC = 27000 => Net Tax Payable = 9000
+      // Output Tax = 36000, Eligible ITC = 18000 => Net Tax Payable = 18000
       assert.equal(estimate.outputLiability.total, 36000);
-      assert.equal(estimate.inputTaxCredit.total, 27000);
+      assert.equal(estimate.inputTaxCredit.total, 18000);
       assert.equal(estimate.netPosition.status, 'TAX_PAYABLE');
-      assert.equal(estimate.netPosition.estimatedTaxPayable, 9000);
+      assert.equal(estimate.netPosition.estimatedTaxPayable, 18000);
       assert.equal(estimate.netPosition.estimatedRefundAmount, 0);
     });
 
@@ -400,11 +403,11 @@ async function main() {
         gstin: testGstin
       });
 
-      // Output Tax = 0, Eligible ITC = 27000 => Net Position = -27000 (Refund Eligible)
+      // Output Tax = 0, Eligible ITC = 18000 => Net Position = -18000 (Refund Eligible)
       assert.equal(estimate.outputLiability.total, 0);
-      assert.equal(estimate.inputTaxCredit.total, 27000);
+      assert.equal(estimate.inputTaxCredit.total, 18000);
       assert.equal(estimate.netPosition.status, 'REFUND_OR_CARRY_FORWARD');
-      assert.equal(estimate.netPosition.estimatedRefundAmount, 27000);
+      assert.equal(estimate.netPosition.estimatedRefundAmount, 18000);
       assert.equal(estimate.netPosition.estimatedTaxPayable, 0);
     });
 

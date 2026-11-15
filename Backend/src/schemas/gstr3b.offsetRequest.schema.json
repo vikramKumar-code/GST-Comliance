@@ -1,0 +1,199 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GSTR3B Offset Liability Request Schema",
+  "type": "object",
+  "properties": {
+    "pdcash": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "c_intrpd": {
+            "description": "Cgst Interest paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "c_lfeepd": {
+            "description": "Cgst Late Fee paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "cpd": {
+            "description": "Cgst Tax paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "cs_intrpd": {
+            "description": "Cess Interest paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "cspd": {
+            "description": "Cgst Tax paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "i_intrpd": {
+            "description": "Igst Interest paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "ipd": {
+            "description": "Igst Tax paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "liab_ldg_id": {
+            "description": "Liability id",
+            "type": "number",
+            "required": true
+          },
+          "s_intrpd": {
+            "description": "Sgst Interest paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "s_lfeepd": {
+            "description": "Sgst Late fee paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "spd": {
+            "description": "Sgst Tax paid through cash",
+            "type": "number",
+            "required": true
+          },
+          "trans_typ": {
+            "description": "Transaction code",
+            "type": "number",
+            "required": true,
+            "pattern": "^(30002|30003)$"
+          }
+        }
+      }
+    },
+    "pditc": {
+      "type": "object",
+      "properties": {
+        "c_pdc": {
+          "description": "Cgst Tax paid through Cgst ITC",
+          "type": "number",
+          "required": true
+        },
+        "c_pdi": {
+          "description": "Cgst Tax paid through Igst ITC",
+          "type": "number",
+          "required": true
+        },
+        "cs_pdcs": {
+          "description": "Cess Tax paid through Cess ITC",
+          "type": "number",
+          "required": true
+        },
+        "i_pdc": {
+          "description": "Igst Tax paid through Cgst ITC",
+          "type": "number",
+          "required": true
+        },
+        "i_pdi": {
+          "description": "Igst Tax paid through Igst ITC",
+          "type": "number",
+          "required": true
+        },
+        "i_pds": {
+          "description": "Igst Tax paid through Sgst ITC",
+          "type": "number",
+          "required": true
+        },
+        "liab_ldg_id": {
+          "description": "Liability Id",
+          "type": "number",
+          "required": true
+        },
+        "s_pdi": {
+          "description": "Sgst Tax paid through Igst ITC",
+          "type": "number",
+          "required": true
+        },
+        "s_pds": {
+          "description": "Sgst Tax paid through Sgst ITC",
+          "type": "number",
+          "required": true
+        },
+        "trans_typ": {
+          "description": "Transaction code",
+          "type": "number",
+          "required": true,
+          "pattern": "^30002$"
+        }
+      }
+    },
+    "nettaxpay": {
+      "description": "Net tax payable amount",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "trans_typ": {
+            "description": "Transaction Id",
+            "type": "number"
+          },
+          "trans_desc": {
+            "description": "Transaction description",
+            "type": "string",
+            "pattern": "(^Other than reverse charge)|(^Reverse charge)"
+          },
+          "liab_ldg_id": {
+            "description": "Liability Id",
+            "type": "number"
+          },
+          "sgst": {
+            "type": "object",
+            "properties": {
+              "intr": { "description": "SGST INTEREST Payable", "type": "number" },
+              "tx": { "description": "SGST Tax Payable", "type": "number" },
+              "fee": { "description": "SGST LateFee Payable", "type": "number" }
+            }
+          },
+          "cgst": {
+            "type": "object",
+            "properties": {
+              "intr": { "description": "CGST INTEREST Payable", "type": "number" },
+              "tx": { "description": "CGST Tax Payable", "type": "number" },
+              "fee": { "description": "CGST LateFee Payable", "type": "number" }
+            }
+          },
+          "cess": {
+            "type": "object",
+            "properties": {
+              "intr": { "description": "CESS INTEREST Payable", "type": "number" },
+              "tx": { "description": "CESS Tax Payable", "type": "number" }
+            }
+          },
+          "igst": {
+            "type": "object",
+            "properties": {
+              "intr": { "description": "IGST INTEREST Payable", "type": "number" },
+              "tx": { "description": "IGST Tax Payable", "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "pdnls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cpd": { "description": "Cgst Tax paid through nls", "type": "number", "minimum": 0, "required": true },
+          "cspd": { "description": "Cgst Tax paid through nls", "type": "number", "minimum": 0, "required": true },
+          "ipd": { "description": "Igst Tax paid through nls", "type": "number", "minimum": 0, "required": true },
+          "liab_ldg_id": { "description": "Liability id", "type": "number", "required": true },
+          "spd": { "description": "Sgst Tax paid through nls", "type": "number", "minimum": 0, "required": true },
+          "trans_typ": { "description": "Transaction code", "type": "number", "required": true, "pattern": "^(30002|30003)$" }
+        }
+      }
+    }
+  }
+}
+

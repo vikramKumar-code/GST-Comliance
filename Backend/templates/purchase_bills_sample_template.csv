@@ -1,0 +1,4 @@
+Bill Number,Bill Date,Document Type,Vendor Name,Vendor GSTIN,Place of Supply,Item Name,HSN/SAC,Unit (UQC),Quantity,Rate,Discount,Taxable Amount,GST Rate (%),IGST Amount,CGST Amount,SGST Amount,Total Amount
+BILL-001,30-10-2026,INVOICE,Godrej Supplies Ltd,06AAACG1234D1Z9,06,Raw Metal Sheets,7208,PCS,10,350,0,3500,18,0,315,315,4130
+BILL-002,30-10-2026,INVOICE,Havells Power Cables,07AAAAP4321E1Z3,07,Electrical Copper Wires,8544,NOS,5,800,0,4000,18,720,0,0,4720
+

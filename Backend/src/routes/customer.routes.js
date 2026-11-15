@@ -6,8 +6,8 @@ const workspaceRole = require('../middleware/workspaceRole');
 
 router.use(auth);
 
-router.get('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), customerController.listCustomers);
-router.get('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), customerController.getCustomer);
+router.get('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'), customerController.listCustomers);
+router.get('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'), customerController.getCustomer);
 router.post('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), customerController.createCustomer);
 router.put('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), customerController.updateCustomer);
 router.delete('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), customerController.deleteCustomer);

@@ -27,9 +27,17 @@ class FinaggMock {
       throw ApiError.invalidGstin('Taxpayer GSTIN not found or status cancelled.');
     }
 
+    const isDefaultTestGstin = gstin.startsWith('27AAAAA0000A1Z5');
+    const dynamicName = isDefaultTestGstin
+      ? 'Demo Traders Pvt Ltd'
+      : `Taxpayer (${gstin.slice(2, 12)})`;
+    const dynamicTrade = isDefaultTestGstin
+      ? 'Demo Traders'
+      : `Business ${gstin.slice(2, 12)}`;
+
     return {
-      legalName: 'Demo Traders Pvt Ltd',
-      tradeName: 'Demo Traders',
+      legalName: dynamicName,
+      tradeName: dynamicTrade,
       status: 'Active',
       taxpayerType: 'Regular',
       state: 'Maharashtra',
@@ -253,6 +261,185 @@ class FinaggMock {
       default:
         throw ApiError.validationError(`Unsupported return type: ${type}`);
     }
+  }
+
+  /**
+   * Save GSTR-1 payload (Mock)
+   */
+  static async saveGstr1(payload, options = {}) {
+    const gstin = options.gstin || payload?.gstin || '27AAAAA0000A1Z5';
+    FinaggMock._checkProviderDown(gstin, options);
+    const mockRefId = `MOCK_GSTR1_SAVE_${Date.now()}`;
+    return {
+      success: true,
+      reference_id: mockRefId,
+      ref_id: mockRefId,
+      data: { reference_id: mockRefId }
+    };
+  }
+
+  /**
+   * Submit GSTR-1 return (Mock)
+   */
+  static async submitGstr1(period, options = {}) {
+    const gstin = options.gstin || '27AAAAA0000A1Z5';
+    FinaggMock._checkProviderDown(gstin, options);
+    const mockRefId = `MOCK_GSTR1_SUBMIT_${Date.now()}`;
+    return {
+      success: true,
+      reference_id: mockRefId,
+      ref_id: mockRefId,
+      data: { reference_id: mockRefId }
+    };
+  }
+
+  /**
+   * Proceed to File / Generate summary (Mock)
+   */
+  static async proceedToFile(period, options = {}) {
+    const gstin = options.gstin || '27AAAAA0000A1Z5';
+    FinaggMock._checkProviderDown(gstin, options);
+    const mockRefId = `MOCK_GSTR1_PROCEED_${Date.now()}`;
+    return {
+      success: true,
+      isSync: 'Y',
+      reference_id: mockRefId,
+      ref_id: mockRefId,
+      data: { reference_id: mockRefId, isSync: 'Y' }
+    };
+  }
+
+  /**
+   * Track filing processing status (Mock)
+   */
+  static async trackStatus(refId, options = {}) {
+    return {
+      status_cd: 'P',
+      error_report: null,
+      ref_id: refId,
+      reference_id: refId
+    };
+  }
+
+  /**
+   * Fetch GSTR-1 Return Summary (RETSUM Mock)
+   */
+  static async getGstr1RetSum(gstin, period, username, token, isNil = false) {
+    if (isNil) {
+      return JSON.stringify({
+        gstin,
+        ret_period: period,
+        isnil: 'Y',
+        chksum: `MOCK_NIL_CHKSUM_${Date.now()}`
+      });
+    }
+    return JSON.stringify({
+      gstin,
+      ret_period: period,
+      b2b: [],
+      b2cl: [],
+      b2cs: [],
+      cdnr: [],
+      cdnur: [],
+      exp: [],
+      at: [],
+      atadj: [],
+      hsn: { data: [] },
+      doc_issue: {},
+      chksum: `MOCK_CHKSUM_${Date.now()}`
+    });
+  }
+
+  /**
+   * File GSTR-1 with EVC OTP (Mock)
+   */
+  static async fileGstr1(period, options = {}) {
+    const gstin = options.gstin || '27AAAAA0000A1Z5';
+    FinaggMock._checkProviderDown(gstin, options);
+    const stateCd = gstin.slice(0, 2);
+    const month = (period || '012026').slice(0, 2);
+    const mockArn = `AA${stateCd}${month}2600${Math.floor(10000 + Math.random() * 90000)}`;
+    return {
+      success: true,
+      arn: mockArn,
+      ack_num: mockArn,
+      data: { ack_num: mockArn }
+    };
+  }
+
+  /**
+   * Save GSTR-3B payload (Mock)
+   */
+  static async saveGstr3b(payload, options = {}) {
+    const gstin = options.gstin || payload?.gstin || '27AAAAA0000A1Z5';
+    FinaggMock._checkProviderDown(gstin, options);
+    const mockRefId = `MOCK_GSTR3B_SAVE_${Date.now()}`;
+    return {
+      success: true,
+      reference_id: mockRefId,
+      ref_id: mockRefId,
+      data: { reference_id: mockRefId }
+    };
+  }
+
+  /**
+   * Offset GSTR-3B tax liabilities (Mock)
+   */
+  static async offsetGstr3b(period, options = {}) {
+    const gstin = options.gstin || '27AAAAA0000A1Z5';
+    FinaggMock._checkProviderDown(gstin, options);
+    return {
+      success: true,
+      message: 'Payment of tax successfully done',
+      data: { message: 'Payment of tax successfully done' }
+    };
+  }
+
+  /**
+   * Fetch GSTR-3B Return Summary (RETSUM Mock)
+   */
+  static async getGstr3bRetSum(gstin, period, options = {}) {
+    const summaryData = {
+      gstin,
+      ret_period: period,
+      sup_details: {},
+      itc_elg: {},
+      inward_sup: {}
+    };
+    return {
+      raw: JSON.stringify(summaryData),
+      data: summaryData
+    };
+  }
+
+  /**
+   * File GSTR-3B with EVC OTP (Mock)
+   */
+  static async fileGstr3b(period, options = {}) {
+    const gstin = options.gstin || '27AAAAA0000A1Z5';
+    FinaggMock._checkProviderDown(gstin, options);
+    const stateCd = gstin.slice(0, 2);
+    const month = (period || '012026').slice(0, 2);
+    const mockArn = `AA${stateCd}${month}2600${Math.floor(10000 + Math.random() * 90000)}`;
+    return {
+      success: true,
+      arn: mockArn,
+      ack_num: mockArn,
+      data: { ack_num: mockArn }
+    };
+  }
+
+  /**
+   * Get File Details (Mock)
+   */
+  static async getFileDetails(period, options = {}) {
+    return {
+      success: true,
+      data: {
+        filing_status: 'Filed',
+        arn: `AA27${(period || '012026').slice(0, 2)}260012345`
+      }
+    };
   }
 }
 

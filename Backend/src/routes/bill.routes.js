@@ -6,10 +6,10 @@ const workspaceRole = require('../middleware/workspaceRole');
 
 router.use(auth);
 
-router.get('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), billController.listBills);
-router.get('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'), billController.getBill);
-router.post('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), billController.createBill);
-router.put('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), billController.updateBill);
-router.delete('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER'), billController.deleteBill);
+router.get('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'), billController.listBills);
+router.get('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'), billController.getBill);
+router.post('/', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'CA'), billController.createBill);
+router.put('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'CA'), billController.updateBill);
+router.delete('/:id', workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'CA'), billController.deleteBill);
 
 module.exports = router;

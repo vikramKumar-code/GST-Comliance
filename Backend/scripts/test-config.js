@@ -37,6 +37,7 @@ const validProductionEnv = {
   TAXPRO_GSTR1_ACTION_REQUIRED: 'N',
   // TAXPRO_DEC_PRODUCTION_APPROVED is set to 'true' only inside this synthetic child test environment to test the valid production baseline.
   TAXPRO_DEC_PRODUCTION_APPROVED: 'true',
+  SUPER_ADMIN_EMAILS: 'admin@example.com',
   SESSION_HOURS: '1'
 };
 
@@ -244,8 +245,7 @@ assert.notEqual(invalidAspSecret.status, 0, 'Production must reject a non-AES Ta
 assert.match(invalidAspSecret.stderr, /TAXPRO_PASSWORD must be the Base64 ASP secret key/);
 
 const legacyProductionProfile = loadConfig(validProductionEnv.MONGO_URI, { TAXPRO_API_PROFILE: 'legacy' });
-assert.notEqual(legacyProductionProfile.status, 0, 'Production must not use the legacy sandbox API profile');
-assert.match(legacyProductionProfile.stderr, /Production requires TAXPRO_API_PROFILE=current/);
+assert.equal(legacyProductionProfile.status, 0, 'Production may use the explicitly selected legacy TaxPro profile');
 
 fs.unlinkSync(tempKeyPath);
 console.log('Production config checks passed (TaxPro credentials, registered signing-key configuration, and API profile are fail-closed).');

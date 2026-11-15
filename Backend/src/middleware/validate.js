@@ -83,6 +83,11 @@ const verifyOtpSchema = Joi.object({
 
 // 4. EVC OTP Schema
 const evcOtpSchema = Joi.object({
+  gstin: Joi.string()
+    .trim()
+    .uppercase()
+    .pattern(GSTIN_REGEX)
+    .optional(),
   pan: Joi.string()
     .trim()
     .uppercase()
@@ -100,7 +105,15 @@ const evcOtpSchema = Joi.object({
     .messages({
       'string.empty': 'form_type is required.',
       'any.required': 'form_type is required.'
-    })
+    }),
+  period: Joi.string()
+    .trim()
+    .pattern(/^(0[1-9]|1[0-2])[0-9]{4}$/)
+    .optional()
+    .messages({
+      'string.pattern.base': 'Return period must be in MMYYYY format.'
+    }),
+  username: Joi.string().trim().optional().allow('')
 });
 
 // 5. Period Query Schema for returns & dashboard
@@ -170,6 +183,9 @@ const switchWorkspaceSchema = Joi.object({
   })
 });
 
+
+
+
 // 11. Link GSTIN to Workspace Schema
 const linkGstinSchema = Joi.object({
   gstin: Joi.string()
@@ -195,12 +211,66 @@ const switchRoleSchema = Joi.object({
     })
 });
 
+// 13. Regular Return Filing Body Schema (GSTR-1 & GSTR-3B with EVC)
+const filingBodySchema = Joi.object({
+  period: Joi.string()
+    .trim()
+    .pattern(/^(0[1-9]|1[0-2])[0-9]{4}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Tax period must be in MMYYYY format.',
+      'any.required': 'Tax period (MMYYYY) is required.'
+    }),
+  pan: Joi.string()
+    .trim()
+    .uppercase()
+    .pattern(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'A valid authorised signatory PAN is required.',
+      'any.required': 'PAN is required.'
+    }),
+  otp: Joi.string()
+    .trim()
+    .pattern(/^[0-9A-Za-z]{4,8}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Invalid EVC OTP format. Must be 4 to 8 letters or digits.',
+      'any.required': 'EVC OTP is required.'
+    }),
+  excludedInvoiceIds: Joi.array().items(Joi.string()).optional(),
+  alreadyPrepared: Joi.boolean().optional(),
+  declarationAccepted: Joi.boolean().optional(),
+  verificationMode: Joi.string().valid('EVC', 'DSC').optional().default('EVC')
+});
+
+// 14. Nil Return Filing Body Schema (CGST Rule 67A)
+const nilFileBodySchema = Joi.object({
+  period: Joi.string()
+    .trim()
+    .pattern(/^(0[1-9]|1[0-2])[0-9]{4}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Tax period must be in MMYYYY format.',
+      'any.required': 'Tax period (MMYYYY) is required.'
+    }),
+  returnType: Joi.string().trim().uppercase().valid('GSTR1', 'GSTR3B').optional().default('GSTR1'),
+  type: Joi.string().trim().uppercase().valid('GSTR1', 'GSTR3B').optional(),
+  declarationAccepted: Joi.boolean().optional().default(true),
+  verificationMode: Joi.string().valid('EVC', 'ONLINE', 'NIL_ONLINE', 'DSC').optional().default('EVC'),
+  otp: Joi.string().trim().pattern(/^[0-9A-Za-z]{4,8}$/).optional().allow('', null),
+  pan: Joi.string().trim().uppercase().pattern(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/).optional().allow('', null),
+  gstin: Joi.string().trim().uppercase().optional().allow('', null),
+  username: Joi.string().trim().optional().allow('', null)
+});
+
 /**
  * Generic Joi validation middleware generator
  * @param {Joi.ObjectSchema} schema - The Joi schema to validate against
  * @param {'body'|'query'|'params'} property - Request property to inspect
  */
 const validate = (schema, property = 'body') => (req, res, next) => {
+  if (!schema) return next();
   const { error, value } = schema.validate(req[property], {
     abortEarly: false,
     stripUnknown: true
@@ -227,6 +297,8 @@ module.exports = {
   verifyOtpSchema,
   evcOtpSchema,
   periodQuerySchema,
+  filingBodySchema,
+  nilFileBodySchema,
   contactSchema,
   signupSchema,
   signinSchema,
@@ -235,5 +307,3 @@ module.exports = {
   linkGstinSchema,
   switchRoleSchema
 };
-
-

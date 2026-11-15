@@ -7,6 +7,36 @@ const workspaceSchema = new mongoose.Schema(
       trim: true,
       default: 'My Organization'
     },
+    tradeName: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    address: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    stateCode: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    stateName: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    pincode: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    phone: {
+      type: String,
+      trim: true,
+      default: ''
+    },
     gstin: {
       type: String,
       trim: true,
@@ -55,6 +85,11 @@ const workspaceSchema = new mongoose.Schema(
         type: String,
         default: ''
       }
+    },
+    gstPortalSession: {
+      username: { type: String, default: null },
+      gstTokenEnc: { type: String, default: null },
+      expiresAt: { type: Date, default: null }
     },
     limits: {
       maxClients: {

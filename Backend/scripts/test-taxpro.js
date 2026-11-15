@@ -80,6 +80,12 @@ class FakeHttpClient {
     if (!this.handler) throw new Error('FakeHttpClient: No handler configured');
     return this.handler(url, { ...config, body });
   }
+
+  async put(url, body, config) {
+    this.calls.push({ url, body, config });
+    if (!this.handler) throw new Error('FakeHttpClient: No handler configured');
+    return this.handler(url, { ...config, body });
+  }
 }
 
 let currentCheck = '';
@@ -233,7 +239,7 @@ async function main() {
       // Without passphrase or wrong passphrase
       assert.throws(
         () => createSignedContent('TESTASP', timestamp, encKeyPath, 'wrong-pass'),
-        (err) => err.message.includes('TaxPro ASP signing key is not a readable PEM private key or passphrase is incorrect')
+        (err) => err.message.includes('passphrase is incorrect')
       );
 
       // With correct passphrase
@@ -384,12 +390,28 @@ async function main() {
       ['GSP030', 'PROVIDER_DOWN', 503, 'GST service is unavailable. Please try again later.'],
       ['GSP053', 'OTP_INVALID', 400, 'OTP request has expired or was not found. Please request a new OTP.'],
       ['AUTH4037', 'VALIDATION_ERROR', 400, 'Portal user is not registered with this GSTIN. Please check your portal username and GSTIN.'],
+      ['AUTH002', 'VALIDATION_ERROR', 400, 'GST Portal Error (AUTH002): API access is disabled for this GSTIN or GSP is not authorized. Please login to gst.gov.in > My Profile > Manage API Access and enable API access.'],
+      ['AUTH003', 'VALIDATION_ERROR', 400, 'GST Portal Error (AUTH003): API access is restricted for this taxpayer status. Please verify GSTIN status on the GST portal.'],
+      ['OTP0006', 'VALIDATION_ERROR', 400, 'GST Portal Error (OTP0006): PAN entered does not match the Authorized Signatory registered on the GST portal. For Companies/LLPs, please enter the personal PAN of the designated Director/Partner (4th letter must be "P").'],
+      ['OTP0007', 'PROVIDER_DOWN', 503, 'GST Portal Error: GST OTP server is temporarily unavailable. Please retry in a few moments.'],
+      ['TEC4001', 'PROVIDER_DOWN', 503, 'GST Portal Error: GST OTP server is temporarily unavailable. Please retry in a few moments.'],
+      ['OTP0011', 'SESSION_EXPIRED', 401, 'Please verify OTP again.'],
+      ['AUTH4042', 'SESSION_EXPIRED', 401, 'Please verify OTP again.'],
+      ['AUT4031', 'PROVIDER_AUTH', 502, 'Could not complete the request. Please try again.'],
       ['GSP101', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
       ['RET2B1023', 'DATA_NOT_AVAILABLE', 404, 'Data for this period is not available yet. Try another month.'],
       ['RET11400', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
       ['RET2B1001', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
       ['RT-3BGV1005', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.'],
       ['GSP500', 'PROVIDER_DOWN', 503, 'GST service is unavailable. Please try again later.'],
+      ['AUTH117', 'VALIDATION_ERROR', 400, 'GST Portal Notice (AUTH117): GSTR-1 is already filed for current period.'],
+      ['AUTH119', 'VALIDATION_ERROR', 400, 'GST Portal Notice (AUTH119): GSTR-3B is not filed for previous period. Please file previous GSTR-3B first.'],
+      ['RT_FIL_31', 'VALIDATION_ERROR', 400, 'GST Portal Error (RT_FIL_31): Taxpayer is not authorized to file with EVC option (Companies and LLPs must file using Digital Signature Certificate - DSC).'],
+      ['RET13506', 'VALIDATION_ERROR', 400, 'GST Portal Error (RET13506): OTP is either expired or incorrect. Please request a fresh OTP and try again.'],
+      ['RET13504', 'PROVIDER_DOWN', 503, 'GST Portal Error (RET13504): Unable to process request. GST portal is busy, please try after some time.'],
+      ['RET191150', 'VALIDATION_ERROR', 400, 'GST Portal Error (RET191150): IGST is required for interstate supply. Remove CGST and SGST.'],
+      ['RET191111', 'VALIDATION_ERROR', 400, 'GST Portal Error (RET191111): Invoice number already exists in GSTR-1 for this period. Please enter correct invoice number.'],
+      ['RT-1ABC1002', 'INVALID_GSTIN', 400, 'GST Portal Error (RT-1ABC1002): Taxpayer GSTIN is null or empty. Please select an active GSTIN.'],
       ['UNKNOWN999', 'PROVIDER_ERROR', 502, 'Could not complete the request. Please try again.']
     ];
     for (const [providerCode, expectedCode, expectedStatus, expectedMessage] of cases) {
@@ -408,7 +430,8 @@ async function main() {
   const adapter = new TaxProProvider({
     httpClient: fakeClient,
     aspid: testAspid,
-    password: testPassword
+    password: testPassword,
+    apiProfile: 'legacy'
   });
 
   // 1. Check doc/otprequest-success.json
@@ -667,34 +690,40 @@ async function main() {
 
     assert.deepEqual(fakeClient.calls.map((call) => call.url), [
       '/taxpayerapi/dec/v4.1/returns/gstr1',
-      '/taxpayerapi/dec/v7.0/returns/gstr3b',
+      '/taxpayerapi/dec/v7.1/returns/gstr3b',
       '/taxpayerapi/dec/v4.2/returns/gstr2b'
     ]);
-    assert.equal(fakeClient.calls[0].config.params.action_required, 'N');
+    assert.equal(fakeClient.calls[0].config.params.action, 'B2B');
     for (const call of fakeClient.calls) {
       assert.equal(call.config.headers['auth-token'], testToken, 'Must send hyphenated auth-token header');
       assert.equal(call.config.headers.authtoken, undefined, 'Must not send duplicate authtoken header');
       assert.equal(call.config.params.gstin, '27AAAAA0000A1Z5', 'TaxPro current profile requires gstin in query parameters');
-      assert.equal(call.config.params.username, undefined);
+      assert.equal(call.config.params.username, call.url.includes('/v4.1/returns/gstr1') ? 'testuser' : undefined);
       assert.equal(call.config.params.ret_prd, undefined);
       assert.equal(call.config.headers.ret_prd, undefined, 'Must not send ret_prd header in current profile');
-      assert.equal(call.config.headers.ret_period, '092026', 'Must send ret_period header in default mode');
-      assert.equal(call.config.headers.gstin, '27AAAAA0000A1Z5');
       assert.equal(call.config.headers['state-cd'], '27', 'TaxPro current profile requires state-cd header');
       assert.equal(call.config.headers.username, 'testuser');
       assert.equal(call.config.headers['ip-usr'], '203.0.113.1', 'Must forward ip-usr header from config');
       assert.match(
         call.config.headers.txn,
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i,
         'Must send unique UUID v4 txn transaction ID'
       );
     }
+    assert.equal(fakeClient.calls[0].config.headers.ret_period, '092026', 'GSTR-1 includes ret_period header in default mode');
+    assert.equal(fakeClient.calls[0].config.headers.gstin, '27AAAAA0000A1Z5');
+    assert.equal(fakeClient.calls[1].config.headers.ret_period, undefined);
+    assert.equal(fakeClient.calls[1].config.headers.gstin, undefined);
+    assert.equal(fakeClient.calls[1].config.headers['Content-Type'], 'application/json');
     const txns = fakeClient.calls.map((call) => call.config.headers.txn);
     assert.equal(new Set(txns).size, 3, 'Each return request must receive a unique txn transaction ID');
     assert.equal(fakeClient.calls[0].config.params.ret_period, '092026', 'GSTR-1 includes ret_period in default both mode');
     assert.equal(fakeClient.calls[0].config.params.rtnprd, undefined, 'GSTR-1 does not include rtnprd in query params');
     assert.equal(fakeClient.calls[1].config.params.ret_period, '092026', 'GSTR-3B includes ret_period in default both mode');
     assert.equal(fakeClient.calls[1].config.params.rtnprd, undefined, 'GSTR-3B does not include rtnprd in query params');
+    assert.equal(fakeClient.calls[1].config.headers.api_version, '7.1');
+    assert.equal(fakeClient.calls[1].config.headers.userrole, 'GSTR3B');
+    assert.equal(fakeClient.calls[1].config.headers.rtn_typ, 'GSTR3B');
     assert.equal(fakeClient.calls[2].config.params.ret_period, '092026', 'GSTR-2B includes ret_period in default both mode');
     assert.equal(fakeClient.calls[2].config.params.rtnprd, '092026', 'GSTR-2B GET2B requires rtnprd in query parameters');
     assert.equal(fakeClient.calls[2].config.headers.ret_period, '092026', 'GSTR-2B includes ret_period header');
@@ -762,11 +791,11 @@ async function main() {
 
       // 1. Assert routes are preserved
       assert.equal(gstr1Call.url, '/taxpayerapi/dec/v4.1/returns/gstr1');
-      assert.equal(gstr3bCall.url, '/taxpayerapi/dec/v7.0/returns/gstr3b');
+      assert.equal(gstr3bCall.url, '/taxpayerapi/dec/v7.1/returns/gstr3b');
       assert.equal(gstr2bCall.url, '/taxpayerapi/dec/v4.2/returns/gstr2b');
 
-      // 2. Assert headers common to all calls in this mode
-      for (const call of [gstr1Call, gstr3bCall, gstr2bCall]) {
+      // 2. Assert common headers on GSTR-1 and GSTR-2B.
+      for (const call of [gstr1Call, gstr2bCall]) {
         const headers = call.config.headers;
         const params = call.config.params;
         const url = call.url;
@@ -781,7 +810,7 @@ async function main() {
         assert.equal(headers.username, 'testuser');
         assert.equal(headers['state-cd'], '27', 'Must send state-cd (first two digits of GSTIN)');
         assert.equal(headers['ip-usr'], '203.0.113.1');
-        assert.match(headers.txn, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+        assert.match(headers.txn, /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i);
 
         // Security check: no credentials ever appear in URL string or query parameters
         assert.ok(!url.includes(testAspid), 'URL must never contain aspid');
@@ -791,7 +820,7 @@ async function main() {
         assert.equal(params.password, undefined, 'query parameters must never contain password');
         assert.equal(params.authtoken, undefined, 'query parameters must never contain authtoken');
         assert.equal(params['auth-token'], undefined, 'query parameters must never contain auth-token');
-        assert.equal(params.username, undefined, 'current profile does not pass username in query params');
+        assert.equal(params.username, call === gstr1Call ? 'testuser' : undefined);
         assert.equal(params.ret_prd, undefined, 'current profile never passes ret_prd in query params');
 
         // Check header ret_period placement per mode
@@ -802,12 +831,27 @@ async function main() {
         }
       }
 
+      const gstr3bHeaders = gstr3bCall.config.headers;
+      assert.equal(gstr3bHeaders.username, 'testuser');
+      assert.equal(gstr3bHeaders['auth-token'], testToken);
+      assert.equal(gstr3bHeaders['state-cd'], '27');
+      assert.equal(gstr3bHeaders['ip-usr'], '203.0.113.1');
+      assert.equal(gstr3bHeaders.api_version, '7.1');
+      assert.equal(gstr3bHeaders.userrole, 'GSTR3B');
+      assert.equal(gstr3bHeaders.rtn_typ, 'GSTR3B');
+      assert.equal(gstr3bHeaders['Content-Type'], 'application/json');
+      assert.equal(gstr3bHeaders.aspid, undefined);
+      assert.equal(gstr3bHeaders.password, undefined);
+      assert.equal(gstr3bHeaders.gstin, undefined);
+      assert.equal(gstr3bHeaders.ret_period, undefined);
+      assert.match(gstr3bHeaders.txn, /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i);
+
       // 3. Assert intended query parameter names per mode
       if (mode === 'both') {
-        // GSTR-1: action, gstin, action_required, ret_period
-        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'action_required', 'gstin', 'ret_period'].sort());
+        // GSTR-1: action, gstin, username, ret_period
+        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'gstin', 'username', 'ret_period'].sort());
         assert.equal(gstr1Call.config.params.action, 'B2B');
-        assert.equal(gstr1Call.config.params.action_required, 'N');
+        assert.equal(gstr1Call.config.params.username, 'testuser');
         assert.equal(gstr1Call.config.params.ret_period, '092026');
 
         // GSTR-3B: action, gstin, ret_period
@@ -821,10 +865,10 @@ async function main() {
         assert.equal(gstr2bCall.config.params.ret_period, '092026');
         assert.equal(gstr2bCall.config.params.rtnprd, '092026');
       } else if (mode === 'header') {
-        // GSTR-1: action, gstin, action_required (no ret_period)
-        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'action_required', 'gstin'].sort());
+        // GSTR-1: action, gstin, username (period in header)
+        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'gstin', 'username'].sort());
         assert.equal(gstr1Call.config.params.action, 'B2B');
-        assert.equal(gstr1Call.config.params.action_required, 'N');
+        assert.equal(gstr1Call.config.params.username, 'testuser');
         assert.equal(gstr1Call.config.params.ret_period, undefined);
 
         // GSTR-3B: action, gstin (no ret_period)
@@ -838,10 +882,10 @@ async function main() {
         assert.equal(gstr2bCall.config.params.ret_period, undefined);
         assert.equal(gstr2bCall.config.params.rtnprd, undefined);
       } else if (mode === 'query') {
-        // GSTR-1: action, gstin, action_required, ret_period
-        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'action_required', 'gstin', 'ret_period'].sort());
+        // GSTR-1: action, gstin, username, ret_period
+        assert.deepEqual(Object.keys(gstr1Call.config.params).sort(), ['action', 'gstin', 'username', 'ret_period'].sort());
         assert.equal(gstr1Call.config.params.action, 'B2B');
-        assert.equal(gstr1Call.config.params.action_required, 'N');
+        assert.equal(gstr1Call.config.params.username, 'testuser');
         assert.equal(gstr1Call.config.params.ret_period, '092026');
 
         // GSTR-3B: action, gstin, ret_period
@@ -866,7 +910,7 @@ async function main() {
     await adapter.getReturn('GSTR2B', '27AAAAA0000A1Z5', '012022', testToken, 'testuser');
 
     assert.deepEqual(fakeClient.calls.map((call) => call.url), [
-      '/taxpayerapi/dec/v2.1/returns/gstr1',
+      '/taxpayerapi/dec/v2.0/returns/gstr1',
       '/taxpayerapi/dec/v0.3/returns/gstr3b',
       '/taxpayerapi/dec/v1.0/returns/gstr2b'
     ]);
@@ -886,46 +930,377 @@ async function main() {
     }
   });
 
-  await runAsyncCheck('current API profile requires only the GSTR-1 action flag confirmation', async () => {
+  await runAsyncCheck('GSTR-1 v2.0 catalogue routes advertise API version 2.1', async () => {
+    fakeClient.calls = [];
+    const regularSummary = {
+      gstin: '27AAAAA0000A1Z5',
+      ret_period: '022022',
+      chksum: 'TEST-SUMMARY-CHECKSUM',
+      newSumFlag: true,
+      sec_sum: []
+    };
+    fakeClient.setHandler((url, config) => ({
+      status: 200,
+      data: config.params.action === 'RETSAVE'
+        ? { reference_id: 'TEST-RETSAVE-REF' }
+        : config.params.action === 'RETSUM'
+          ? JSON.stringify(regularSummary)
+          : { status_cd: '1', ack_num: 'TEST-ACK' }
+    }));
+    const tokenRequiredAdapter = new TaxProProvider({
+      httpClient: fakeClient,
+      aspid: testAspid,
+      password: testPassword
+    });
+    await assert.rejects(
+      () => tokenRequiredAdapter.saveGstr1(
+        { gstin: '27AAAAA0000A1Z5', fp: '022022' },
+        { gstin: '27AAAAA0000A1Z5', period: '022022', username: 'testuser' }
+      ),
+      { code: 'SESSION_EXPIRED' }
+    );
+    assert.equal(fakeClient.calls.length, 0, 'RETSAVE must not be sent without a GST auth token');
+
+    const saveResult = await adapter.saveGstr1(
+      { gstin: '27AAAAA0000A1Z5', fp: '022022' },
+      { gstin: '27AAAAA0000A1Z5', period: '022022', username: 'testuser', gstToken: testToken }
+    );
+    assert.equal(saveResult.ref_id, 'TEST-RETSAVE-REF');
+    await adapter.fileGstr1('022022', {
+      gstin: '27AAAAA0000A1Z5',
+      username: 'testuser',
+      token: testToken,
+      pan: 'ABCDE1234F',
+      otp: '123456'
+    });
+
+    assert.deepEqual(fakeClient.calls.map((call) => call.url), [
+      '/taxpayerapi/dec/v2.0/returns/gstr1',
+      '/taxpayerapi/dec/v2.0/returns/gstr1',
+      '/taxpayerapi/dec/v2.0/returns/gstr1'
+    ]);
+    assert.equal(fakeClient.calls[0].config.params.action, 'RETSAVE');
+    assert.equal(fakeClient.calls[0].config.headers.api_version, '2.1');
+    assert.equal(fakeClient.calls[1].config.params.action, 'RETSUM');
+    assert.equal(fakeClient.calls[2].config.params.action, 'RETFILE');
+    assert.equal(fakeClient.calls[1].config.headers.api_version, '2.1');
+    assert.equal(fakeClient.calls[2].config.headers.api_version, '2.1');
+    assert.deepEqual(JSON.parse(fakeClient.calls[2].body), {
+      gstin: '27AAAAA0000A1Z5',
+      ret_period: '022022',
+      chksum: 'TEST-SUMMARY-CHECKSUM',
+      newSumFlag: true,
+      sec_sum: []
+    });
+  });
+
+  await runAsyncCheck('legacy PROCEEDFILE sends required request body and fails closed on upstream error', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => ({ status: 200, data: { status_cd: '1' } }));
+    await adapter.proceedToFile('022022', {
+      gstin: '27AAAAA0000A1Z5',
+      username: 'testuser',
+      gstToken: testToken
+    });
+    const proceedCall = fakeClient.calls[0];
+    assert.equal(proceedCall.url, '/taxpayerapi/dec/v1.0/returns/gstr');
+    assert.equal(proceedCall.config.params.action, 'PROCEEDFILE');
+    assert.deepEqual(proceedCall.body, {
+      gstin: '27AAAAA0000A1Z5',
+      ret_period: '022022'
+    });
+
+    fakeClient.calls = [];
+    await adapter.proceedToFile('022022', {
+      gstin: '27AAAAA0000A1Z5',
+      username: 'testuser',
+      gstToken: testToken,
+      isNil: true
+    });
+    assert.deepEqual(fakeClient.calls[0].body, {
+      gstin: '27AAAAA0000A1Z5',
+      ret_period: '022022',
+      isNil: 'Y'
+    });
+
+    fakeClient.setHandler(() => ({
+      status: 200,
+      data: { status_cd: '0', error: { error_cd: 'RETFILE_NOT_READY' } }
+    }));
+    await assert.rejects(
+      () => adapter.proceedToFile('022022', {
+        gstin: '27AAAAA0000A1Z5',
+        username: 'testuser',
+        gstToken: testToken
+      }),
+      { code: 'PROVIDER_ERROR' }
+    );
+  });
+
+  await runAsyncCheck('current GSTR-1 RETSAVE uses documented route and reference_id response', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => ({
+      status: 200,
+      data: { reference_id: 'CURRENT-RETSAVE-REF' }
+    }));
+    const currentAdapter = new TaxProProvider({
+      httpClient: fakeClient,
+      aspid: testAspid,
+      password: testPassword,
+      apiProfile: 'current'
+    });
+
+    const result = await currentAdapter.saveGstr1(
+      { gstin: '27AAAAA0000A1Z5', fp: '022022' },
+      { gstin: '27AAAAA0000A1Z5', period: '022022', username: 'testuser', gstToken: testToken }
+    );
+
+    assert.equal(fakeClient.calls[0].url, '/taxpayerapi/dec/v4.1/returns/gstr1');
+    assert.equal(fakeClient.calls[0].config.params.action, 'RETSAVE');
+    assert.equal(result.ref_id, 'CURRENT-RETSAVE-REF');
+    assert.equal(result.data.status_cd, undefined);
+
+    fakeClient.setHandler(() => ({ status: 200, data: {} }));
+    await assert.rejects(
+      () => currentAdapter.saveGstr1(
+        { gstin: '27AAAAA0000A1Z5', fp: '022022' },
+        { gstin: '27AAAAA0000A1Z5', period: '022022', username: 'testuser', gstToken: testToken }
+      ),
+      { code: 'PROVIDER_ERROR' }
+    );
+  });
+
+  await runAsyncCheck('current GSTR-3B save, summary, offset, and EVC filing use collection v7.1 route', async () => {
+    fakeClient.calls = [];
+    fakeClient.setHandler(() => ({ status: 200, data: { status_cd: '1', reference_id: 'REF-123', ack_num: 'TEST-ACK', message: 'Payment of tax successfully done', sup_details: {}, itc_elg: {} } }));
+    const currentAdapter = new TaxProProvider({
+      httpClient: fakeClient,
+      aspid: testAspid,
+      password: testPassword,
+      apiProfile: 'current',
+      ipUsr: '203.0.113.1'
+    });
+    const options = {
+      gstin: '27AAAAA0000A1Z5',
+      username: 'testuser',
+      period: '092026',
+      gstToken: testToken
+    };
+
+    await currentAdapter.saveGstr3b({ gstin: options.gstin, ret_period: options.period }, options);
+    await currentAdapter.getGstr3bRetSum(options.gstin, options.period, options);
+    await currentAdapter.offsetGstr3b(options.period, {
+      ...options,
+      body: {
+        pdcash: [{ liab_ldg_id: 30002, trans_typ: 30002, ipd: 100, cpd: 50, spd: 50, cspd: 0, i_intrpd: 0, c_intrpd: 0, s_intrpd: 0, cs_intrpd: 0, c_lfeepd: 0, s_lfeepd: 0 }],
+        pditc: { liab_ldg_id: 30002, trans_typ: 30002, i_pdi: 200, i_pdc: 0, i_pds: 0, c_pdi: 0, c_pdc: 100, s_pdi: 0, s_pds: 100, cs_pdcs: 0 },
+        nettaxpay: [{ trans_typ: 30002, trans_desc: 'Other than reverse charge', liab_ldg_id: 30002, igst: { tx: 300, intr: 0, fee: 0 }, cgst: { tx: 150, intr: 0, fee: 0 }, sgst: { tx: 150, intr: 0, fee: 0 }, cess: { tx: 0, intr: 0, fee: 0 } }]
+      }
+    });
+    const result = await currentAdapter.fileGstr3b(options.period, {
+      ...options,
+      pan: 'ABCDE1234F',
+      otp: '123456',
+      mode: 'EVC'
+    });
+
+    assert.equal(result.arn, 'TEST-ACK');
+    assert.deepEqual(fakeClient.calls.map((call) => call.url), Array(5).fill('/taxpayerapi/dec/v7.1/returns/gstr3b'));
+    for (const call of fakeClient.calls) {
+      assert.equal(call.config.headers.api_version, '7.1');
+      assert.equal(call.config.headers.userrole, 'GSTR3B');
+      assert.equal(call.config.headers.rtn_typ, 'GSTR3B');
+      assert.equal(call.config.headers['ip-usr'], '203.0.113.1');
+      assert.match(call.config.headers.txn, /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i);
+    }
+    assert.equal(fakeClient.calls[0].config.params.action, 'RETSAVE');
+    assert.equal(fakeClient.calls[1].config.params.action, 'RETSUM');
+    assert.equal(fakeClient.calls[2].config.params.action, 'RETOFFSET');
+    assert.equal(fakeClient.calls[2].body.gstin, '27AAAAA0000A1Z5');
+    assert.equal(fakeClient.calls[2].body.ret_period, '092026');
+    assert.equal(fakeClient.calls[2].body.pdcash[0].trans_typ, 30002);
+    assert.equal(fakeClient.calls[2].body.pdcash[0].ipd, 100);
+    assert.equal(fakeClient.calls[2].body.pditc.trans_typ, 30002);
+    assert.equal(fakeClient.calls[2].body.pditc.i_pdi, 200);
+    assert.equal(fakeClient.calls[2].body.nettaxpay[0].trans_desc, 'Other than reverse charge');
+    assert.equal(fakeClient.calls[4].config.params.action, 'RETFILE');
+    assert.equal(typeof fakeClient.calls[4].config.params.sign, 'string');
+  });
+
+  await runAsyncCheck('current GSTR-1 save, EVCOTP, RETSUM, and RETFILE use collection v4.1 contract', async () => {
+    fakeClient.calls = [];
+    const summaryResponse = {
+      gstin: '27AAAAA0000A1Z5',
+      ret_period: '092026',
+      status_cd: '1',
+      chksum: 'SUMMARY-CHECKSUM',
+      newSumFlag: true,
+      sec_sum: [{
+        sec_nm: 'B2B',
+        chksum: 'SECTION-CHECKSUM',
+        ttl_rec: 1,
+        ttl_tax: 100,
+        ttl_igst: 100,
+        ttl_sgst: 0,
+        ttl_cgst: 0,
+        ttl_val: 1000,
+        ttl_cess: 0
+      }]
+    };
+    fakeClient.setHandler((url, config) => ({
+      status: 200,
+      data: config.params.action === 'RETSUM'
+        ? JSON.stringify(summaryResponse)
+        : config.params.action === 'RETSAVE'
+          ? { reference_id: 'CURRENT-RETSAVE-REF' }
+          : config.params.action === 'RETFILE'
+            ? { ack_num: 'GSTR1-ACK' }
+            : { status_cd: '1' }
+    }));
+    const currentAdapter = new TaxProProvider({
+      httpClient: fakeClient,
+      aspid: testAspid,
+      password: testPassword,
+      apiProfile: 'current',
+      ipUsr: '203.0.113.1'
+    });
+    const gstin = '27AAAAA0000A1Z5';
+    const username = 'testuser';
+    const period = '092026';
+    const token = testToken;
+
+    await currentAdapter.saveGstr1(
+      { gstin, fp: period, gt: 0, cur_gt: 1000, b2b: [] },
+      { gstin, period, username, gstToken: token }
+    );
+    await currentAdapter.requestEvcOtp(gstin, username, 'ABCDE1234F', 'R1', token, period);
+    const result = await currentAdapter.fileGstr1(period, {
+      gstin,
+      username,
+      gstToken: token,
+      pan: 'ABCDE1234F',
+      otp: '123456',
+      mode: 'EVC'
+    });
+
+    assert.equal(result.arn, 'GSTR1-ACK');
+    assert.deepEqual(fakeClient.calls.map((call) => call.url), [
+      '/taxpayerapi/dec/v4.1/returns/gstr1',
+      '/taxpayerapi/dec/v4.1/returns/gstr1',
+      '/taxpayerapi/dec/v4.1/returns/gstr1',
+      '/taxpayerapi/dec/v4.1/returns/gstr1'
+    ]);
+    assert.equal(fakeClient.calls[0].config.params.action, 'RETSAVE');
+    assert.equal(fakeClient.calls[0].config.headers.api_version, '4.1');
+    assert.equal(fakeClient.calls[1].config.params.action, 'EVCOTP');
+    assert.equal(fakeClient.calls[1].config.params.ret_periode, period);
+    assert.equal(fakeClient.calls[1].config.params.form_type, 'R1');
+    assert.deepEqual(Object.keys(fakeClient.calls[1].config.params).sort(), [
+      'action', 'aspid', 'form_type', 'gstin', 'authtoken', 'pan', 'ret_periode', 'username'
+    ].sort());
+    assert.deepEqual(fakeClient.calls[1].config.headers, { password: testPassword });
+    assert.equal(fakeClient.calls[2].config.params.action, 'RETSUM');
+    assert.equal(fakeClient.calls[3].config.params.action, 'RETFILE');
+    assert.equal(fakeClient.calls[2].config.headers['Content-Type'], 'application/json');
+    assert.equal(fakeClient.calls[3].config.headers['Content-Type'], 'application/json');
+    assert.equal(fakeClient.calls[3].config.params.st, 'EVC');
+    assert.equal(fakeClient.calls[3].config.params.sid, 'ABCDE1234F|123456');
+    const fileBody = JSON.parse(fakeClient.calls[3].body);
+    assert.deepEqual(Object.keys(fileBody).sort(), ['chksum', 'gstin', 'newSumFlag', 'ret_period', 'sec_sum']);
+    assert.equal(fileBody.chksum, summaryResponse.chksum);
+    assert.equal(fileBody.newSumFlag, summaryResponse.newSumFlag);
+    assert.equal(typeof fileBody.newSumFlag, 'boolean');
+    assert.deepEqual(fileBody.sec_sum, summaryResponse.sec_sum);
+
+    fakeClient.calls = [];
+    fakeClient.setHandler((url, config) => {
+      if (config.params.action === 'EVCOTP') {
+        return { status: 200, data: { status_cd: '0', error: { error_cd: 'EVC_REJECTED' } } };
+      }
+      return { status: 200, data: { status_cd: '1' } };
+    });
+    await assert.rejects(
+      () => currentAdapter.requestEvcOtp(gstin, username, 'ABCDE1234F', 'R1', token, period),
+      { code: 'PROVIDER_ERROR' }
+    );
+    assert.equal(fakeClient.calls.length, 1, 'Documented EVCOTP failure must not trigger alternate routes');
+    assert.equal(fakeClient.calls[0].url, '/taxpayerapi/dec/v4.1/returns/gstr1');
+
+    fakeClient.calls = [];
+    fakeClient.setHandler((url, config) => ({
+      status: 200,
+      data: config.params.action === 'RETSUM'
+        ? JSON.stringify({ ...summaryResponse, newSumFlag: 'Y' })
+        : { ack_num: 'SHOULD-NOT-FILE' }
+    }));
+    await assert.rejects(
+      () => currentAdapter.fileGstr1(period, {
+        gstin,
+        username,
+        gstToken: token,
+        pan: 'ABCDE1234F',
+        otp: '123456',
+        mode: 'EVC'
+      }),
+      { code: 'PROVIDER_ERROR' }
+    );
+    assert.equal(fakeClient.calls.some((call) => call.config.params.action === 'RETFILE'), false);
+
+    fakeClient.setHandler((url, config) => ({
+      status: 200,
+      data: config.params.action === 'RETSUM'
+        ? JSON.stringify(summaryResponse)
+        : { status_cd: '1' }
+    }));
+    await assert.rejects(
+      () => currentAdapter.fileGstr1(period, {
+        gstin,
+        username,
+        gstToken: token,
+        pan: 'ABCDE1234F',
+        otp: '123456',
+        mode: 'EVC'
+      }),
+      { code: 'PROVIDER_ERROR' }
+    );
+  });
+
+  await runAsyncCheck('current GSTR-1 B2B request follows the collection contract without an action flag', async () => {
     fakeClient.calls = [];
     const unconfirmedAdapter = new TaxProProvider({
       httpClient: fakeClient,
       apiProfile: 'current',
+      periodPlacement: 'both',
       ipUsr: '203.0.113.1'
     });
-    await assert.rejects(
-      () => unconfirmedAdapter.getReturn('GSTR1', '27AAAAA0000A1Z5', '092026', testToken, 'testuser'),
-      (error) => error.code === 'PROVIDER_ERROR' && error.statusCode === 502
-    );
-    assert.equal(fakeClient.calls.length, 0);
-
+    fakeClient.setHandler(() => ({ status: 200, data: { status_cd: '1' } }));
+    await unconfirmedAdapter.getReturn('GSTR1', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
     await unconfirmedAdapter.getReturn('GSTR3B', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
     await unconfirmedAdapter.getReturn('GSTR2B', '27AAAAA0000A1Z5', '092026', testToken, 'testuser');
-    assert.equal(fakeClient.calls.length, 2);
-    assert.equal(fakeClient.calls[0].config.headers.ret_period, '092026');
-    assert.equal(fakeClient.calls[1].config.headers.ret_period, '092026');
-    assert.equal(fakeClient.calls[0].config.headers.ret_prd, undefined);
-    assert.equal(fakeClient.calls[1].config.headers.ret_prd, undefined);
+    assert.equal(fakeClient.calls.length, 3);
+    assert.equal(fakeClient.calls[0].config.params.username, 'testuser');
+    assert.equal(fakeClient.calls[0].config.params.action, 'B2B');
+    assert.equal(fakeClient.calls[0].config.params.action_required, undefined);
+    assert.equal(fakeClient.calls[1].config.headers.api_version, '7.1');
+    assert.equal(fakeClient.calls[1].config.headers.userrole, 'GSTR3B');
+    assert.equal(fakeClient.calls[2].config.headers.ret_period, '092026');
     assert.equal(fakeClient.calls[0].config.headers['auth-token'], testToken);
     assert.equal(fakeClient.calls[1].config.headers['auth-token'], testToken);
-    assert.equal(fakeClient.calls[0].config.headers['state-cd'], '27');
-    assert.equal(fakeClient.calls[1].config.headers['state-cd'], '27');
-    assert.equal(fakeClient.calls[0].config.headers.authtoken, undefined);
-    assert.equal(fakeClient.calls[1].config.headers.authtoken, undefined);
-    assert.equal(fakeClient.calls[0].config.params.gstin, '27AAAAA0000A1Z5');
+    assert.equal(fakeClient.calls[2].config.headers['auth-token'], testToken);
     assert.equal(fakeClient.calls[1].config.params.gstin, '27AAAAA0000A1Z5');
     assert.equal(fakeClient.calls[0].config.headers['ip-usr'], '203.0.113.1');
     assert.equal(fakeClient.calls[1].config.headers['ip-usr'], '203.0.113.1');
     assert.match(
       fakeClient.calls[0].config.headers.txn,
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i
     );
     assert.match(
       fakeClient.calls[1].config.headers.txn,
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i
     );
     assert.notEqual(fakeClient.calls[0].config.headers.txn, fakeClient.calls[1].config.headers.txn);
-    assert.equal(fakeClient.calls[1].config.params.rtnprd, '092026');
+    assert.equal(fakeClient.calls[1].config.params.ret_period, '092026');
+    assert.equal(fakeClient.calls[1].config.params.rtnprd, undefined);
   });
 
   await runAsyncCheck('current API profile fails safely when TAXPRO_GSP_IP_USR is missing', async () => {
@@ -1012,22 +1387,37 @@ async function main() {
       'aspid', 'password', 'auth-token', 'gstin', 'username',
       'state-cd', 'ret_period', 'txn', 'ip-usr'
     ].sort();
+    const expectedGstr3bHeaderKeys = [
+      'username', 'auth-token', 'state-cd', 'ip-usr', 'txn',
+      'api_version', 'userrole', 'rtn_typ', 'Content-Type'
+    ].sort();
 
     for (let i = 0; i < 3; i++) {
       const call = fakeClient.calls[i];
       const actualKeys = Object.keys(call.config.headers).sort();
-      assert.deepEqual(actualKeys, expectedHeaderKeys, `Call ${i} must have exact expected header keys`);
+      assert.deepEqual(
+        actualKeys,
+        i === 1 ? expectedGstr3bHeaderKeys : expectedHeaderKeys,
+        `Call ${i} must have exact expected header keys`
+      );
 
       // Verify header values
-      assert.equal(call.config.headers.aspid, testAspid);
-      assert.equal(call.config.headers.password, testPassword);
       assert.equal(call.config.headers['auth-token'], testToken);
-      assert.equal(call.config.headers.gstin, testGstin);
       assert.equal(call.config.headers.username, testUser);
       assert.equal(call.config.headers['state-cd'], '33', 'state-cd must be first 2 characters of GSTIN');
-      assert.equal(call.config.headers.ret_period, testPeriod);
       assert.equal(call.config.headers['ip-usr'], '198.51.100.25');
-      assert.match(call.config.headers.txn, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+      assert.match(call.config.headers.txn, /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})$/i);
+      if (i === 1) {
+        assert.equal(call.config.headers.api_version, '7.1');
+        assert.equal(call.config.headers.userrole, 'GSTR3B');
+        assert.equal(call.config.headers.rtn_typ, 'GSTR3B');
+        assert.equal(call.config.headers['Content-Type'], 'application/json');
+      } else {
+        assert.equal(call.config.headers.aspid, testAspid);
+        assert.equal(call.config.headers.password, testPassword);
+        assert.equal(call.config.headers.gstin, testGstin);
+        assert.equal(call.config.headers.ret_period, testPeriod);
+      }
 
       // Verify excluded keys
       assert.equal(call.config.headers.authtoken, undefined, 'Must not send unhyphenated authtoken');
@@ -1039,7 +1429,7 @@ async function main() {
     assert.deepEqual(fakeClient.calls[0].config.params, {
       action: 'B2B',
       gstin: testGstin,
-      action_required: 'Y',
+      username: testUser,
       ret_period: testPeriod
     });
     assert.deepEqual(fakeClient.calls[1].config.params, {
@@ -1791,8 +2181,21 @@ async function main() {
     };
     const mappedGstr2b = ReturnService.mapGstr2b(gstr2bRealSample, '112021', 'taxpro');
     assert.equal(mappedGstr2b.type, 'GSTR2B');
-    assert.equal(mappedGstr2b.totals.taxable, 10000);
-    assert.equal(mappedGstr2b.totals.igst, 1800);
+    assert.equal(mappedGstr2b.totals.taxable, 5000);
+    assert.equal(mappedGstr2b.totals.igst, 900);
+
+    const mappedGstr2bSummaryOnly = ReturnService.mapGstr2b({
+      data: {
+        itc_elg: {
+          itc_avl: {
+            txval: 5000,
+            iamt: 900
+          }
+        }
+      }
+    }, '112021', 'taxpro');
+    assert.equal(mappedGstr2bSummaryOnly.totals.taxable, 5000);
+    assert.equal(mappedGstr2bSummaryOnly.totals.igst, 900);
 
     // 3. GSTR-3B Summary Real Sample
     const gstr3bRealSample = {
@@ -1819,7 +2222,7 @@ async function main() {
     };
     const mappedGstr3b = ReturnService.mapGstr3b(gstr3bRealSample, '112021', 'taxpro');
     assert.equal(mappedGstr3b.type, 'GSTR3B');
-    assert.equal(mappedGstr3b.totals.taxable, 15000);
+    assert.equal(mappedGstr3b.totals.taxable, 10000);
     assert.equal(mappedGstr3b.totals.igst, 2700);
   });
 
@@ -1882,7 +2285,7 @@ async function main() {
       assert.equal(responseData.gstin, '27AAAAA0000A1Z5');
       assert.equal(responseData.legalName, 'Example Legal Name');
       assert.equal(responseData.tradeName, null, 'Expected tradeName: null');
-      assert.equal(responseData.status, 'Active');
+      assert.equal(responseData.status, 'ACTIVE');
       assert.equal(responseData.verified, true);
       assert.equal(providerCalled, 1, 'TaxPro must be called exactly once for a valid GSTIN');
 

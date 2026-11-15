@@ -13,6 +13,10 @@ const SUITES = [
     args: [path.join(__dirname, 'test-middleware.js')]
   },
   {
+    name: 'test-filing-mode',
+    args: [path.join(__dirname, 'test-filing-mode.js')]
+  },
+  {
     name: 'test-taxpro',
     args: [path.join(__dirname, 'test-taxpro.js')]
   },
@@ -43,6 +47,10 @@ const SUITES = [
   {
     name: 'test-gstr1-builder',
     args: [path.join(__dirname, 'test-gstr1-builder.js')]
+  },
+  {
+    name: 'test-gstr1-flow',
+    args: [path.join(__dirname, 'test-gstr1-flow.js')]
   },
   {
     name: 'test-itc-reconciliation',

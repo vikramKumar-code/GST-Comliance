@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "title": "GSTR1 Submit Request Schema",
+  "properties": {
+    "gstin": {
+      "type": "string",
+      "description": "Supplier GSTIN"
+    },
+    "ret_period": {
+      "type": "string",
+      "description": "Financial Period MMYYYY"
+    },
+    "generate_summary": {
+      "type": "string",
+      "enum": ["Y", "N"],
+      "description": "Flag to generate table-wise summary"
+    }
+  },
+  "required": [
+    "gstin",
+    "ret_period"
+  ]
+}
+

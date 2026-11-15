@@ -55,8 +55,10 @@ class ApiError extends Error {
     return new ApiError('PROVIDER_DOWN', message, 503);
   }
 
-  static providerError(message = 'Could not complete the request. Please try again.', statusCode = 502) {
-    return new ApiError('PROVIDER_ERROR', message, statusCode);
+  static providerError(message = 'Could not complete the request. Please try again.', statusCode = 502, errorCd = undefined) {
+    const err = new ApiError('PROVIDER_ERROR', message, statusCode);
+    if (errorCd) err.errorCd = errorCd;
+    return err;
   }
 
   static dataNotAvailable(message = 'Data for this period is not available yet. Try another month.') {

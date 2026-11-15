@@ -19,7 +19,8 @@ const errorHandler = (err, req, res, next) => {
     return res.status(err.statusCode).json({
       success: false,
       code: err.code,
-      message: err.message
+      message: err.message,
+      ...(err.errorCd ? { error_cd: err.errorCd } : {})
     });
   }
 
@@ -37,6 +38,15 @@ const errorHandler = (err, req, res, next) => {
       success: false,
       code: 'PAYLOAD_TOO_LARGE',
       message: 'Request body exceeds the allowed size.'
+    });
+  }
+
+  // Request / Gateway Timeout Handling
+  if (err.timeout || err.code === 'ETIMEDOUT') {
+    return res.status(504).json({
+      success: false,
+      code: 'GATEWAY_TIMEOUT',
+      message: 'Request timed out while waiting for external services or processing.'
     });
   }
 
@@ -62,7 +72,11 @@ const errorHandler = (err, req, res, next) => {
 
   // 4. Unhandled Server Errors (Status 500)
   // Per Section 11 & TAXPRO_ADDENDUM: Errors with status 500 return a generic message; internal details and URLs are not logged.
-  logger.error('Unhandled Server Error', { name: err.name });
+  if (!isProduction) {
+    logger.error('Unhandled Server Error', { name: err.name, message: err.message, stack: err.stack });
+  } else {
+    logger.error('Unhandled Server Error', { name: err.name });
+  }
 
   return res.status(500).json({
     success: false,

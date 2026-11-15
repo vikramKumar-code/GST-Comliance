@@ -2,25 +2,37 @@ const mongoose = require('mongoose');
 
 const bankSettlementSchema = new mongoose.Schema(
   {
+    // ✅ FIX 1: Multi-tenancy ke liye workspaceId add kiya
+    workspaceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      required: true,
+      index: true
+    },
     settlementId: {
       type: String,
       required: true,
       unique: true,
-      index: true
+      index: true,
+      trim: true
     },
     utr: {
       type: String,
       required: true,
       unique: true,
-      index: true
+      index: true,
+      trim: true
     },
+    // ✅ FIX 2: Hardcoded defaults hata diye, taaki dynamic bank details save ho sakein
     bankName: {
       type: String,
-      default: 'HDFC Bank Ltd'
+      required: true,
+      trim: true
     },
     accountMasked: {
       type: String,
-      default: 'Current A/C Ending in **8492'
+      required: true,
+      trim: true
     },
     grossAmount: {
       type: Number,
@@ -44,29 +56,38 @@ const bankSettlementSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['SETTLED', 'PROCESSING', 'FAILED'],
-      default: 'SETTLED',
+      enum: ['SETTLED', 'PROCESSING', 'FAILED', 'REVERSED'], // 'REVERSED' add kiya chargebacks ke liye
+      default: 'PROCESSING',
       index: true
     },
     settledAt: {
       type: Date,
       default: Date.now,
-      index: true
+      index: true // Yahan index lagana kaafi hai
     },
     transactionCount: {
       type: Number,
-      default: 1
+      default: 1,
+      min: 0
     },
     notes: {
       type: String,
-      default: 'Automated Razorpay T+2 Batch Payout to Linked Business Current Account'
+      default: 'Automated Payment Gateway Batch Payout to Linked Business Current Account',
+      trim: true
+    },
+    // Gateway ka raw response future reference/debugging ke liye
+    rawResponse: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
     }
   },
   {
-    timestamps: true
+    timestamps: true // createdAt aur updatedAt automatically add honge
   }
 );
 
-bankSettlementSchema.index({ settledAt: -1 });
+// ✅ FIX 3: Compound index for fast dashboard queries (Workspace ke hisaab se latest settlements)
+bankSettlementSchema.index({ workspaceId: 1, settledAt: -1 });
+bankSettlementSchema.index({ workspaceId: 1, status: 1 });
 
 module.exports = mongoose.model('BankSettlement', bankSettlementSchema);

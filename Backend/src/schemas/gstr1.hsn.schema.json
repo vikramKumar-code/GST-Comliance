@@ -1,0 +1,36 @@
+{
+  "id": "Get-HSN-Schema",
+  "type": "object",
+  "properties": {
+    "hsn": {
+      "type": "object",
+      "properties": {
+        "flag": {
+          "description": "Status of Invoice",
+          "type": "string"
+        },
+        "chksum": {
+          "maxLength": 64,
+          "description": "Invoice checksum value",
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9]+$",
+          "minLength": 1
+        },
+        "hsn_b2b": {
+          "type": "array"
+        },
+        "hsn_b2c": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "hsn_b2b",
+        "hsn_b2c"
+      ]
+    }
+  },
+  "required": [
+    "hsn"
+  ]
+}
+

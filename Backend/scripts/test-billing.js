@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 process.env.NODE_ENV = 'test';
 
 const { calculateLineItem, calculateInvoiceTotals, extractStateCode } = require('../src/utils/taxCalculator');
+const { isValidOtp, isValidEvcOtp } = require('../src/utils/gstin');
 const Customer = require('../src/models/Customer');
 const Item = require('../src/models/Item');
 const Invoice = require('../src/models/Invoice');
@@ -18,7 +19,17 @@ async function main() {
   assert.equal(extractStateCode(''), '');
   console.log('✓ 1. State code extraction handles GSTINs, 2-digit codes, and empty strings');
 
-  // 2. Intra-state Tax Calculation (Same state 29 -> 29)
+  // 2. EVC codes may contain letters; GST login OTPs remain numeric
+  assert.equal(isValidEvcOtp('A1b2C3'), true);
+  assert.equal(isValidEvcOtp('575757'), true);
+  assert.equal(isValidEvcOtp('ABC'), false);
+  assert.equal(isValidEvcOtp('ABC123456'), false);
+  assert.equal(isValidEvcOtp('ABC-123'), false);
+  assert.equal(isValidOtp('123456'), true);
+  assert.equal(isValidOtp('A1b2C3'), false);
+  console.log('✓ 2. EVC accepts 4-8 alphanumeric characters without changing GST login OTP rules');
+
+  // 3. Intra-state Tax Calculation (Same state 29 -> 29)
   const intraItem = calculateLineItem(
     { name: 'Consulting Service', quantity: 2, rate: 1000, discount: 100, gstRate: 18 },
     '29ABCDE1234F1Z5',
@@ -34,9 +45,9 @@ async function main() {
   assert.equal(intraItem.igstAmount, 0);
   assert.equal(intraItem.totalTax, 342);
   assert.equal(intraItem.totalAmount, 2242);
-  console.log('✓ 2. Intra-state item calculation splits tax 50/50 to CGST and SGST with zero IGST');
+  console.log('✓ 3. Intra-state item calculation splits tax 50/50 to CGST and SGST with zero IGST');
 
-  // 3. Inter-state Tax Calculation (Different state 29 -> 27)
+  // 4. Inter-state Tax Calculation (Different state 29 -> 27)
   const interItem = calculateLineItem(
     { name: 'Hardware Server', quantity: 1, rate: 50000, discount: 0, gstRate: 18 },
     '29ABCDE1234F1Z5',
@@ -51,9 +62,9 @@ async function main() {
   assert.equal(interItem.igstAmount, 9000);
   assert.equal(interItem.totalTax, 9000);
   assert.equal(interItem.totalAmount, 59000);
-  console.log('✓ 3. Inter-state item calculation applies 100% IGST with zero CGST/SGST');
+  console.log('✓ 4. Inter-state item calculation applies 100% IGST with zero CGST/SGST');
 
-  // 4. Complete Invoice Totals Calculation with mixed tax rates
+  // 5. Complete Invoice Totals Calculation with mixed tax rates
   const invoiceCalc = calculateInvoiceTotals(
     [
       { name: 'Item 5%', quantity: 1, rate: 1000, discount: 0, gstRate: 5 },
@@ -71,9 +82,9 @@ async function main() {
   assert.equal(invoiceCalc.totalTax, 680);
   assert.equal(invoiceCalc.grandTotal, 5180);
   assert.equal(invoiceCalc.isIntraState, true);
-  console.log('✓ 4. Complete multi-item invoice totals aggregate taxable, taxes, and grand total correctly');
+  console.log('✓ 5. Complete multi-item invoice totals aggregate taxable, taxes, and grand total correctly');
 
-  // 5. Schema checks: Workspace isolation indexes
+  // 6. Schema checks: Workspace isolation indexes
   const invoiceUniqueIndex = Invoice.schema.indexes().some(([keys, options]) =>
     keys.workspaceId === 1 && keys.invoiceNumber === 1 && options.unique === true
   );
@@ -93,9 +104,9 @@ async function main() {
     keys.workspaceId === 1 && keys.billNumber === 1
   );
   assert.equal(billWorkspaceIndex, true, 'Bill must index on workspaceId + billNumber');
-  console.log('✓ 5. Mongoose schemas strictly enforce workspace-scoped indexes and uniqueness');
+  console.log('✓ 6. Mongoose schemas strictly enforce workspace-scoped indexes and uniqueness');
 
-  // 6. Test Model validation without DB connection
+  // 7. Test Model validation without DB connection
   const validCustomer = new Customer({
     workspaceId: new mongoose.Types.ObjectId(),
     name: 'Acme Corp',
@@ -145,7 +156,7 @@ async function main() {
     invErr = err;
   }
   assert.equal(invErr, null, 'Valid invoice passes schema validation');
-  console.log('✓ 6. Model schema validations prevent missing workspaceId or critical billing fields');
+  console.log('✓ 7. Model schema validations prevent missing workspaceId or critical billing fields');
 
   console.log('\n🎉 ALL BILLING & TENANCY TESTS PASSED SUCCESSFULLY!\n');
 }

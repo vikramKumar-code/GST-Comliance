@@ -1,0 +1,55 @@
+{
+  "id": "GET-RETURN-STATUS",
+  "type": "object",
+  "properties": {
+    "status_cd": {
+      "type": "string"
+    },
+    "form_typ": {
+      "type": "string"
+    },
+    "error_report": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "array"
+        },
+        "b2b": {
+          "type": "array"
+        },
+        "b2cl": {
+          "type": "array"
+        },
+        "b2cs": {
+          "type": "array"
+        },
+        "cdnr": {
+          "type": "array"
+        },
+        "cdnur": {
+          "type": "array"
+        },
+        "doc_issue": {
+          "type": "object"
+        },
+        "exp": {
+          "type": "array"
+        },
+        "hsn": {
+          "type": "object"
+        },
+        "nil": {
+          "type": "object"
+        },
+        "txpd": {
+          "type": "array"
+        }
+      }
+    }
+  },
+  "required": [
+    "status_cd",
+    "form_typ"
+  ]
+}
+

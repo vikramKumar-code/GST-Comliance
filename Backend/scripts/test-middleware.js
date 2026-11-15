@@ -75,7 +75,11 @@ async function main() {
   console.log('--- Starting Middleware Test Suite ---');
 
   // 1. Connect to MongoDB for auth & session tests
-  await mongoose.connect(MONGO_URI);
+  if (process.env.USE_MOCK === "true") {
+    console.log('⚡️ Mock mode: skipping real MongoDB connection');
+  } else {
+    await mongoose.connect(MONGO_URI);
+  }
 
   // 2. Setup tiny temporary Express application
   const app = express();

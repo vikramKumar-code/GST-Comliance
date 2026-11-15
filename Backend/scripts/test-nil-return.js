@@ -3,6 +3,8 @@
  */
 const assert = require('node:assert/strict');
 const mongoose = require('mongoose');
+process.env.NODE_ENV = 'test';
+process.env.FEATURE_FILING = 'false';
 const NilReturnService = require('../src/services/nilReturn.service');
 const Invoice = require('../src/models/Invoice');
 const Bill = require('../src/models/Bill');
@@ -88,39 +90,36 @@ async function main() {
       );
     });
 
-    // Test 4: File Nil GSTR-1 successfully
-    await runCheck('4. Successfully files Nil GSTR-1 and generates valid ARN', async () => {
-      const result = await NilReturnService.fileNilReturn(testWs1, testGstin1, period, 'GSTR1', {
-        declarationAccepted: true,
-        verificationMode: '1_CLICK'
-      });
+    // Test 4: Rejects live filing outside production
+    await runCheck('4. Does not fabricate a filed Nil GSTR-1 outside production', async () => {
+      await assert.rejects(
+        NilReturnService.fileNilReturn(testWs1, testGstin1, period, 'GSTR1', {
+          declarationAccepted: true,
+          verificationMode: '1_CLICK'
+        }),
+        (err) => {
+          assert.equal(err.statusCode, 503);
+          assert.ok(err.message.includes('No return was filed'));
+          return true;
+        }
+      );
 
-      assert.equal(result.success, true);
-      assert.equal(result.isNil, true);
-      assert.equal(result.type, 'GSTR1');
-      assert.equal(result.period, period);
-      assert.ok(result.arn.startsWith('AA33'));
-      assert.ok(result.arn.endsWith('N'));
-
-      // Check Filing record
-      const filing = await Filing.findOne({ workspaceId: testWs1, type: 'GSTR1', period });
-      assert.ok(filing);
-      assert.equal(filing.arn, result.arn);
-      assert.equal(filing.status, 'Filed');
-      assert.equal(filing.isNil, true);
-
-      // Check Return cache
-      const cachedReturn = await Return.findOne({ workspaceId: testWs1, type: 'GSTR1', period });
-      assert.ok(cachedReturn);
-
-      // Check Audit Log
-      const audit = await AuditLog.findOne({ workspaceId: testWs1, action: 'GSTR1_NIL_FILED' });
-      assert.ok(audit);
-      assert.equal(audit.status, 'SUCCESS');
+      assert.equal(await Filing.countDocuments({ workspaceId: testWs1 }), 0);
+      assert.equal(await Return.countDocuments({ workspaceId: testWs1 }), 0);
     });
 
     // Test 5: Rejects duplicate filing for same period
     await runCheck('5. Prohibits duplicate filing for already filed return period', async () => {
+      await Filing.create({
+        workspaceId: testWs1,
+        gstin: testGstin1,
+        type: 'GSTR1',
+        period,
+        arn: 'AA330000000001N',
+        mode: 'NIL_ONLINE',
+        isNil: true
+      });
+
       await assert.rejects(
         async () => {
           await NilReturnService.fileNilReturn(testWs1, testGstin1, period, 'GSTR1', {
@@ -135,25 +134,26 @@ async function main() {
       );
     });
 
-    // Test 6: File Nil GSTR-3B successfully
-    await runCheck('6. Successfully files Nil GSTR-3B under Rule 67A', async () => {
-      const result = await NilReturnService.fileNilReturn(testWs1, testGstin1, period, 'GSTR3B', {
-        declarationAccepted: true,
-        verificationMode: 'EVC'
-      });
-
-      assert.equal(result.success, true);
-      assert.equal(result.isNil, true);
-      assert.equal(result.type, 'GSTR3B');
-      assert.equal(result.mode, 'NIL_EVC');
-      assert.ok(result.arn.startsWith('AA33'));
+    // Test 6: GSTR-3B is also protected from simulated filing outside production
+    await runCheck('6. Does not fabricate a filed Nil GSTR-3B outside production', async () => {
+      await assert.rejects(
+        NilReturnService.fileNilReturn(testWs1, testGstin1, period, 'GSTR3B', {
+          declarationAccepted: true,
+          verificationMode: 'EVC'
+        }),
+        (err) => {
+          assert.equal(err.statusCode, 503);
+          assert.ok(err.message.includes('No return was filed'));
+          return true;
+        }
+      );
     });
 
     // Test 7: Tenancy isolation strictly confines filings
     await runCheck('7. Workspace tenancy isolation strictly isolates filings between accounts', async () => {
       const ws1Filings = await Filing.find({ workspaceId: testWs1 });
       const ws2Filings = await Filing.find({ workspaceId: testWs2 });
-      assert.equal(ws1Filings.length, 2); // GSTR1 + GSTR3B
+      assert.equal(ws1Filings.length, 1); // Only the explicit duplicate-filing fixture
       assert.equal(ws2Filings.length, 0); // WS2 has 0 filings
     });
 

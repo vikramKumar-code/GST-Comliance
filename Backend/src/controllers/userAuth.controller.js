@@ -9,6 +9,27 @@ const ApiError = require('../utils/apiError');
 const { isProduction } = require('../config/env');
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const CA_MEMBER_PERMISSIONS = [
+  'INVOICE_MANAGE',
+  'BILL_MANAGE',
+  'REPORT_VIEW',
+  'GSTR_VIEW',
+  'GSTR_FILE'
+];
+
+async function ensureUserId(req) {
+  let userId = req.userId || req.session?.userId || req.membership?.userId;
+  if (!userId && req.session) {
+    const user = await User.create({
+      name: req.username || (req.gstin ? `Taxpayer (${req.gstin.slice(0, 5)})` : 'User'),
+      authProvider: 'GSTIN_OTP'
+    });
+    userId = user._id;
+    req.session.userId = user._id;
+    await req.session.save();
+  }
+  return userId;
+}
 
 /**
  * Resolves or auto-provisions a default workspace and owner membership for user
@@ -31,7 +52,8 @@ async function getOrCreateUserWorkspace(user) {
     membership = await WorkspaceMember.create({
       workspaceId: workspace._id,
       userId: user._id,
-      role: 'OWNER',
+      role: 'CA',
+      subRole: 'CA',
       status: 'ACTIVE'
     });
   }
@@ -77,15 +99,27 @@ exports.signup = async (req, res, next) => {
       status: 'SUCCESS'
     }).catch(() => {});
 
+    const isSuper = typeof user.isSuperAdmin === 'function'
+      ? user.isSuperAdmin()
+      : user.systemRole === 'SUPER_ADMIN';
+
+    if (isSuper && user.systemRole !== 'SUPER_ADMIN') {
+      user.systemRole = 'SUPER_ADMIN';
+      await user.save();
+    }
+
     res.status(201).json({
       success: true,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
-        authProvider: user.authProvider
+        authProvider: user.authProvider,
+        systemRole: isSuper ? 'SUPER_ADMIN' : (user.systemRole || 'USER'),
+        isSuperAdmin: isSuper
       },
-      currentWorkspace: workspace ? { id: workspace._id, gstin: workspace.gstin } : null
+      isSuperAdmin: isSuper,
+      currentWorkspace: workspace ? { id: workspace._id, name: workspace.name, gstin: workspace.gstin } : null
     });
   } catch (error) {
     next(error);
@@ -127,6 +161,15 @@ exports.signin = async (req, res, next) => {
       status: 'SUCCESS'
     }).catch(() => {});
 
+    const isSuper = typeof user.isSuperAdmin === 'function'
+      ? user.isSuperAdmin()
+      : user.systemRole === 'SUPER_ADMIN';
+
+    if (isSuper && user.systemRole !== 'SUPER_ADMIN') {
+      user.systemRole = 'SUPER_ADMIN';
+      await user.save();
+    }
+
     res.status(200).json({
       success: true,
       user: {
@@ -134,9 +177,12 @@ exports.signin = async (req, res, next) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
-        authProvider: user.authProvider
+        authProvider: user.authProvider,
+        systemRole: isSuper ? 'SUPER_ADMIN' : (user.systemRole || 'USER'),
+        isSuperAdmin: isSuper
       },
-      currentWorkspace: workspace ? { id: workspace._id, gstin: workspace.gstin } : null
+      isSuperAdmin: isSuper,
+      currentWorkspace: workspace ? { id: workspace._id, name: workspace.name, gstin: workspace.gstin } : null
     });
   } catch (error) {
     next(error);
@@ -223,6 +269,15 @@ exports.googleAuth = async (req, res, next) => {
       status: 'SUCCESS'
     }).catch(() => {});
 
+    const isSuper = typeof user.isSuperAdmin === 'function'
+      ? user.isSuperAdmin()
+      : user.systemRole === 'SUPER_ADMIN';
+
+    if (isSuper && user.systemRole !== 'SUPER_ADMIN') {
+      user.systemRole = 'SUPER_ADMIN';
+      await user.save();
+    }
+
     res.status(200).json({
       success: true,
       user: {
@@ -230,9 +285,12 @@ exports.googleAuth = async (req, res, next) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
-        authProvider: user.authProvider
+        authProvider: user.authProvider,
+        systemRole: isSuper ? 'SUPER_ADMIN' : (user.systemRole || 'USER'),
+        isSuperAdmin: isSuper
       },
-      currentWorkspace: workspace ? { id: workspace._id, gstin: workspace.gstin } : null
+      isSuperAdmin: isSuper,
+      currentWorkspace: workspace ? { id: workspace._id, name: workspace.name, gstin: workspace.gstin } : null
     });
   } catch (error) {
     next(error);
@@ -274,8 +332,14 @@ exports.getWorkspaces = async (req, res, next) => {
       return {
         id: w._id,
         name: w.name || (w.gstin ? `GSTIN: ${w.gstin}` : 'Organization'),
+        tradeName: w.tradeName || '',
+        address: w.address || '',
+        stateCode: w.stateCode || (w.gstin ? w.gstin.slice(0, 2) : ''),
+        stateName: w.stateName || '',
+        pincode: w.pincode || '',
+        phone: w.phone || '',
         gstin: w.gstin || null,
-        role: m?.role || 'MEMBER',
+        role: m?.subRole === 'CA' && m.role === 'MEMBER' ? 'CA' : (m?.role || 'MEMBER'),
         isCurrent: req.workspaceId ? req.workspaceId.toString() === w._id.toString() : false
       };
     });
@@ -296,17 +360,7 @@ exports.getWorkspaces = async (req, res, next) => {
 exports.switchWorkspace = async (req, res, next) => {
   try {
     const { workspaceId } = req.body;
-    let userId = req.userId || req.session?.userId || req.membership?.userId;
-
-    if (!userId && req.session) {
-      const user = await User.create({
-        name: req.username || (req.gstin ? `Taxpayer (${req.gstin.slice(0, 5)})` : 'User'),
-        authProvider: 'GSTIN_OTP'
-      });
-      userId = user._id;
-      req.session.userId = user._id;
-      await req.session.save();
-    }
+    const userId = await ensureUserId(req);
 
     if (!userId) {
       throw ApiError.validationError('Workspace switching requires an authenticated user account.');
@@ -335,6 +389,12 @@ exports.switchWorkspace = async (req, res, next) => {
     req.session.workspaceId = workspace._id;
     req.session.memberId = membership._id;
     req.session.gstin = workspace.gstin;
+    if (workspace.gstPortalSession?.gstTokenEnc && (!workspace.gstPortalSession.expiresAt || new Date() < new Date(workspace.gstPortalSession.expiresAt))) {
+      req.session.gstTokenEnc = workspace.gstPortalSession.gstTokenEnc;
+      req.session.username = workspace.gstPortalSession.username || req.session.username;
+    } else {
+      req.session.gstTokenEnc = null;
+    }
     await req.session.save();
 
     await AuditLog.create({
@@ -345,12 +405,20 @@ exports.switchWorkspace = async (req, res, next) => {
       status: 'SUCCESS'
     }).catch(() => {});
 
+    const hasPortalSession = Boolean(
+      workspace.gstPortalSession?.gstTokenEnc &&
+      (!workspace.gstPortalSession.expiresAt || new Date() < new Date(workspace.gstPortalSession.expiresAt))
+    );
+
     res.status(200).json({
       success: true,
       currentWorkspace: {
         id: workspace._id,
+        name: workspace.name,
         gstin: workspace.gstin,
-        role: membership.role
+        hasPortalSession,
+        portalUsername: workspace.gstPortalSession?.username || null,
+        role: membership.subRole === 'CA' && membership.role === 'MEMBER' ? 'CA' : membership.role
       }
     });
   } catch (error) {
@@ -368,6 +436,11 @@ exports.getMe = async (req, res, next) => {
     if (req.workspaceId) {
       currentWorkspace = await Workspace.findById(req.workspaceId).lean();
     }
+
+    const hasPortalSession = Boolean(
+      currentWorkspace?.gstPortalSession?.gstTokenEnc &&
+      (!currentWorkspace?.gstPortalSession?.expiresAt || new Date() < new Date(currentWorkspace?.gstPortalSession?.expiresAt))
+    );
 
     const resolvedName = req.user?.name && !req.user.name.startsWith('Taxpayer')
       ? req.user.name
@@ -387,19 +460,34 @@ exports.getMe = async (req, res, next) => {
       currentWorkspace: currentWorkspace ? {
         id: currentWorkspace._id,
         name: currentWorkspace.name,
+        tradeName: currentWorkspace.tradeName || '',
+        address: currentWorkspace.address || '',
+        stateCode: currentWorkspace.stateCode || (currentWorkspace.gstin ? currentWorkspace.gstin.slice(0, 2) : ''),
+        stateName: currentWorkspace.stateName || '',
+        pincode: currentWorkspace.pincode || '',
+        phone: currentWorkspace.phone || '',
         gstin: currentWorkspace.gstin,
+        hasPortalSession,
+        portalUsername: currentWorkspace.gstPortalSession?.username || null,
         status: currentWorkspace.status || 'ACTIVE',
         subscription: currentWorkspace.subscription || { plan: 'FREE', status: 'ACTIVE' },
         limits: currentWorkspace.limits || { maxClients: 1, maxInvoicesPerMonth: 50 },
-        role: req.workspaceRole || 'OWNER',
+        role: req.membership?.subRole === 'CA' && req.membership.role === 'MEMBER'
+          ? 'CA'
+          : (req.workspaceRole || 'OWNER'),
         permissions: req.membership?.permissions || ['ALL']
       } : null,
+      hasPortalSession,
+      portalUsername: currentWorkspace?.gstPortalSession?.username || null,
+      workspaceName: currentWorkspace?.name || null,
       gstin: req.gstin || currentWorkspace?.gstin || null,
       workspaceId: req.workspaceId || null,
-      workspaceRole: req.workspaceRole || 'OWNER',
+      workspaceRole: req.membership?.subRole === 'CA' && req.membership.role === 'MEMBER'
+        ? 'CA'
+        : (req.workspaceRole || 'OWNER'),
       permissions: req.membership?.permissions || ['ALL'],
       isSuperAdmin: Boolean(req.isSuperAdmin),
-      expiresAt: req.session.expiresAt
+      expiresAt: req.session?.expiresAt || null
     });
   } catch (error) {
     next(error);
@@ -438,6 +526,16 @@ exports.linkGstin = async (req, res, next) => {
     const updateFields = { gstin: normGstin };
     if (name && typeof name === 'string' && name.trim()) {
       updateFields.name = name.trim();
+    } else {
+      try {
+        const FinaggService = require('../services/finagg.service');
+        const tp = await FinaggService.searchGstin(normGstin);
+        const autoName = tp?.tradeName || tp?.legalName;
+        if (autoName && autoName !== 'Demo Traders' && autoName !== 'Demo Traders Pvt Ltd') {
+          updateFields.name = autoName;
+          if (tp?.tradeName) updateFields.tradeName = tp.tradeName;
+        }
+      } catch {}
     }
 
     const updatedWorkspace = await Workspace.findByIdAndUpdate(
@@ -480,18 +578,8 @@ exports.linkGstin = async (req, res, next) => {
  */
 exports.createWorkspace = async (req, res, next) => {
   try {
-    const { name, gstin } = req.body;
-    let userId = req.userId || req.session?.userId || req.membership?.userId;
-
-    if (!userId && req.session) {
-      const user = await User.create({
-        name: req.username || (req.gstin ? `Taxpayer (${req.gstin.slice(0, 5)})` : 'User'),
-        authProvider: 'GSTIN_OTP'
-      });
-      userId = user._id;
-      req.session.userId = user._id;
-      await req.session.save();
-    }
+    const { name, gstin, tradeName, address, stateCode, stateName, pincode, phone } = req.body;
+    const userId = await ensureUserId(req);
 
     if (!userId) {
       throw ApiError.validationError('Workspace creation requires an authenticated user account.');
@@ -511,23 +599,36 @@ exports.createWorkspace = async (req, res, next) => {
       }
       const existing = await Workspace.findOne({ gstin: normGstin });
       if (existing) {
-        const membership = await WorkspaceMember.findOne({
+        let membership = await WorkspaceMember.findOne({
           workspaceId: existing._id,
           userId,
           status: 'ACTIVE'
         });
         if (!membership) {
-          throw ApiError.forbidden('You must be invited to or already belong to this organization to link it.');
+          membership = await WorkspaceMember.create({
+            workspaceId: existing._id,
+            userId,
+            role: 'CA',
+            subRole: 'CA',
+            status: 'ACTIVE'
+          });
         }
 
         if (
-          ['OWNER', 'ADMIN'].includes(membership.role) &&
+          name &&
+          typeof name === 'string' &&
           name.trim() &&
-          existing.name !== name.trim()
+          (existing.name.startsWith('Taxpayer') || existing.name === 'My Organization')
         ) {
           existing.name = name.trim();
-          await existing.save();
         }
+        if (tradeName) existing.tradeName = String(tradeName).trim();
+        if (address) existing.address = String(address).trim();
+        if (stateCode) existing.stateCode = String(stateCode).trim().slice(0, 2);
+        if (stateName) existing.stateName = String(stateName).trim();
+        if (pincode) existing.pincode = String(pincode).trim().slice(0, 6);
+        if (phone) existing.phone = String(phone).trim();
+        await existing.save();
 
         if (req.session) {
           req.session.workspaceId = existing._id;
@@ -545,10 +646,14 @@ exports.createWorkspace = async (req, res, next) => {
 
         return res.status(200).json({
           success: true,
-          message: `Organization "${existing.name}" linked and switched successfully.`,
+          message: `Organization "${existing.name}" connected and switched successfully.`,
           workspace: {
             id: existing._id,
             name: existing.name,
+            tradeName: existing.tradeName,
+            address: existing.address,
+            stateCode: existing.stateCode,
+            stateName: existing.stateName,
             gstin: existing.gstin,
             role: membership.role
           }
@@ -556,8 +661,19 @@ exports.createWorkspace = async (req, res, next) => {
       }
     }
 
+    let derivedStateCode = stateCode ? String(stateCode).trim().slice(0, 2) : '';
+    if (!derivedStateCode && normGstin && normGstin.length >= 2) {
+      derivedStateCode = normGstin.slice(0, 2);
+    }
+
     const workspace = await Workspace.create({
       name: name.trim(),
+      tradeName: tradeName ? String(tradeName).trim() : '',
+      address: address ? String(address).trim() : '',
+      stateCode: derivedStateCode,
+      stateName: stateName ? String(stateName).trim() : '',
+      pincode: pincode ? String(pincode).trim().slice(0, 6) : '',
+      phone: phone ? String(phone).trim() : '',
       gstin: normGstin,
       ownerUserId: userId,
       status: 'ACTIVE'
@@ -566,7 +682,8 @@ exports.createWorkspace = async (req, res, next) => {
     const membership = await WorkspaceMember.create({
       workspaceId: workspace._id,
       userId,
-      role: 'OWNER',
+      role: 'CA',
+      subRole: 'CA',
       status: 'ACTIVE'
     });
 
@@ -591,6 +708,10 @@ exports.createWorkspace = async (req, res, next) => {
       workspace: {
         id: workspace._id,
         name: workspace.name,
+        tradeName: workspace.tradeName,
+        address: workspace.address,
+        stateCode: workspace.stateCode,
+        stateName: workspace.stateName,
         gstin: workspace.gstin,
         role: 'OWNER'
       }
@@ -599,6 +720,98 @@ exports.createWorkspace = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Update organization/client workspace details (Name, Trade Name, Address, State Code, GSTIN, etc.)
+ * PUT /api/auth/workspace
+ */
+exports.updateWorkspace = async (req, res, next) => {
+  try {
+    const workspaceId = req.body.workspaceId || req.params.id || req.workspaceId;
+    if (!workspaceId) {
+      throw ApiError.validationError('Workspace ID is required.');
+    }
+
+    const workspace = await Workspace.findById(workspaceId);
+    if (!workspace) {
+      throw ApiError.notFound('Workspace not found.');
+    }
+
+    const { name, tradeName, gstin, address, stateCode, stateName, pincode, phone } = req.body;
+
+    if (name !== undefined && typeof name === 'string' && name.trim()) {
+      workspace.name = name.trim();
+    }
+    if (tradeName !== undefined) {
+      workspace.tradeName = String(tradeName).trim();
+    }
+    if (address !== undefined) {
+      workspace.address = String(address).trim();
+    }
+    if (stateCode !== undefined) {
+      workspace.stateCode = String(stateCode).trim().slice(0, 2);
+    }
+    if (stateName !== undefined) {
+      workspace.stateName = String(stateName).trim();
+    }
+    if (pincode !== undefined) {
+      workspace.pincode = String(pincode).trim().slice(0, 6);
+    }
+    if (phone !== undefined) {
+      workspace.phone = String(phone).trim();
+    }
+
+    if (gstin !== undefined) {
+      const cleanGstin = String(gstin).trim().toUpperCase();
+      if (cleanGstin) {
+        const { isValidGstin } = require('../utils/gstin');
+        if (!isValidGstin(cleanGstin)) {
+          throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+        }
+        workspace.gstin = cleanGstin;
+        if (!workspace.stateCode) {
+          workspace.stateCode = cleanGstin.slice(0, 2);
+        }
+        if (req.session && req.workspaceId && req.workspaceId.toString() === workspace._id.toString()) {
+          req.session.gstin = cleanGstin;
+        }
+      } else {
+        workspace.gstin = undefined;
+      }
+    }
+
+    await workspace.save();
+    if (req.session) await req.session.save();
+
+    await AuditLog.create({
+      workspaceId: workspace._id,
+      userId: req.userId || null,
+      gstin: workspace.gstin || null,
+      action: 'UPDATE_WORKSPACE_DETAILS',
+      status: 'SUCCESS'
+    }).catch(() => {});
+
+    res.status(200).json({
+      success: true,
+      message: `Client workspace "${workspace.name}" updated successfully.`,
+      workspace: {
+        id: workspace._id,
+        name: workspace.name,
+        tradeName: workspace.tradeName,
+        address: workspace.address,
+        stateCode: workspace.stateCode,
+        stateName: workspace.stateName,
+        pincode: workspace.pincode,
+        phone: workspace.phone,
+        gstin: workspace.gstin,
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 
 /**
  * Switch or update active member role
@@ -613,5 +826,3 @@ exports.switchRole = async (req, res, next) => {
     next(error);
   }
 };
-
-

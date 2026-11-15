@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const Gstr1Service = require('../src/services/gstr1.service');
 const Invoice = require('../src/models/Invoice');
 const AuditLog = require('../src/models/AuditLog');
+const { validateGstr1Schema } = require('../src/utils/gstr1Validator');
 
 async function runCheck(name, fn) {
   try {
@@ -160,11 +161,13 @@ async function main() {
       assert.equal(res.success, true);
       assert.equal(res.period, '102026');
       assert.equal(res.gstin, testGstin);
+      assert.equal(validateGstr1Schema(res.payload), true);
 
       // Verify B2B section
       assert.equal(res.payload.b2b.length, 1);
       const b2bEntry = res.payload.b2b[0];
       assert.equal(b2bEntry.ctin, '07AAAAA0000A1Z5');
+      assert.deepEqual(Object.keys(b2bEntry).sort(), ['ctin', 'inv']);
       assert.equal(b2bEntry.inv.length, 1);
       assert.equal(b2bEntry.inv[0].inum, 'INV-2026-001');
       assert.equal(b2bEntry.inv[0].val, 118000);
@@ -175,6 +178,7 @@ async function main() {
       // Verify B2CS section
       assert.equal(res.payload.b2cs.length, 1);
       const b2csEntry = res.payload.b2cs[0];
+      assert.equal(b2csEntry.typ, 'OE');
       assert.equal(b2csEntry.sply_ty, 'INTRA');
       assert.equal(b2csEntry.pos, '33');
       assert.equal(b2csEntry.txval, 5000);
@@ -182,15 +186,16 @@ async function main() {
       assert.equal(b2csEntry.samt, 450);
 
       // Verify HSN section
-      assert.equal(res.payload.hsn.data.length, 2);
-      const hsnCodes = res.payload.hsn.data.map((h) => h.hsn_sc);
-      assert.ok(hsnCodes.includes('8471'));
-      assert.ok(hsnCodes.includes('8544'));
+      assert.equal(res.payload.hsn.hsn_b2b.length, 1);
+      assert.equal(res.payload.hsn.hsn_b2c.length, 1);
+      assert.equal(res.payload.hsn.hsn_b2b[0].hsn_sc, '8471');
+      assert.equal(res.payload.hsn.hsn_b2c[0].hsn_sc, '8544');
 
       // Verify DOCISS section
       const docDet = res.payload.doc_issue.doc_det[0].docs[0];
       assert.equal(docDet.totnum, 3); // 2 active + 1 cancelled
-      assert.equal(docDet.canc, 1); // 1 cancelled
+      assert.equal(docDet.cancel, 1); // 1 cancelled
+      assert.equal(Object.hasOwn(docDet, 'canc'), false);
       assert.equal(docDet.net_issue, 2); // 2 active
     });
 
@@ -222,8 +227,19 @@ async function main() {
 
     // 4. Dry-run safety guard
     await runCheck('4. savePayload strictly defaults to dryRun without calling write API', async () => {
-      delete process.env.FEATURE_FILING; // Ensure disabled
-      const result = await Gstr1Service.savePayload(testWs1, testGstin, '102026');
+      const previousFeatureFiling = process.env.FEATURE_FILING;
+      const previousNodeEnv = process.env.NODE_ENV;
+      let result;
+      try {
+        process.env.FEATURE_FILING = 'false';
+        process.env.NODE_ENV = 'development';
+        result = await Gstr1Service.savePayload(testWs1, testGstin, '102026');
+      } finally {
+        if (previousFeatureFiling === undefined) delete process.env.FEATURE_FILING;
+        else process.env.FEATURE_FILING = previousFeatureFiling;
+        if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = previousNodeEnv;
+      }
 
       assert.equal(result.success, true);
       assert.equal(result.dryRun, true);
@@ -234,6 +250,26 @@ async function main() {
       const log = await AuditLog.findOne({ workspaceId: testWs1, action: 'GSTR1_SAVE_DRY_RUN' });
       assert.ok(log, 'Expected AuditLog entry for GSTR1_SAVE_DRY_RUN');
       assert.equal(log.status, 'SUCCESS');
+    });
+
+    await runCheck('5. GSTR-1 filing blocks unsupported notes and unclassified zero-rate supplies', async () => {
+      assert.throws(
+        () => Gstr1Service.validateFilingPayload({
+          sectionDetails: { cdnr: [{ isExcluded: false }], unclassifiedZeroRate: [] }
+        }),
+        /credit\/debit notes are not included/
+      );
+      assert.throws(
+        () => Gstr1Service.validateFilingPayload({
+          sectionDetails: { cdnr: [], unclassifiedZeroRate: [{ isExcluded: false }] }
+        }),
+        /zero-rate outward supplies need nil\/exempt\/non-GST classification/
+      );
+      assert.doesNotThrow(
+        () => Gstr1Service.validateFilingPayload({
+          sectionDetails: { cdnr: [{ isExcluded: true }], unclassifiedZeroRate: [] }
+        })
+      );
     });
 
     console.log('\n🎉 ALL GSTR-1 BUILDER & DRY-RUN TESTS PASSED SUCCESSFULLY!\n');

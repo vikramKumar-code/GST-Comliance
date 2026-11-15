@@ -56,7 +56,7 @@ const auditLogSchema = new mongoose.Schema(
     status: {
       type: String,
       required: true,
-      enum: ['SUCCESS', 'FAILURE']
+      enum: ['SUCCESS', 'FAILURE', 'FAILED']
     },
     ipAddress: {
       type: String,

@@ -1,0 +1,675 @@
+{
+  "type": "object",
+  "properties": {
+      "status_cd": {
+	  "description":"Request status",
+      "type": "string"
+    },
+    "arn_no": {
+	  "description":"Acknowledgement No",
+      "type": "string"
+    },
+    "errorReport": {
+      "type": "object",
+      "properties": {
+        "b2b": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ctin": {
+				"description":"Supplier TIN",
+                "type": "string"
+              },
+              "inv_num": {
+				"description":"Invoice Number",
+                "type": "string"
+              },
+              "date": {
+				"description":"Invoice date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ctin",
+              "inv_num",
+              "date",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "b2ba": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ctin": {
+				"description":"Supplier TIN",
+                "type": "string"
+              },
+              "inv_num": {
+				"description":"Invoice Number",
+                "type": "string"
+              },
+              "date": {
+				"description":"Invoice date",
+                "type": "string"
+              },
+              "onum": {
+				"description":"Old Invoice Number",
+                "type": "string"
+              },
+              "odt": {
+				"description":"Old Invoice date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ctin",
+              "inv_num",
+              "date",
+              "onum",
+              "odt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "b2cl": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "state_cd": {
+				"description":"Supplier State Code",
+                "type": "string"
+              },
+              "inv_num": {
+				"description":"Invoice Number",
+                "type": "string"
+              },
+              "date": {
+				"description":"Invoice date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state_cd",
+              "inv_num",
+              "date",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "b2cla": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "state_cd": {
+				"description":"Supplier State Code",
+                "type": "string"
+              },
+              "inv_num": {
+				"description":"Invoice Number",
+                "type": "string"
+              },
+              "date": {
+				"description":"Invoice date",
+                "type": "string"
+              },
+              "onum": {
+				"description":"Old Invoice Number",
+                "type": "string"
+              },
+              "odt": {
+				"description":"Old Invoice date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state_cd",
+              "inv_num",
+              "date",
+              "onum",
+              "odt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "b2cs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "state_cd": {
+				"description":"Supplier State Code",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state_cd",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "b2csa": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "state_cd": {
+				"description":"Supplier State Code",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state_cd",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "cdn": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ctin": {
+				"description":"Supplier TIN",
+                "type": "string"
+              },
+              "typ": {
+				"description":"Supply Type of invoices",
+                "type": "string"
+              },
+              "cname": {
+				"description":"Receipient Name (in case of B2C)",
+                "type": "string"
+              },
+              "ty": {
+				"description":"Note type",
+                "type": "string"
+              },
+              "nt_num": {
+				"description":"Debit/Credit Note number",
+                "type": "string"
+              },
+              "nt_dt": {
+				"description":"Credit date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ctin",
+              "typ",
+              "cname",
+              "ty",
+              "nt_num",
+              "nt_dt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "cdna": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ctin": {
+				"description":"Supplier TIN",
+                "type": "string"
+              },
+              "typ": {
+				"description":"Supply Type of invoices",
+                "type": "string"
+              },
+              "cname": {
+				"description":"Receipient Name (in case of B2C)",
+                "type": "string"
+              },
+              "ty": {
+				"description":"Note type",
+                "type": "string"
+              },
+              "nt_num": {
+				"description":"Debit/Credit Note number",
+                "type": "string"
+              },
+              "nt_dt": {
+				"description":"Credit date",
+                "type": "string"
+              },
+              "ont_num": {
+				"description":"Original Debit/Credit note number",
+                "type": "string"
+              },
+              "ont_dt": {
+				"description":"Original Debit/Credit date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ctin",
+              "typ",
+              "cname",
+              "ty",
+              "nt_num",
+              "nt_dt",
+              "ont_num",
+              "ont_dt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "nil": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sply_ty": {
+				"description":"Supply Type",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "sply_ty",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "exp": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "i_num": {
+				"description":"Invoice Number",
+                "type": "string"
+              },
+              "i_dt": {
+				"description":"Invoice date",
+                "type": "string"
+              },
+              "s_num": {
+				"description":"Shipping Bill Number",
+                "type": "string"
+              },
+              "s_dt": {
+				"description":"Shipping Bill Date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "i_num",
+              "i_dt",
+              "s_num",
+              "s_dt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "expa": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "i_num": {
+				"description":"Invoice Number",
+                "type": "string"
+              },
+              "i_dt": {
+				"description":"Invoice date",
+                "type": "string"
+              },
+              "s_num": {
+				"description":"Shipping Bill Number",
+                "type": "string"
+              },
+              "s_dt": {
+				"description":"Shipping Bill Date",
+                "type": "string"
+              },
+              "onum": {
+				"description":"Old Invoice Number",
+                "type": "string"
+              },
+              "odt": {
+				"description":"Old Invoice date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "i_num",
+              "i_dt",
+              "s_num",
+              "s_dt",
+              "onum",
+              "odt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "at": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ctin": {
+				"description":"Counter Party GSTIN",
+                "type": "string"
+              },
+              "cname": {
+				"description":"Name of customer",
+                "type": "string"
+              },
+              "state_cd": {
+				"description":"State Code",
+                "type": "string"
+              },
+              "dnum": {
+				"description":"Document Number",
+                "type": "string"
+              },
+              "dt": {
+				"description":"Document Date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ctin",
+              "cname",
+              "state_cd",
+              "dnum",
+              "dt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "ata": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ctin": {
+				"description":"Counter Party GSTIN",
+                "type": "string"
+              },
+              "cname": {
+				"description":"Name of customer",
+                "type": "string"
+              },
+              "state_cd": {
+				"description":"State Code",
+                "type": "string"
+              },
+              "dnum": {
+				"description":"Document Number",
+                "type": "string"
+              },
+              "dt": {
+				"description":"Document Date",
+                "type": "string"
+              },
+              "ogstin": {
+				"description":"original supplier",
+                "type": "string"
+              },
+              "orname": {
+				"description":"Original Name of Recepient",
+                "type": "string"
+              },
+              "odnum": {
+				"description":"Original  Document Number",
+                "type": "string"
+              },
+              "otdt": {
+				"description":"Original  Document Date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ctin",
+              "cname",
+              "state_cd",
+              "dnum",
+              "dt",
+              "ogstin",
+              "orname",
+              "odnum",
+              "otdt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "txp": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "i_num": {
+				"description":"Invoice Number",
+                "type": "string"
+              },
+              "doc_num": {
+				"description":"Document Number",
+                "type": "string"
+              },
+              "doc_dt": {
+				"description":"Document Date",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "i_num",
+              "doc_num",
+              "doc_dt",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "ecom": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ecom_ty": {
+				"description":"Type of invoices- Inter-state/Intra-State",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Error_cd",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Error Message",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ecom_ty",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        },
+        "hsn": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ty": {
+				"description":"Type of item(Goods/Services)",
+                "type": "string"
+              },
+              "hsn_sc": {
+				"description":"HSN of goods purchased",
+                "type": "string"
+              },
+              "error_cd": {
+				"description":"Return",
+                "type": "string"
+              },
+              "error_msg": {
+				"description":"Return",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ty",
+              "hsn_sc",
+              "error_cd",
+              "error_msg"
+            ]
+          }
+        }
+      },
+      "required": [
+        "b2b",
+        "b2ba",
+        "b2cl",
+        "b2cla",
+        "b2cs",
+        "b2csa",
+        "cdn",
+        "cdna",
+        "nil",
+        "exp",
+        "expa",
+        "at",
+        "ata",
+        "txp",
+        "ecom",
+        "hsn"
+      ]
+    }
+  },
+  "required": [
+    "arn_no",
+    "errorReport"
+  ]
+}

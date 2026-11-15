@@ -386,7 +386,7 @@ async function main() {
     };
     await requestSample(
       client,
-      isEmailProfile ? '/taxpayerapi/dec/v0.3/returns/gstr3b' : '/taxpayerapi/dec/v7.0/returns/gstr3b',
+      isEmailProfile ? '/taxpayerapi/dec/v0.3/returns/gstr3b' : '/taxpayerapi/dec/v7.1/returns/gstr3b',
       gstr3bParams,
       isEmailProfile ? authHeaders : { ...currentReturnHeaders, txn: crypto.randomUUID() },
       isEmailProfile ? 'gstr3b-retsum-v0.3.json' : 'gstr3b-retsum.json',

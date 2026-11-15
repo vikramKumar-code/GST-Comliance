@@ -8,7 +8,7 @@ const { validate, periodQuerySchema } = require('../middleware/validate');
 router.get(
   '/itc',
   auth,
-  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'),
+  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'),
   validate(periodQuerySchema, 'query'),
   reconciliationController.getItcReconciliation
 );
@@ -16,7 +16,7 @@ router.get(
 router.get(
   '/refund-estimate',
   auth,
-  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'),
+  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'),
   validate(periodQuerySchema, 'query'),
   reconciliationController.getRefundEstimate
 );

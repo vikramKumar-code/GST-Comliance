@@ -1,0 +1,4 @@
+Invoice Number,Invoice Date,Document Type,Customer Name,Customer GSTIN,Place of Supply,Item Name,HSN/SAC,Unit (UQC),Quantity,Rate,Discount,Taxable Amount,GST Rate (%),IGST Amount,CGST Amount,SGST Amount,Total Amount
+INV-001,30-10-2026,INVOICE,om enterprises,06AAHBP8621K1ZR,06,BOPP TAPE,5603,PCS,1,100,0,100,18,0,9,9,118
+INV-002,30-10-2026,INVOICE,Rahul Retail,,06,Office Chair,9403,NOS,2,500,0,1000,18,0,90,90,1180
+

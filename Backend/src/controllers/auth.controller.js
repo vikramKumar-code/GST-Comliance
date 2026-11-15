@@ -4,9 +4,13 @@ const Consent = require('../models/Consent');
 const OtpState = require('../models/OtpState');
 const AuditLog = require('../models/AuditLog');
 const Workspace = require('../models/Workspace');
+const Session = require('../models/Session');
+const jwt = require('jsonwebtoken');
+const { encrypt } = require('../utils/crypto');
+
 const TenantService = require('../services/tenant.service');
 const ApiError = require('../utils/apiError');
-const { isProduction, SESSION_HOURS } = require('../config/env');
+const { isProduction, SESSION_HOURS, JWT_SECRET } = require('../config/env');
 
 exports.requestOtp = async (req, res, next) => {
   let workspaceId = null;
@@ -32,35 +36,19 @@ exports.requestOtp = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
-    // 2. Initialize / reset OtpState with 0 attempts and 10m TTL
+    // Only track a verification attempt after the provider confirms OTP dispatch.
+    const result = await FinaggService.requestOtp(normGstin, normUsername);
+
+    // ✅ FIX 1: Added type: 'PORTAL_LOGIN' and lastSentAt
     await OtpState.findOneAndUpdate(
-      { gstin: normGstin, username: normUsername },
+      { gstin: normGstin, username: normUsername, type: 'PORTAL_LOGIN' },
       {
         attempts: 0,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000)
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        lastSentAt: new Date()
       },
       { upsert: true }
     );
-
-    // 3. Dispatch OTP via provider
-    let result;
-    try {
-      result = await FinaggService.requestOtp(normGstin, normUsername);
-    } catch (providerError) {
-      const isSandboxHost = (process.env.TAXPRO_BASE_URL || '').includes('sandbox');
-      if (
-        isSandboxHost &&
-        !isProduction &&
-        FinaggService.getProviderName() === 'taxpro' &&
-        (['PROVIDER_ERROR', 'PROVIDER_DOWN'].includes(providerError.code) || [502, 503].includes(providerError.statusCode))
-      ) {
-        result = {
-          message: 'Active GST session detected on TaxPro. Please enter your sandbox OTP (575757) to verify.'
-        };
-      } else {
-        throw providerError;
-      }
-    }
 
     // 4. Audit Log
     await AuditLog.create({
@@ -81,7 +69,7 @@ exports.requestOtp = async (req, res, next) => {
         gstin: req.body.gstin.trim().toUpperCase(),
         action: 'OTP_REQUEST',
         status: 'FAILURE'
-      }).catch(() => {});
+      }).catch(() => { });
     }
     next(error);
   }
@@ -93,8 +81,8 @@ exports.verifyOtp = async (req, res, next) => {
     const normGstin = gstin.trim().toUpperCase();
     const normUsername = username.trim();
 
-    // 1. Check existing OtpState attempts limit (Max 3 attempts)
-    const otpState = await OtpState.findOne({ gstin: normGstin, username: normUsername });
+    // ✅ FIX 1: Added type: 'PORTAL_LOGIN' to query
+    const otpState = await OtpState.findOne({ gstin: normGstin, username: normUsername, type: 'PORTAL_LOGIN' });
     if (otpState && !otpState.isExpired() && otpState.attempts >= 3) {
       await AuditLog.create({
         gstin: normGstin,
@@ -110,8 +98,9 @@ exports.verifyOtp = async (req, res, next) => {
       verifyResult = await FinaggService.verifyOtp(normGstin, normUsername, otp.trim());
     } catch (providerErr) {
       // Record failed attempt
+      // ✅ FIX 1: Added type: 'PORTAL_LOGIN'
       await OtpState.findOneAndUpdate(
-        { gstin: normGstin, username: normUsername },
+        { gstin: normGstin, username: normUsername, type: 'PORTAL_LOGIN' },
         {
           $inc: { attempts: 1 },
           $setOnInsert: { expiresAt: new Date(Date.now() + 10 * 60 * 1000) }
@@ -129,14 +118,72 @@ exports.verifyOtp = async (req, res, next) => {
     }
 
     // 3. Success: clean up OtpState
-    await OtpState.deleteOne({ gstin: normGstin, username: normUsername }).catch(() => {});
+    // ✅ FIX 1: Added type: 'PORTAL_LOGIN'
+    await OtpState.deleteOne({ gstin: normGstin, username: normUsername, type: 'PORTAL_LOGIN' }).catch(() => { });
+
+    // 3a. Check if authenticated user (CA/Accountant) is connecting a client's GST portal
+    const existingToken = req.cookies?.sid || req.headers.authorization?.replace(/^Bearer\s+/i, '');
+    let existingSession = null;
+    if (existingToken) {
+      try {
+        const decoded = jwt.verify(existingToken, JWT_SECRET);
+        existingSession = await Session.findById(decoded.sessionId);
+      } catch {
+        existingSession = null;
+      }
+    }
+
+    if (existingSession && existingSession.userId) {
+      const gstTokenEnc = encrypt(verifyResult.token);
+      existingSession.gstin = normGstin;
+      existingSession.username = normUsername;
+      existingSession.gstTokenEnc = gstTokenEnc;
+      await existingSession.save();
+
+      if (existingSession.workspaceId) {
+        let updateDoc = {
+          gstin: normGstin,
+          gstPortalSession: {
+            username: normUsername,
+            gstTokenEnc,
+            expiresAt: new Date(Date.now() + SESSION_HOURS * 3600 * 1000)
+          }
+        };
+        try {
+          const tp = await FinaggService.searchGstin(normGstin);
+          const autoName = tp?.tradeName || tp?.legalName;
+          if (autoName && autoName !== 'Demo Traders' && autoName !== 'Demo Traders Pvt Ltd') {
+            updateDoc.name = autoName;
+            if (tp?.tradeName) updateDoc.tradeName = tp.tradeName;
+          }
+        } catch { }
+
+        await Workspace.findByIdAndUpdate(existingSession.workspaceId, {
+          $set: updateDoc
+        });
+      }
+
+      await AuditLog.create({
+        workspaceId: existingSession.workspaceId,
+        memberId: existingSession.memberId,
+        gstin: normGstin,
+        action: 'OTP_VERIFY_CLIENT_LINK',
+        status: 'SUCCESS'
+      }).catch(() => { });
+
+      return res.status(200).json({
+        success: true,
+        gstin: normGstin,
+        message: `GST Portal session for ${normGstin} successfully connected.`
+      });
+    }
 
     // 4. Create encrypted session & sign JWT
     const { workspace, user, membership } = await TenantService.ensureMembership(normGstin, normUsername);
     await Promise.all([
       Consent.updateMany({ gstin: normGstin, workspaceId: null }, { $set: { workspaceId: workspace._id } }),
       AuditLog.updateMany({ gstin: normGstin, workspaceId: null }, { $set: { workspaceId: workspace._id } })
-    ]).catch(() => {});
+    ]).catch(() => { });
     const { token } = await SessionService.createSession(normGstin, normUsername, verifyResult.token, {
       userId: user?._id || null,
       workspaceId: workspace._id,
@@ -200,7 +247,7 @@ exports.logout = async (req, res, next) => {
         gstin: req.gstin,
         action: 'LOGOUT',
         status: 'SUCCESS'
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     res.status(200).json({
@@ -230,7 +277,7 @@ exports.refreshToken = async (req, res, next) => {
       gstin: normGstin,
       action: 'TOKEN_REFRESH',
       status: 'SUCCESS'
-    }).catch(() => {});
+    }).catch(() => { });
 
     res.status(200).json({
       success: true,
@@ -244,7 +291,7 @@ exports.refreshToken = async (req, res, next) => {
         gstin: req.gstin,
         action: 'TOKEN_REFRESH',
         status: 'FAILURE'
-      }).catch(() => {});
+      }).catch(() => { });
     }
     next(error);
   }
@@ -255,22 +302,49 @@ exports.requestEvcOtp = async (req, res, next) => {
     if (!req.session?._id) {
       throw ApiError.sessionExpired('Authentication required. Please verify OTP again.');
     }
-    const { pan, form_type } = req.body;
-    let normGstin = req.gstin;
+    const { pan, form_type, period, username: bodyUsername, gstin: bodyGstin } = req.body;
+    let normGstin = bodyGstin || req.gstin;
     if (!normGstin && req.workspaceId) {
-      const Workspace = require('../models/Workspace');
       const ws = await Workspace.findById(req.workspaceId).lean();
       if (ws?.gstin) normGstin = ws.gstin;
     }
     if (!normGstin) normGstin = process.env.TEST_GSTIN || '29AABCU9603R1ZM';
-    const normUsername = req.username || req.user?.email?.split('@')[0] || 'taxpayer_user';
+    const normUsername = bodyUsername || req.username || req.workspace?.gstPortalSession?.username || req.session?.username || req.user?.email?.split('@')[0] || 'taxpayer_user';
+
+    const isLiveTaxPro = FinaggService.getProviderName() === 'taxpro';
+    if (isLiveTaxPro && !req.gstToken) {
+      throw ApiError.sessionExpired('Active GST Portal session is required to request EVC OTP. Please verify OTP on GST Return Hub first.');
+    }
     const token = req.gstToken || (!isProduction ? 'DEMO_GST_AUTH_TOKEN' : null);
 
     if (!token) {
       throw ApiError.sessionExpired('Authentication required. Please verify OTP again.');
     }
 
-    const result = await FinaggService.requestEvcOtp(normGstin, normUsername, pan, form_type, token);
+    // ✅ FIX 2: EVC OTP Rate Limiting & Cooldown Check
+    const evcState = await OtpState.findOne({ gstin: normGstin, username: normUsername, type: 'EVC_FILING' });
+    if (evcState && !evcState.isExpired()) {
+      if (evcState.lastSentAt && (Date.now() - evcState.lastSentAt.getTime()) < 30000) {
+        throw ApiError.rateLimited('Please wait 30 seconds before requesting a new EVC OTP.');
+      }
+    }
+
+    const result = await FinaggService.requestEvcOtp(normGstin, normUsername, pan, form_type, token, period);
+
+    if (result?.token && result.token !== req.gstToken && req.session?._id) {
+      await SessionService.updateSessionToken(req.session._id, result.token);
+    }
+
+    // ✅ FIX 3: Update OtpState for EVC (Track cooldown)
+    await OtpState.findOneAndUpdate(
+      { gstin: normGstin, username: normUsername, type: 'EVC_FILING' },
+      {
+        lastSentAt: new Date(),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        attempts: 0 // Reset attempts on new request
+      },
+      { upsert: true }
+    );
 
     await AuditLog.create({
       workspaceId: req.workspaceId,
@@ -278,7 +352,7 @@ exports.requestEvcOtp = async (req, res, next) => {
       gstin: normGstin,
       action: 'EVC_OTP_REQUEST',
       status: 'SUCCESS'
-    }).catch(() => {});
+    }).catch(() => { });
 
     res.status(200).json({
       success: true,
@@ -292,7 +366,7 @@ exports.requestEvcOtp = async (req, res, next) => {
         gstin: req.gstin || null,
         action: 'EVC_OTP_REQUEST',
         status: 'FAILURE'
-      }).catch(() => {});
+      }).catch(() => { });
     }
     next(error);
   }

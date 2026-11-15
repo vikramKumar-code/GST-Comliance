@@ -1,0 +1,165 @@
+{
+  "type": "object",
+  "title": "GSTR3B Save Schema",
+  "properties": {
+    "gstin": {
+      "description": "Supplier GSTIN",
+      "type": "string",
+      "maxLength": 15,
+      "minLength": 15,
+      "pattern": "[0-9]{2}[a-zA-Z]{5}[0-9]{4}[a-zA-Z]{1}[1-9A-Za-z]{1}[Zz1-9A-Ja-j]{1}[0-9a-zA-Z]{1}"
+    },
+    "ret_period": {
+      "description": "Return period",
+      "type": "string",
+      "pattern": "^((0[1-9]|1[012])((19|20)\\d\\d))$"
+    },
+    "sup_details": {
+      "type": "object",
+      "properties": {
+        "osup_det": {
+          "type": "object",
+          "properties": {
+            "txval": { "type": "number" },
+            "iamt": { "type": "number" },
+            "camt": { "type": "number" },
+            "samt": { "type": "number" },
+            "csamt": { "type": "number" }
+          },
+          "required": ["txval", "iamt", "camt", "samt", "csamt"]
+        },
+        "osup_zero": {
+          "type": "object",
+          "properties": {
+            "txval": { "type": "number" },
+            "iamt": { "type": "number" },
+            "csamt": { "type": "number" }
+          },
+          "required": ["txval", "iamt", "csamt"]
+        },
+        "osup_nil_exmp": {
+          "type": "object",
+          "properties": {
+            "txval": { "type": "number" }
+          },
+          "required": ["txval"]
+        },
+        "isup_rev": {
+          "type": "object",
+          "properties": {
+            "txval": { "type": "number" },
+            "iamt": { "type": "number" },
+            "camt": { "type": "number" },
+            "samt": { "type": "number" },
+            "csamt": { "type": "number" }
+          },
+          "required": ["txval", "iamt", "camt", "samt", "csamt"]
+        },
+        "osup_nongst": {
+          "type": "object",
+          "properties": {
+            "txval": { "type": "number" }
+          },
+          "required": ["txval"]
+        }
+      }
+    },
+    "inter_sup": {
+      "type": "object",
+      "properties": {
+        "comp_details": { "type": "array" },
+        "uin_details": { "type": "array" },
+        "unreg_details": { "type": "array" }
+      }
+    },
+    "eco_dtls": {
+      "type": "object",
+      "properties": {
+        "eco_sup": { "type": "object" },
+        "eco_reg_sup": { "type": "object" }
+      }
+    },
+    "itc_elg": {
+      "type": "object",
+      "properties": {
+        "itc_avl": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "camt": { "type": "number" },
+              "samt": { "type": "number" },
+              "csamt": { "type": "number" },
+              "iamt": { "type": "number" },
+              "ty": { "type": "string", "enum": ["IMPG", "IMPS", "ISRC", "ISD", "OTH"] }
+            },
+            "required": ["camt", "samt", "csamt", "iamt", "ty"]
+          }
+        },
+        "itc_rev": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "camt": { "type": "number" },
+              "samt": { "type": "number" },
+              "csamt": { "type": "number" },
+              "iamt": { "type": "number" },
+              "ty": { "type": "string", "enum": ["RUL", "OTH"] }
+            },
+            "required": ["camt", "samt", "csamt", "iamt", "ty"]
+          }
+        },
+        "itc_net": {
+          "type": "object",
+          "properties": {
+            "camt": { "type": "number" },
+            "samt": { "type": "number" },
+            "csamt": { "type": "number" },
+            "iamt": { "type": "number" }
+          },
+          "required": ["camt", "samt", "csamt", "iamt"]
+        },
+        "itc_inelg": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "camt": { "type": "number" },
+              "samt": { "type": "number" },
+              "csamt": { "type": "number" },
+              "iamt": { "type": "number" },
+              "ty": { "type": "string", "enum": ["RUL", "OTH"] }
+            },
+            "required": ["camt", "samt", "csamt", "iamt", "ty"]
+          }
+        }
+      }
+    },
+    "inward_sup": {
+      "type": "object",
+      "properties": {
+        "isup_details": { "type": "array" }
+      },
+      "required": ["isup_details"]
+    },
+    "intr_ltfee": {
+      "type": "object",
+      "properties": {
+        "intr_details": {
+          "type": "object",
+          "properties": {
+            "camt": { "type": "number" },
+            "samt": { "type": "number" },
+            "csamt": { "type": "number" },
+            "iamt": { "type": "number" }
+          },
+          "required": ["camt", "samt", "csamt", "iamt"]
+        }
+      },
+      "required": ["intr_details"]
+    }
+  },
+  "required": ["gstin", "ret_period"]
+}
+

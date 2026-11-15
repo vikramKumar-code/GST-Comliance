@@ -7,21 +7,21 @@ const workspaceRole = require('../middleware/workspaceRole');
 router.get(
   '/gstr-comparison',
   auth,
-  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'),
+  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'),
   reportController.getGstrComparison
 );
 
 router.get(
   '/sales-register',
   auth,
-  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'),
+  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'),
   reportController.getSalesRegister
 );
 
 router.get(
   '/purchase-register',
   auth,
-  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER'),
+  workspaceRole('OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'),
   reportController.getPurchaseRegister
 );
 

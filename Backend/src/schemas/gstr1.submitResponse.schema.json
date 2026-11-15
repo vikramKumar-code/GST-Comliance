@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "title": "GSTR1 Submit Response Schema",
+  "properties": {
+    "reference_id": {
+      "type": "string",
+      "description": "Reference ID"
+    }
+  },
+  "required": [
+    "reference_id"
+  ]
+}
+

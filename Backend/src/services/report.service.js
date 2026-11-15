@@ -4,6 +4,9 @@ const ReturnService = require('./return.service');
 const ApiError = require('../utils/apiError');
 const { isValidPeriod } = require('../utils/gstin');
 
+/**
+ * Safely rounds a number to 2 decimal places to prevent floating-point errors
+ */
 function roundToTwo(num) {
   return Math.round((Number(num) || 0) * 100) / 100;
 }
@@ -18,7 +21,7 @@ class ReportService {
    */
   static async getGstrComparison(workspaceId, period, options = {}) {
     if (!isValidPeriod(period)) {
-      throw ApiError.validationError('Period must be in MMYYYY format (e.g. 092026).');
+      throw ApiError.validationError('Period must be in MMYYYY format (e.g., 092026).');
     }
     if (!options.gstin) {
       throw ApiError.validationError('GSTIN is required for return comparison.');
@@ -39,7 +42,7 @@ class ReportService {
     let gstr1 = g1Res.status === 'fulfilled' ? g1Res.value : null;
     let gstr3b = g3bRes.status === 'fulfilled' ? g3bRes.value : null;
 
-    // If GSTR-1 could not be fetched from portal, synthesize from workspace sales invoices
+    // ✅ FIX: If GSTR-1 could not be fetched from portal, synthesize from local workspace sales invoices
     if (!gstr1 && workspaceId) {
       try {
         const Gstr1Service = require('./gstr1.service');
@@ -55,8 +58,9 @@ class ReportService {
             }
           };
         }
-      } catch {
-        // Fallback continues with default zero totals
+      } catch (err) {
+        // Fallback continues with default zero totals if local prep also fails
+        console.warn('Local GSTR-1 synthesis failed:', err.message);
       }
     }
 
@@ -90,6 +94,7 @@ class ReportService {
       totalTax: roundToTwo(gstr1Liability.totalTax - gstr3bLiability.totalTax)
     };
 
+    // Allow a tolerance of ₹1.00 for rounding differences
     const isMatched = Math.abs(difference.totalTax) <= 1.0 && Math.abs(difference.taxable) <= 1.0;
 
     let complianceRisk = 'LOW';
@@ -100,7 +105,7 @@ class ReportService {
       if (difference.totalTax > 0) {
         explanation = `GSTR-1 outward liability exceeds GSTR-3B declared tax by ₹${Math.abs(difference.totalTax)}. High risk of GST DRC-01B mismatch notice.`;
       } else {
-        explanation = `GSTR-3B declared tax exceeds GSTR-1 outward liability by ₹${Math.abs(difference.totalTax)}. Review for missing sales invoices in GSTR-1.`;
+        explanation = `GSTR-3B declared tax exceeds GSTR-1 outward liability by ₹${Math.abs(difference.totalTax)}. Review for missing sales invoices in GSTR-1 or excess ITC claim.`;
       }
     }
 
@@ -134,10 +139,19 @@ class ReportService {
       status: { $ne: 'Cancelled' }
     };
 
+    // ✅ FIX: Robust UTC Date Filtering to prevent timezone off-by-one errors
     if (fromDate || toDate) {
       query.invoiceDate = {};
-      if (fromDate) query.invoiceDate.$gte = new Date(fromDate);
-      if (toDate) query.invoiceDate.$lte = new Date(`${toDate}T23:59:59.999Z`);
+      if (fromDate) {
+        const start = new Date(fromDate);
+        start.setUTCHours(0, 0, 0, 0);
+        query.invoiceDate.$gte = start;
+      }
+      if (toDate) {
+        const end = new Date(toDate);
+        end.setUTCHours(23, 59, 59, 999);
+        query.invoiceDate.$lte = end;
+      }
     }
 
     const invoices = await Invoice.find(query).sort({ invoiceDate: -1 }).lean();
@@ -179,7 +193,7 @@ class ReportService {
       };
     });
 
-    const totalTax = roundToTwo(totalCgst + totalSgst + totalIgst);
+    const finalTotalTax = roundToTwo(totalCgst + totalSgst + totalIgst);
 
     return {
       summary: {
@@ -188,7 +202,7 @@ class ReportService {
         totalCgst,
         totalSgst,
         totalIgst,
-        totalTax,
+        totalTax: finalTotalTax,
         grandTotal
       },
       rows,
@@ -213,10 +227,19 @@ class ReportService {
       status: { $ne: 'Cancelled' }
     };
 
+    // ✅ FIX: Robust UTC Date Filtering to prevent timezone off-by-one errors
     if (fromDate || toDate) {
       query.billDate = {};
-      if (fromDate) query.billDate.$gte = new Date(fromDate);
-      if (toDate) query.billDate.$lte = new Date(`${toDate}T23:59:59.999Z`);
+      if (fromDate) {
+        const start = new Date(fromDate);
+        start.setUTCHours(0, 0, 0, 0);
+        query.billDate.$gte = start;
+      }
+      if (toDate) {
+        const end = new Date(toDate);
+        end.setUTCHours(23, 59, 59, 999);
+        query.billDate.$lte = end;
+      }
     }
 
     const bills = await Bill.find(query).sort({ billDate: -1 }).lean();
@@ -258,7 +281,7 @@ class ReportService {
       };
     });
 
-    const totalTax = roundToTwo(totalCgst + totalSgst + totalIgst);
+    const finalTotalTax = roundToTwo(totalCgst + totalSgst + totalIgst);
 
     return {
       summary: {
@@ -267,7 +290,7 @@ class ReportService {
         totalCgst,
         totalSgst,
         totalIgst,
-        totalTax,
+        totalTax: finalTotalTax,
         grandTotal
       },
       rows,

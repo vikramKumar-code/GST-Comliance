@@ -69,6 +69,25 @@ const billSchema = new mongoose.Schema(
       uppercase: true,
       default: ''
     },
+    // Extract 2-digit Place of Supply from Vendor GSTIN or POS string
+    placeOfSupply: {
+      type: String,
+      trim: true,
+      default: '',
+      set: function (v) {
+        if (!v && this.vendorGstin && this.vendorGstin.length >= 2) {
+          return this.vendorGstin.slice(0, 2);
+        }
+        if (!v) return '';
+        const match = String(v).trim().match(/^([0-9]{2})/);
+        return match ? match[1] : String(v).trim().slice(0, 2).toUpperCase();
+      }
+    },
+    // Reverse Charge Mechanism flag for Table 3.1(d) cash liability
+    isReverseCharge: {
+      type: Boolean,
+      default: false
+    },
     billDate: {
       type: Date,
       required: true,
@@ -105,6 +124,16 @@ const billSchema = new mongoose.Schema(
       default: 'Pending',
       index: true
     },
+    // ITC Eligibility tracking for GSTR-2B vs Books reconciliation
+    itcEligible: {
+      type: Boolean,
+      default: true
+    },
+    itcReason: {
+      type: String,
+      default: 'Eligible',
+      trim: true
+    },
     notes: {
       type: String,
       trim: true,
@@ -114,9 +143,10 @@ const billSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-billSchema.index({ workspaceId: 1, billNumber: 1 });
+// ✅ FIX 3: Unique Compound Index to prevent duplicate vendor bills in same workspace
+billSchema.index({ workspaceId: 1, billNumber: 1 }, { unique: true });
 billSchema.index({ workspaceId: 1, billDate: -1 });
 billSchema.index({ workspaceId: 1, billDate: -1, status: 1 });
-billSchema.index({ workspaceId: 1, vendorGstin: 1 });
+billSchema.index({ workspaceId: 1, vendorGstin: 1 }); // Crucial for fast GSTR-2B matching
 
 module.exports = mongoose.model('Bill', billSchema);

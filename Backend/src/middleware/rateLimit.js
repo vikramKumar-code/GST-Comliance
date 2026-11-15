@@ -1,17 +1,22 @@
 const rateLimit = require('express-rate-limit');
 const ApiError = require('../utils/apiError');
 const MongoRateLimitStore = require('../services/mongoRateLimitStore');
+const { isProduction } = require('../config/env');
+
+const isDev = process.env.NODE_ENV === 'development';
 
 /**
  * OTP Request rate limiter
- * Enforces ~5 requests per 10 minutes per IP
+ * Enforces ~5 requests per 10 minutes per IP in production/test
  */
 const otpLimiter = rateLimit({
   store: new MongoRateLimitStore('otp-request'),
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: isDev ? 100 : 5, // Limit each IP to 5 requests per windowMs (100 in dev)
   standardHeaders: true,
   legacyHeaders: false,
+  validate: false,
+  skip: (req) => isDev,
   handler: (req, res, next) => {
     next(ApiError.rateLimited('Too many OTP attempts from this IP. Please try again after 10 minutes.'));
   }
@@ -20,9 +25,11 @@ const otpLimiter = rateLimit({
 const otpVerifyLimiter = rateLimit({
   store: new MongoRateLimitStore('otp-verify'),
   windowMs: 10 * 60 * 1000,
-  max: 10,
+  max: isDev ? 100 : 10,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: false,
+  skip: (req) => isDev,
   handler: (req, res, next) => {
     next(ApiError.rateLimited('Too many OTP verification attempts. Please try again later.'));
   }
@@ -38,6 +45,7 @@ const contactLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: false,
   handler: (req, res, next) => {
     next(ApiError.rateLimited('Too many contact messages. Please try again later.'));
   }
@@ -46,9 +54,11 @@ const contactLimiter = rateLimit({
 const apiLimiter = rateLimit({
   store: new MongoRateLimitStore('api'),
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: isProduction ? 2000 : 10000, // Generous limit for data-rich accounting SPA
   standardHeaders: true,
   legacyHeaders: false,
+  validate: false,
+  skip: (req) => !isProduction, // Do not rate limit local development and testing
   handler: (req, res, next) => {
     next(ApiError.rateLimited('Too many requests. Please try again later.'));
   }
@@ -56,14 +66,16 @@ const apiLimiter = rateLimit({
 
 /**
  * Authentication credential limiter
- * Limits login and registration attempts to 15 per 15 minutes per IP
+ * Limits login and registration attempts
  */
 const authLimiter = rateLimit({
   store: new MongoRateLimitStore('auth-credentials'),
   windowMs: 15 * 60 * 1000,
-  max: 15,
+  max: isProduction ? 30 : 500,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: false,
+  skip: (req) => !isProduction,
   handler: (req, res, next) => {
     next(ApiError.rateLimited('Too many authentication attempts from this IP. Please try again after 15 minutes.'));
   }

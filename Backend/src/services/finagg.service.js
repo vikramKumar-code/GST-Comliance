@@ -57,7 +57,7 @@ class FinaggService {
   static async verifyOtp(gstin, username, otp) {
     const res = await getProvider().verifyOtp(gstin, username, otp);
     return {
-      token: res.token || res.auth_token
+      token: res?.token || res?.auth_token || null
     };
   }
 
@@ -68,15 +68,15 @@ class FinaggService {
   static async refreshToken(gstin, username, token) {
     const res = await getProvider().refreshToken(gstin, username, token);
     return {
-      token: res.token || res.auth_token
+      token: res?.token || res?.auth_token || null
     };
   }
 
   /**
    * Request EVC OTP for electronic verification / return filing
    */
-  static async requestEvcOtp(gstin, username, pan, formType, token) {
-    return getProvider().requestEvcOtp(gstin, username, pan, formType, token);
+  static async requestEvcOtp(gstin, username, pan, formType, token, period) {
+    return getProvider().requestEvcOtp(gstin, username, pan, formType, token, period);
   }
 
   /**
