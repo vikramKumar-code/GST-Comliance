@@ -227,18 +227,15 @@ export default function SuperAdminPage() {
   useEffect(() => {
     loadMetrics();
     loadWorkspaces();
-    loadFinancials();
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'users' && usersList.length === 0) {
-      loadUsers();
-    }
-    if (activeTab === 'activities') {
-      loadActivities();
-    }
     if (activeTab === 'financials') {
       loadFinancials();
+    } else if (activeTab === 'users' && usersList.length === 0) {
+      loadUsers();
+    } else if (activeTab === 'activities') {
+      loadActivities();
     }
   }, [activeTab]);
 

@@ -5,32 +5,32 @@ import { useAuth } from '../../context/AuthContext';
  */
 export const PERMISSIONS_MAP = {
   // Invoicing & Operations
-  'invoices.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
-  'invoices.create': ['OWNER', 'ADMIN', 'MEMBER'],
-  'invoices.update': ['OWNER', 'ADMIN', 'MEMBER'],
+  'invoices.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'],
+  'invoices.create': ['OWNER', 'ADMIN', 'MEMBER', 'CA'],
+  'invoices.update': ['OWNER', 'ADMIN', 'MEMBER', 'CA'],
   'invoices.delete': ['OWNER', 'ADMIN'],
-  'invoices.einvoice': ['OWNER', 'ADMIN', 'MEMBER'],
-  'invoices.ewaybill': ['OWNER', 'ADMIN', 'MEMBER'],
+  'invoices.einvoice': ['OWNER', 'ADMIN', 'MEMBER', 'CA'],
+  'invoices.ewaybill': ['OWNER', 'ADMIN', 'MEMBER', 'CA'],
 
   // Customers & Items
-  'customers.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
+  'customers.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'],
   'customers.manage': ['OWNER', 'ADMIN', 'MEMBER'],
   'customers.delete': ['OWNER', 'ADMIN'],
 
-  'items.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
+  'items.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'],
   'items.manage': ['OWNER', 'ADMIN', 'MEMBER'],
   'items.delete': ['OWNER', 'ADMIN'],
 
   // Purchases & Bills
-  'bills.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
-  'bills.manage': ['OWNER', 'ADMIN', 'MEMBER'],
+  'bills.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'],
+  'bills.manage': ['OWNER', 'ADMIN', 'MEMBER', 'CA'],
   'bills.delete': ['OWNER', 'ADMIN'],
 
   // GST Returns & Statutory Filings
-  'returns.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
-  'returns.prepare': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
-  'returns.save': ['OWNER', 'ADMIN'],
-  'returns.nil': ['OWNER', 'ADMIN'],
+  'returns.read': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'],
+  'returns.prepare': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'],
+  'returns.save': ['OWNER', 'ADMIN', 'CA'],
+  'returns.nil': ['OWNER', 'ADMIN', 'CA'],
   'returns.seed': ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
 
   // Administrative

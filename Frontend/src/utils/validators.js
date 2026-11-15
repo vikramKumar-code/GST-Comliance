@@ -14,6 +14,16 @@ export const isValidOtp = (otp) => {
   return /^[0-9]{4,8}$/.test(otp.trim());
 };
 
+export const isValidEvcOtp = (otp) => {
+  if (!otp || typeof otp !== 'string') return false;
+  return /^[A-Za-z0-9]{4,8}$/.test(otp.trim());
+};
+
+export const isValidPan = (pan) => {
+  if (!pan || typeof pan !== 'string') return false;
+  return /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan.trim().toUpperCase());
+};
+
 export const isValidPeriod = (period) => {
   if (!period || typeof period !== 'string' || !/^\d{6}$/.test(period)) return false;
   const month = parseInt(period.slice(0, 2), 10);

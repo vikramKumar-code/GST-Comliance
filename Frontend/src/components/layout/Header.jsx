@@ -221,7 +221,7 @@ export default function Header({ onOpenSidebar }) {
                 </div>
                 <div className="px-2.5 py-2 bg-indigo-50/60 rounded-xl border border-indigo-100/90">
                   <span className="font-semibold text-slate-900 block truncate text-xs">
-                    {user?.name || 'Active Client'}
+                    {user?.workspaceName || user?.currentWorkspace?.name || 'Active Client'}
                   </span>
                   <span className="font-mono text-[10px] text-indigo-700 font-semibold block mt-0.5">
                     {user?.gstin ? `GSTIN: ${user.gstin}` : 'No GSTIN Linked'}

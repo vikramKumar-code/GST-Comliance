@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { prepareGstr1, saveGstr1, getGstr1 } from '../api/returns.api';
@@ -43,34 +43,42 @@ export default function Gstr1PreparePage() {
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalError, setPortalError] = useState(null);
 
-  // Load GSTR-1 prepare data
-  const fetchPrepare = useCallback(async (p, currentExcluded = excludedIds) => {
+  // Request-id guard to ignore out-of-order responses from rapid toggles
+  const prepareReqId = useRef(0);
+
+  // Fetches prepared GSTR-1 payload for the selected period and exclusions
+  const fetchPrepare = useCallback(async (p, currentExcluded) => {
     if (!p) return;
+    const reqId = ++prepareReqId.current;
     setLoading(true);
     setError(null);
     setSaveResult(null);
     try {
-      const res = await prepareGstr1(p, Array.from(currentExcluded));
-      setPrepareData(res);
+      const res = await prepareGstr1(p, Array.from(currentExcluded || []));
+      if (reqId === prepareReqId.current) setPrepareData(res);
     } catch (err) {
-      setError(err);
+      if (reqId === prepareReqId.current) setError(err);
     } finally {
-      setLoading(false);
+      if (reqId === prepareReqId.current) setLoading(false);
     }
-  }, [excludedIds]);
+  }, []);
 
+  // Fetches data when active period or excluded invoice IDs change
   useEffect(() => {
     fetchPrepare(period, excludedIds);
-  }, [period]);
+  }, [period, excludedIds, fetchPrepare]);
 
   const handlePeriodChange = (newPeriod) => {
     setPeriod(newPeriod);
     setSearchParams({ period: newPeriod });
     setExcludedIds(new Set());
     setSaveResult(null);
+    // Clear portal data cache on period change
+    setPortalData(null);
+    setPortalError(null);
   };
 
-  // Toggle invoice exclusion without deleting from DB
+  // Pure state updater toggling invoice exclusion state
   const toggleExcludeInvoice = (invoiceId) => {
     const idStr = String(invoiceId);
     setExcludedIds((prev) => {
@@ -80,13 +88,11 @@ export default function Gstr1PreparePage() {
       } else {
         next.add(idStr);
       }
-      // Re-fetch or re-evaluate with updated exclusions
-      fetchPrepare(period, next);
       return next;
     });
   };
 
-  // Save / Upload GSTR-1 to GST Portal
+  // Save / Upload GSTR-1 to GST Portal (RETSAVE only — filing alag step hai)
   const handleSaveReturn = async () => {
     setSaving(true);
     setError(null);
@@ -100,8 +106,8 @@ export default function Gstr1PreparePage() {
     }
   };
 
-  // Fetch official portal data if user toggles to Portal View
-  const fetchPortalData = async () => {
+  // Fetches live return data directly from the GST portal
+  const fetchPortalData = useCallback(async () => {
     setPortalLoading(true);
     setPortalError(null);
     try {
@@ -112,28 +118,34 @@ export default function Gstr1PreparePage() {
     } finally {
       setPortalLoading(false);
     }
-  };
+  }, [period]);
 
+  // Refetches fresh portal data when switching to portal mode or changing period
   useEffect(() => {
-    if (viewMode === 'portal' && !portalData) {
+    if (viewMode === 'portal') {
+      setPortalData(null);
       fetchPortalData();
     }
-  }, [viewMode, period]);
+  }, [viewMode, fetchPortalData]);
 
-  const summary = prepareData?.summary || {};
-  const sectionDetails = prepareData?.sectionDetails || {
+  // ✅ Stable references taaki SECTION_CARDS ka useMemo effective rahe
+  const summary = useMemo(() => prepareData?.summary || {}, [prepareData]);
+  const sectionDetails = useMemo(() => prepareData?.sectionDetails || {
     b2b: [],
     b2cl: [],
     b2cs: [],
     exp: [],
     cdnr: [],
+    cdnur: [],      // CDNUR section included
     hsn: [],
-    docIssue: []
-  };
-  const supplierDetails = prepareData?.supplierDetails || {
-    gstin: user?.gstin || '29AABCU9603R1Z2',
-    legalName: user?.name || 'CANDID COMPLIANCE TECH PVT LTD',
-    tradeName: 'CandidTax Enterprise Solutions'
+    docIssue: null  // Document issued summary object
+  }, [prepareData]);
+
+  // Supplier workspace details
+  const supplierDetails = {
+    gstin: prepareData?.gstin || user?.gstin || '—',
+    legalName: prepareData?.supplierDetails?.legalName || user?.legalName || user?.name || '—',
+    tradeName: prepareData?.supplierDetails?.tradeName || user?.tradeName || '—'
   };
 
   // Compute due date (11th of succeeding month)
@@ -149,8 +161,34 @@ export default function Gstr1PreparePage() {
     });
   }, [period]);
 
-  // Section cards definition as per Image 2
-  const SECTION_CARDS = [
+  // Dynamic B2CL threshold (Rs. 1,00,000 w.e.f. Aug 2024, previously Rs. 2,50,000)
+  const b2clLimit = useMemo(() => {
+    if (!period || period.length !== 6) return 100000;
+    const mm = parseInt(period.slice(0, 2), 10);
+    const yy = parseInt(period.slice(2), 10);
+    return (yy > 2024 || (yy === 2024 && mm >= 8)) ? 100000 : 250000;
+  }, [period]);
+
+  // Normalize HSN rows with unique keys and composite totals
+  const mapHsnRow = useCallback((h, prefix) => ({
+    _id: `hsn-${prefix}-${h.num}`,
+    invoiceNumber: h.hsn_sc,
+    customerName: h.desc,
+    taxableAmount: h.txval,
+    igst: h.iamt,
+    cgst: h.camt,
+    sgst: h.samt,
+    grandTotal: h.val ?? ((h.txval || 0) + (h.iamt || 0) + (h.camt || 0) + (h.samt || 0) + (h.csamt || 0)),
+    isHsnRow: true
+  }), []);
+
+  const combinedHsnItems = useMemo(() => [
+    ...(prepareData?.payload?.hsn?.hsn_b2b || []).map((h) => mapHsnRow(h, 'b2b')),
+    ...(prepareData?.payload?.hsn?.hsn_b2c || []).map((h) => mapHsnRow(h, 'b2c'))
+  ], [prepareData, mapHsnRow]);
+
+  // Memoized section cards configuration
+  const SECTION_CARDS = useMemo(() => [
     {
       key: 'b2b',
       tableCode: 'Table 4A, 4B, 4C, 6B, 6C',
@@ -168,7 +206,7 @@ export default function Gstr1PreparePage() {
       key: 'b2cl',
       tableCode: 'Table 5A, 5B',
       title: 'B2C (Large) Invoices',
-      subtitle: 'Inter-state supplies to unregistered buyers > ₹2.5 Lakhs',
+      subtitle: `Inter-state supplies to unregistered buyers > ${formatCurrency(b2clLimit)}`, // ✅ FIX 8
       icon: '🏛️',
       count: summary.sections?.b2clCount ?? sectionDetails.b2cl?.length ?? 0,
       included: summary.sections?.b2clIncluded ?? sectionDetails.b2cl?.filter((i) => !i.isExcluded).length ?? 0,
@@ -181,7 +219,7 @@ export default function Gstr1PreparePage() {
       key: 'b2cs',
       tableCode: 'Table 7',
       title: 'B2C (Small) Invoices',
-      subtitle: 'Intra-state & inter-state supplies <= ₹2.5 Lakhs',
+      subtitle: `Intra-state & inter-state supplies <= ${formatCurrency(b2clLimit)}`, // ✅ FIX 8
       icon: '🛍️',
       count: summary.sections?.b2csCount ?? sectionDetails.b2cs?.length ?? 0,
       included: summary.sections?.b2csIncluded ?? sectionDetails.b2cs?.filter((i) => !i.isExcluded).length ?? 0,
@@ -193,15 +231,33 @@ export default function Gstr1PreparePage() {
     {
       key: 'cdnr',
       tableCode: 'Table 9B',
-      title: 'Credit / Debit Notes',
-      subtitle: 'Registered buyer credit/debit notes & amendments',
+      title: 'Credit / Debit Notes (Registered)',
+      subtitle: 'Credit/debit notes issued to registered buyers',
       icon: '📝',
       count: summary.sections?.cdnrCount ?? sectionDetails.cdnr?.length ?? 0,
-      included: sectionDetails.cdnr?.filter((i) => !i.isExcluded).length ?? 0,
-      taxable: 0,
-      tax: 0,
+      included: summary.sections?.cdnrIncluded ?? sectionDetails.cdnr?.filter((i) => !i.isExcluded).length ?? 0,
+      taxable: summary.sections?.cdnrTaxable ?? 0,
+      tax: summary.sections?.cdnrTax ?? 0,
       items: sectionDetails.cdnr || [],
       color: 'amber'
+    },
+    // CDNUR card (Table 9B unregistered credit/debit notes)
+    {
+      key: 'cdnur',
+      tableCode: 'Table 9C',
+      title: 'Credit / Debit Notes (Unregistered)',
+      subtitle: 'Notes issued to unregistered / B2CL buyers',
+      icon: '📄',
+      count: sectionDetails.cdnur?.length ?? 0,
+      included: sectionDetails.cdnur?.filter((i) => !i.isExcluded).length ?? 0,
+      taxable: (sectionDetails.cdnur || [])
+        .filter((i) => !i.isExcluded)
+        .reduce((a, i) => a + (Number(i.taxableAmount) || 0), 0),
+      tax: (sectionDetails.cdnur || [])
+        .filter((i) => !i.isExcluded)
+        .reduce((a, i) => a + (Number(i.igst) || 0) + (Number(i.cgst) || 0) + (Number(i.sgst) || 0), 0),
+      items: sectionDetails.cdnur || [],
+      color: 'orange'
     },
     {
       key: 'exp',
@@ -226,17 +282,7 @@ export default function Gstr1PreparePage() {
       included: summary.sections?.hsnCount ?? 0,
       taxable: summary.totalTaxable ?? 0,
       tax: summary.totalTax ?? 0,
-      items: (prepareData?.payload?.hsn?.data || []).map((h) => ({
-        _id: `hsn-${h.num}`,
-        invoiceNumber: h.hsn_sc,
-        customerName: h.desc,
-        taxableAmount: h.txval,
-        igst: h.iamt,
-        cgst: h.camt,
-        sgst: h.samt,
-        grandTotal: h.txval + h.iamt + h.camt + h.samt,
-        isHsnRow: true
-      })),
+      items: combinedHsnItems, // Combined HSN summary items
       color: 'emerald'
     },
     {
@@ -259,7 +305,7 @@ export default function Gstr1PreparePage() {
       }] : [],
       color: 'rose'
     }
-  ];
+  ], [summary, sectionDetails, combinedHsnItems, b2clLimit]);
 
   // Active section item for drilldown modal
   const activeSection = SECTION_CARDS.find((c) => c.key === activeSectionKey);
@@ -299,26 +345,23 @@ export default function Gstr1PreparePage() {
 
         {/* View Switcher & Action Controls */}
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Switch Between Prepare vs Official Live Return */}
           <div className="inline-flex rounded-lg p-1 bg-slate-100 border border-slate-200 text-xs font-medium">
             <button
               type="button"
-              className={`px-3 py-1.5 rounded-md transition-colors ${
-                viewMode === 'prepare'
-                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-3 py-1.5 rounded-md transition-colors ${viewMode === 'prepare'
+                ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
               onClick={() => setViewMode('prepare')}
             >
-              📋 Section Preparation (7 Cards)
+              📋 Section Preparation (8 Cards)
             </button>
             <button
               type="button"
-              className={`px-3 py-1.5 rounded-md transition-colors ${
-                viewMode === 'portal'
-                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-3 py-1.5 rounded-md transition-colors ${viewMode === 'portal'
+                ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+                }`}
               onClick={() => setViewMode('portal')}
             >
               🌐 GST Portal Data
@@ -346,7 +389,7 @@ export default function Gstr1PreparePage() {
         </div>
       </div>
 
-      {/* Outward Supplier Details Header Card (Image 2 Blueprint) */}
+      {/* Outward Supplier Details Header Card */}
       <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white p-5 shadow-sm">
         <div className="absolute -right-8 -top-8 w-44 h-44 rounded-full bg-emerald-500/10 blur-2xl pointer-events-none" />
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -399,7 +442,7 @@ export default function Gstr1PreparePage() {
                 </>
               ) : (
                 <>
-                  <span>🚀 Upload & Save to GST Portal</span>
+                  <span>🚀 Save to GSTN (RETSAVE)</span>
                 </>
               )}
             </button>
@@ -410,11 +453,10 @@ export default function Gstr1PreparePage() {
       {/* Save / Dry-run Status Notification */}
       {saveResult && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between gap-4 ${
-            saveResult.dryRun
-              ? 'bg-blue-50 border-blue-200 text-blue-900'
-              : 'bg-emerald-50 border-emerald-200 text-emerald-900'
-          }`}
+          className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${saveResult.dryRun
+            ? 'bg-blue-50 border-blue-200 text-blue-900'
+            : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+            }`}
         >
           <div className="flex items-center gap-3">
             <span className="text-2xl">{saveResult.dryRun ? '🛡️' : '✅'}</span>
@@ -423,21 +465,38 @@ export default function Gstr1PreparePage() {
               <div className="text-xs opacity-80 mt-0.5 font-mono">
                 Period: {saveResult.period} • GSTIN: {saveResult.gstin} • Reference ID: <strong>{saveResult.ref_id}</strong>
               </div>
+              {/* Next-step guidance after saving return */}
+              {!saveResult.dryRun && (
+                <div className="text-xs mt-1 font-medium">
+                  ℹ️ Invoices portal par <strong>saved</strong> hain. Return file karne ke liye EVC OTP ke saath filing step complete karein.
+                </div>
+              )}
             </div>
           </div>
-          <button
-            type="button"
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition"
-            onClick={() => setIsJsonModalOpen(true)}
-          >
-            Inspect Payload JSON
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition"
+              onClick={() => setIsJsonModalOpen(true)}
+            >
+              Inspect Payload JSON
+            </button>
+            {/* Proceed to EVC Filing CTA */}
+            {!saveResult.dryRun && (
+              <Link
+                to={`/returns/gstr1/file?period=${period}`}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-xs"
+              >
+                Proceed to EVC Filing →
+              </Link>
+            )}
+          </div>
         </div>
       )}
 
-      {error && <ErrorMessage error={error} onRetry={() => fetchPrepare(period)} />}
+      {error && <ErrorMessage error={error} onRetry={() => fetchPrepare(period, excludedIds)} />}
 
-      {/* VIEW MODE 1: GSTR-1 SECTION CARDS PREPARATION (Blueprint Image 2) */}
+      {/* VIEW MODE 1: GSTR-1 SECTION CARDS PREPARATION */}
       {viewMode === 'prepare' && (
         <>
           {/* Key Return Metric Summary Cards */}
@@ -509,7 +568,7 @@ export default function Gstr1PreparePage() {
               <Loader message={`Distributing outward sales into GSTR-1 government sections for ${formatPeriod(period)}...`} />
             </div>
           ) : (
-            /* 7 Section Cards Grid */
+            /* 8 Section Cards Grid (B2B, B2CL, B2CS, CDNR, CDNUR, EXP, HSN, DOCS) */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {SECTION_CARDS.map((section) => (
                 <div
@@ -588,13 +647,14 @@ export default function Gstr1PreparePage() {
               >
                 Inspect Official JSON
               </button>
+              {/* Save GSTR-1 Payload to Government Portal button */}
               <button
                 type="button"
-                className="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-xs"
+                className="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-xs disabled:opacity-50"
                 onClick={handleSaveReturn}
                 disabled={saving || loading || summary.includedInvoices === 0}
               >
-                Save & File to GSTN
+                Save to GSTN (RETSAVE)
               </button>
             </div>
           </div>
@@ -635,7 +695,7 @@ export default function Gstr1PreparePage() {
                 <div>
                   <h3 className="font-bold text-slate-900">Official GSTN Return Summary</h3>
                   <div className="text-xs text-slate-500 font-mono mt-0.5">
-                    GSTIN: {portalData.gstin || user?.gstin} • Return Period: {portalData.ret_period || period}
+                    GSTIN: {portalData.gstin || supplierDetails.gstin} • Return Period: {portalData.ret_period || period}
                   </div>
                 </div>
                 <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800">
@@ -647,19 +707,22 @@ export default function Gstr1PreparePage() {
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-100">
                   <div className="text-xs text-slate-400">Total Taxable</div>
                   <div className="font-bold text-slate-900 mt-1">
-                    {formatCurrency(portalData.totalTaxable || 0)}
+                    {formatCurrency(portalData.totalTaxable || portalData.totals?.taxable || 0)}
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-100">
                   <div className="text-xs text-slate-400">Total IGST</div>
                   <div className="font-bold text-slate-900 mt-1">
-                    {formatCurrency(portalData.totalIgst || 0)}
+                    {formatCurrency(portalData.totalIgst || portalData.totals?.igst || 0)}
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-100">
                   <div className="text-xs text-slate-400">Total CGST + SGST</div>
                   <div className="font-bold text-slate-900 mt-1">
-                    {formatCurrency((portalData.totalCgst || 0) + (portalData.totalSgst || 0))}
+                    {formatCurrency(
+                      (portalData.totalCgst || portalData.totals?.cgst || 0) +
+                      (portalData.totalSgst || portalData.totals?.sgst || 0)
+                    )}
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-100">
@@ -674,7 +737,7 @@ export default function Gstr1PreparePage() {
         </div>
       )}
 
-      {/* SECTION DETAIL MODAL / DRAWER (IMAGE 2 TABLE DRILLDOWN & EXCLUSION) */}
+      {/* SECTION DETAIL MODAL / DRAWER */}
       {activeSection && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
@@ -739,7 +802,7 @@ export default function Gstr1PreparePage() {
               </div>
             </div>
 
-            {/* Safe Exclusion Notice (Image 2 Key Requirement) */}
+            {/* Safe Exclusion Notice */}
             <div className="px-6 py-2.5 bg-amber-50/80 border-b border-amber-100 text-amber-900 text-xs flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span>🛡️</span>
@@ -784,11 +847,10 @@ export default function Gstr1PreparePage() {
                         return (
                           <tr
                             key={String(item._id)}
-                            className={`transition-colors ${
-                              isExcluded
-                                ? 'bg-slate-50/80 opacity-60 text-slate-400'
-                                : 'hover:bg-slate-50/50 text-slate-700'
-                            }`}
+                            className={`transition-colors ${isExcluded
+                              ? 'bg-slate-50/80 opacity-60 text-slate-400'
+                              : 'hover:bg-slate-50/50 text-slate-700'
+                              }`}
                           >
                             <td className="py-2.5 px-3 text-center">
                               {isExcluded ? (
@@ -807,7 +869,7 @@ export default function Gstr1PreparePage() {
                               {item.invoiceNumber}
                             </td>
                             <td className="py-2.5 px-3 text-slate-500">
-                              {item.dateFormatted || formatDate(item.invoiceDate)}
+                              {item.dateFormatted || (item.invoiceDate ? formatDate(item.invoiceDate) : '—')}
                             </td>
                             <td className="py-2.5 px-3 font-medium text-slate-900 truncate max-w-[160px]" title={item.customerName}>
                               {item.customerName || 'Consumer'}
@@ -834,11 +896,10 @@ export default function Gstr1PreparePage() {
                                 <button
                                   type="button"
                                   onClick={() => toggleExcludeInvoice(item._id)}
-                                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition shadow-2xs ${
-                                    isExcluded
-                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
-                                      : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
-                                  }`}
+                                  className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition shadow-2xs ${isExcluded
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                                    }`}
                                   title={
                                     isExcluded
                                       ? 'Include this invoice back in the GSTR-1 return filing'
@@ -912,15 +973,16 @@ export default function Gstr1PreparePage() {
         </div>
       )}
 
-      {/* NIL RETURN FILING MODAL */}
+      {/* Nil Return Modal */}
       <NilReturnModal
         isOpen={isNilModalOpen}
         onClose={() => setIsNilModalOpen(false)}
-        period={period}
+        initialPeriod={period}
         initialType="GSTR1"
+        gstin={supplierDetails.gstin !== '—' ? supplierDetails.gstin : undefined}
+        username={user?.portalUsername || user?.email?.split('@')[0]}
         onSuccess={() => {
-          setIsNilModalOpen(false);
-          fetchPrepare(period);
+          fetchPrepare(period, excludedIds);
         }}
       />
     </div>

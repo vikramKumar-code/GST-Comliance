@@ -11,6 +11,7 @@ import {
   BarChart3,
   ArrowRight,
   ShieldAlert,
+  Crown,
   CheckCircle2,
   Calendar,
 } from 'lucide-react';
@@ -76,6 +77,32 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Super Admin / Platform Owner Quick Navigation Banner */}
+      {user?.isSuperAdmin && (
+        <div className="rounded-2xl p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-orange-500/10 border border-amber-300 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <Crown className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-amber-950 uppercase tracking-wider">Software Owner Mode</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200/60 text-amber-900 border border-amber-300">Super Admin</span>
+              </div>
+              <p className="text-[11px] text-amber-900/80 font-medium">
+                You are logged in with a Platform Super Admin account. Manage all client organizations, subscriptions, payments & platform metrics.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/admin"
+            className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md shadow-amber-900/20 transition-all hover:scale-[1.02]"
+          >
+            <span>Open Super Admin Deck</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+      )}
       {/* ====================================================================
           STANDARDIZED PAGE HEADER & PERIOD SELECTION
           ==================================================================== */}

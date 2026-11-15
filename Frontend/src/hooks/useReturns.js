@@ -32,25 +32,34 @@ export default function useReturns(initialPeriod) {
 
   // Counter to ignore out-of-date responses on fast period changes
   const requestIdRef = useRef(0);
+  // Session in-memory cache to prevent re-fetching periods on tab/dropdown changes
+  const periodCacheRef = useRef(new Map());
 
-  const executeFetch = useCallback((selectedPeriod) => {
+  const executeFetch = useCallback((selectedPeriod, force = false) => {
+    if (!force && periodCacheRef.current.has(selectedPeriod)) {
+      const cached = periodCacheRef.current.get(selectedPeriod);
+      setDashboardData(cached.dash);
+      if (cached.availablePeriods?.length) {
+        setAvailablePeriods(cached.availablePeriods);
+      }
+      return Promise.resolve(cached.dash);
+    }
+
     const currentRequestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     setIsDataNotAvailable(false);
     const startTime = performance.now();
 
-    return Promise.all([
-      getDashboard(selectedPeriod),
-      getReturnsSummary(selectedPeriod).catch(() => null),
-    ])
-      .then(([dash, summary]) => {
+    return getDashboard(selectedPeriod)
+      .then((dash) => {
         if (currentRequestId !== requestIdRef.current) return;
+        periodCacheRef.current.set(selectedPeriod, {
+          dash,
+          availablePeriods: []
+        });
         const latency = Math.round(performance.now() - startTime);
         setDashboardData(dash);
-        if (summary?.availablePeriods) {
-          setAvailablePeriods(summary.availablePeriods);
-        }
         setLastResponse({
           method: 'GET',
           endpoint: `/api/dashboard?period=${selectedPeriod}`,

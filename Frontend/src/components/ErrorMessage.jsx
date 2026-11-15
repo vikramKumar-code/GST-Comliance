@@ -30,15 +30,39 @@ export default function ErrorMessage({ error, onRetry }) {
   let userTip = null;
   let providerBadge = null;
 
-  if (code === 'INVALID_GSTIN' || lowerMsg.includes('gstin') || lowerMsg.includes('format')) {
+  // Safe Provider Badge Mapping
+  const errorCd = rawData?.error_cd || error?.error_cd;
+  if (errorCd) providerBadge = errorCd;
+
+  if (code === 'PROVIDER_AUTH' || code === 'PROVIDER_ERROR') {
+    errorTitle = errorCd ? `GST Portal Notice (${errorCd})` : 'GST Portal Service Notice';
+    if (errorCd === 'GSP102' || errorCd === 'AUTH4038' || errorCd === 'GSP052A' || lowerMsg.includes('authtoken') || lowerMsg.includes('session')) {
+      errorTitle = 'GST Portal Session Notice';
+      userTip = 'Your GST Portal session has expired on the government portal. Please reconnect your session via GST Return Hub.';
+    } else if (errorCd === 'OTP0010' || lowerMsg.includes('authorized signatory')) {
+      errorTitle = 'Authorized Signatory Notice';
+      userTip = 'For Companies / LLPs, enter the personal PAN of the designated Director / Partner (4th letter must be "P").';
+    } else if (errorCd === 'AUTH143' || lowerMsg.includes('invalid request parameters')) {
+      errorTitle = 'Invalid Request Parameters (AUTH143)';
+      userTip = 'The GST Portal rejected the request parameters. Please verify that the selected Return Period (MMYYYY) is an open and active tax period on gst.gov.in.';
+    } else if (errorCd === 'RET11406' || errorCd === 'RET11404') {
+      userTip = 'The government portal is currently compiling the return summary. Please wait 1-2 minutes and retry.';
+    } else if (errorCd === 'AUTH4037') {
+      userTip = 'API Access is disabled on gst.gov.in. Please login to the portal and enable API Access under My Profile > Manage API Access.';
+    } else if (errorCd === 'RET01202') {
+      userTip = 'The preceding tax period has not been filed yet. GSTN requires returns to be filed chronologically.';
+    } else {
+      userTip = 'The government GST portal rejected this request. Please verify your portal return status or reconnect session.';
+    }
+  } else if (code === 'INVALID_GSTIN' || (lowerMsg.includes('gstin') && lowerMsg.includes('invalid') && !lowerMsg.includes('provider'))) {
     errorTitle = 'GSTIN Validation Notice';
     userTip = 'Please ensure the GSTIN contains exactly 15 alphanumeric characters matching state and PAN format.';
   } else if (code === 'OTP_INVALID' || lowerMsg.includes('otp') || lowerMsg.includes('verification code')) {
     errorTitle = 'OTP Verification Notice';
     userTip = 'Please check the 4-8 digit code sent to your registered contact or request a fresh OTP.';
   } else if (code === 'SESSION_EXPIRED' || status === 401 || lowerMsg.includes('session')) {
-    errorTitle = 'Security Session Expired';
-    userTip = 'Your active session has expired for security. Please sign in again to continue.';
+    errorTitle = 'GST Portal Session Expired';
+    userTip = 'Your active GST Portal session has expired. Please verify OTP on GST Return Hub to reconnect.';
   } else if (code === 'FORBIDDEN' || status === 403 || lowerMsg.includes('forbidden') || lowerMsg.includes('permission')) {
     errorTitle = 'Access Permission Restricted';
     userTip = 'Your current role does not have permission for this action. Contact your workspace administrator.';
@@ -52,8 +76,6 @@ export default function ErrorMessage({ error, onRetry }) {
     errorTitle = 'Record Not Found';
     userTip = 'The requested tax record or return data could not be found for this period.';
   }
-
-  // Safe Provider Badge Mapping
   if (lowerMsg.includes('portal user is not registered') || code === 'AUTH4037') {
     providerBadge = 'AUTH4037';
   } else if (lowerMsg.includes('expired or was not found') || code === 'GSP053') {

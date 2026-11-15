@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { verifyOtp, requestOtp } from '../api/auth.api';
 import { isValidOtp } from '../utils/validators';
 import ErrorMessage from './ErrorMessage';
-import { RefreshCw, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
+import { RefreshCw, ArrowRight, CheckCircle2 } from 'lucide-react';
 import Button from './ui/Button';
 
 export default function OtpForm({ gstin, username, onSuccess }) {
@@ -163,9 +163,6 @@ export default function OtpForm({ gstin, username, onSuccess }) {
         </button>
       </div>
 
-      <div className="p-3 bg-slate-50 rounded-xl border border-surface-border text-center text-[11px] text-slate-500">
-        <span>Sandbox Test Credentials: Use OTP <strong>575757</strong> or <strong>123456</strong></span>
-      </div>
     </form>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext'; // ✅ Added useAuth import
 import { getReturnByType } from '../api/returns.api';
 import { getLastMonthPeriod } from '../hooks/useReturns';
 import PeriodSelector from '../components/PeriodSelector';
@@ -30,6 +31,7 @@ import Card, { CardHeader, CardTitle, CardContent } from '../components/ui/Card'
 import PageHeader from '../components/ui/PageHeader';
 
 export default function ReturnDetailPage() {
+  const { user } = useAuth(); // ✅ Extract user from Auth Context
   const { type } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -338,12 +340,15 @@ export default function ReturnDetailPage() {
         />
       )}
 
+      {/* ✅ FIX: Added gstin and username props required by NilReturnModal */}
       <NilReturnModal
         isOpen={isNilModalOpen}
         onClose={() => setIsNilModalOpen(false)}
         initialPeriod={period}
         initialType={formattedType}
         onSuccess={() => executeFetch(type, period)}
+        gstin={user?.gstin}
+        username={user?.portalUsername}
       />
     </div>
   );

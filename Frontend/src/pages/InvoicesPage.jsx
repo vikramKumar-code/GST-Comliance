@@ -134,7 +134,7 @@ export default function InvoicesPage() {
 
   const handleVerifyInvoiceCustomerGstin = async () => {
     if (!customerGstin || customerGstin.trim().length < 15) {
-      setToast({ type: 'error', message: 'Enter a valid 15-character GSTIN to verify.' });
+      alert('Enter a valid 15-character GSTIN to verify.'); // ✅ FIX: Replaced setToast with alert
       return;
     }
     setVerifyingCustomerGstin(true);
@@ -148,18 +148,20 @@ export default function InvoicesPage() {
         if (clean.length >= 2) {
           setPlaceOfSupply(clean.slice(0, 2));
         }
-        setToast({ type: 'success', message: `Verified: ${legal} (${tp?.status || 'Active'})` });
+        alert(`Verified: ${legal} (${tp?.status || 'Active'})`); // ✅ FIX: Replaced setToast with alert
       } else {
-        setToast({ type: 'warning', message: 'GSTIN verified, but legal name could not be resolved.' });
+        alert('GSTIN verified, but legal name could not be resolved.'); // ✅ FIX: Replaced setToast with alert
       }
     } catch (err) {
-      setToast({ type: 'error', message: err?.message || 'Taxpayer lookup failed.' });
+      alert(err?.message || 'Taxpayer lookup failed.'); // ✅ FIX: Replaced setToast with alert
     } finally {
       setVerifyingCustomerGstin(false);
     }
   };
 
-  const sellerState = user?.gstin && user.gstin.length >= 2 ? user.gstin.slice(0, 2) : '29';
+  const sellerState =
+    user?.currentWorkspace?.stateCode ||
+    (user?.gstin && user.gstin.length >= 2 ? user.gstin.slice(0, 2) : '06');
 
   const fetchInvoices = useCallback(async (q = '', st = '') => {
     setLoading(true);
@@ -257,7 +259,7 @@ export default function InvoicesPage() {
     return () => {
       isMounted = false;
     };
-  }, [fetchInvoices, loadReferenceData, searchQuery, statusFilter]);
+  }, [fetchInvoices, loadReferenceData, searchQuery, statusFilter, user?.workspaceId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -615,11 +617,36 @@ export default function InvoicesPage() {
     });
   };
 
-  const sellerDisplayName = user?.companyName || user?.name || user?.tradeName || 'OM Enterprises';
-  const sellerDisplayGstin = user?.gstin || '06AAHPB8621K1ZR';
-  const sellerDisplayStateCode = sellerDisplayGstin.slice(0, 2) || '06';
-  const sellerDisplayStateName = getStateName(sellerDisplayStateCode);
-  const sellerDisplayAddress = user?.address || '548 Sector-7 Faridabad';
+  const activeWorkspace = user?.currentWorkspace;
+  const sellerDisplayName =
+    activeWorkspace?.tradeName ||
+    activeWorkspace?.name ||
+    user?.tradeName ||
+    user?.workspaceName ||
+    user?.companyName ||
+    'Client Company Name';
+
+  const sellerDisplayGstin =
+    activeWorkspace?.gstin ||
+    user?.gstin ||
+    '—';
+
+  const sellerDisplayStateCode =
+    activeWorkspace?.stateCode ||
+    user?.stateCode ||
+    (sellerDisplayGstin && sellerDisplayGstin.length >= 2 ? sellerDisplayGstin.slice(0, 2) : '06');
+
+  const sellerDisplayStateName =
+    activeWorkspace?.stateName ||
+    user?.stateName ||
+    getStateName(sellerDisplayStateCode);
+
+  const sellerDisplayAddress =
+    activeWorkspace?.address ||
+    user?.address ||
+    (sellerDisplayStateName && sellerDisplayStateName !== '—'
+      ? `${sellerDisplayStateName}, India`
+      : 'Registered Office Address');
 
   const buyerDisplayName = viewingInvoice?.customerName || 'Bhayana Computer Stationery Forms Private Limited';
   const buyerDisplayGstin = viewingInvoice?.customerGstin || '';
@@ -627,8 +654,8 @@ export default function InvoicesPage() {
     viewingInvoice?.placeOfSupply && viewingInvoice.placeOfSupply.length === 2
       ? viewingInvoice.placeOfSupply
       : buyerDisplayGstin.length >= 2
-      ? buyerDisplayGstin.slice(0, 2)
-      : sellerDisplayStateCode;
+        ? buyerDisplayGstin.slice(0, 2)
+        : sellerDisplayStateCode;
   const buyerDisplayStateName = getStateName(buyerDisplayStateCode);
   const posDisplayName = getStateName(viewingInvoice?.placeOfSupply || buyerDisplayStateCode);
 
@@ -971,18 +998,25 @@ export default function InvoicesPage() {
                   onChange={(e) => setNotes(e.target.value)}
                   disabled={saving}
                 />
-                <div className="flex items-center gap-3">
-                  <label className="text-xs font-semibold text-slate-700">Initial Invoice Status:</label>
-                  <select
-                    className="text-xs rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-slate-700"
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    disabled={saving}
-                  >
-                    <option value="Draft">Draft</option>
-                    <option value="Sent">Sent</option>
-                    <option value="Paid">Paid</option>
-                  </select>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs font-semibold text-slate-700">Initial Invoice Status:</label>
+                    <select
+                      className="text-xs rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-slate-700"
+                      value={status}
+                      onChange={(e) => setStatus(e.target.value)}
+                      disabled={saving}
+                    >
+                      <option value="Draft">Draft (Provisional)</option>
+                      <option value="Sent">Sent (Ready for GST Filing)</option>
+                      <option value="Paid">Paid (Ready for GST Filing)</option>
+                    </select>
+                  </div>
+                  {status === 'Draft' && (
+                    <p className="text-[11px] text-amber-600 font-medium">
+                      ⚠️ Note: &apos;Draft&apos; invoices are excluded from GSTR-1 returns. Select &apos;Sent&apos; or &apos;Paid&apos; to include in tax filing.
+                    </p>
+                  )}
                 </div>
               </Card>
 
@@ -1067,6 +1101,25 @@ export default function InvoicesPage() {
               </Button>
             }
           />
+
+          {/* Active Client Workspace Scope Indicator */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gradient-to-r from-indigo-50/80 via-white to-blue-50/50 border border-indigo-100/90 rounded-xl text-xs text-slate-800 shadow-2xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold uppercase tracking-wider text-[9px] bg-indigo-600 text-white px-2 py-0.5 rounded-md">
+                Active Client
+              </span>
+              <span className="font-bold text-slate-900">{sellerDisplayName}</span>
+              <span className="font-mono text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200 text-[11px]">
+                {sellerDisplayGstin}
+              </span>
+              <span className="text-slate-500 text-[11px]">
+                • {sellerDisplayAddress} ({sellerDisplayStateName}, Code: {sellerDisplayStateCode})
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-500 italic">
+              Isolated workspace view — only this client&apos;s invoices are visible
+            </span>
+          </div>
 
           <ErrorMessage error={error} onRetry={() => fetchInvoices(searchQuery, statusFilter)} />
 
@@ -1512,7 +1565,7 @@ export default function InvoicesPage() {
                 {/* Amount in Words */}
                 <div style={{ padding: '6px 8px', borderTop: '1px solid #000', fontSize: '11px' }}>
                   Amount Chargeable (in words):<br />
-                  <strong>INR {numberToWords(viewingInvoice.grandTotal)} Only</strong>
+                  <strong>{numberToWords(viewingInvoice.grandTotal)}</strong>
                 </div>
 
                 {/* HSN Tax Summary */}

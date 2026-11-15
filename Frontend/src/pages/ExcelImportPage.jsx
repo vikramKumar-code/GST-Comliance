@@ -1,92 +1,81 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { useAuth } from '../context/AuthContext';
 import { importInvoices, importBills } from '../api/import.api';
 import Loader from '../components/Loader';
 import ErrorMessage from '../components/ErrorMessage';
 
 const SAMPLE_SALES = [
   {
-    'Invoice Number': 'INV-2026-001',
-    'Date': '2026-10-25',
-    'Customer Name': 'Reliance Retail Ltd',
-    'Customer GSTIN': '27AAACR7197Q1ZV',
-    'Place of Supply': '27-Maharashtra',
-    'Item Name': 'Industrial Steel Coil',
-    'HSN': '7208',
-    'Quantity': 10,
-    'Rate': 5000,
-    'Discount Amount': 500,
-    'Tax Rate': 18
-  },
-  {
-    'Invoice Number': 'INV-2026-002',
-    'Date': '2026-10-26',
-    'Customer Name': 'Tata Motors Ltd',
-    'Customer GSTIN': '27AAAAT1234A1Z5',
-    'Place of Supply': '27-Maharashtra',
-    'Item Name': 'Auto Engine Parts',
-    'HSN': '8407',
-    'Quantity': 5,
-    'Rate': 12000,
-    'Discount Amount': 0,
-    'Tax Rate': 28
-  },
-  {
-    'Invoice Number': 'INV-2026-003',
-    'Date': '2026-10-27',
-    'Customer Name': 'Infosys BPM',
-    'Customer GSTIN': '29AAACI4567B1Z8',
-    'Place of Supply': '29-Karnataka',
-    'Item Name': 'IT Cloud Software Setup',
-    'HSN': '9983',
+    'Invoice Number': 'INV-001',
+    'Invoice Date': '30-10-2026',
+    'Document Type': 'INVOICE',
+    'Customer Name': 'om enterprises',
+    'Customer GSTIN': '06AAHBP8621K1ZR',
+    'Customer Address': 'Plot 45, Phase 1, Industrial Area, Gurugram, Haryana',
+    'Place of Supply': '06',
+    'Item Name': 'BOPP TAPE',
+    'HSN/SAC': '5603',
+    'Unit (UQC)': 'PCS',
     'Quantity': 1,
-    'Rate': 75000,
-    'Discount Amount': 2500,
-    'Tax Rate': 18
+    'Rate': 100,
+    'Discount': 0,
+    'Taxable Amount': 100,
+    'GST Rate (%)': 18,
+    'IGST Amount': 0,
+    'CGST Amount': 9,
+    'SGST Amount': 9,
+    'Total Amount': 118
+  },
+  {
+    'Invoice Number': 'CN-001',
+    'Invoice Date': '30-10-2026',
+    'Document Type': 'CREDIT_NOTE',
+    'Customer Name': 'Rahul Retail',
+    'Customer GSTIN': '',
+    'Customer Address': 'Shop 12, Main Market, Faridabad, Haryana',
+    'Place of Supply': '06',
+    'Item Name': 'Office Chair',
+    'HSN/SAC': '9403',
+    'Unit (UQC)': 'NOS',
+    'Quantity': 1,
+    'Rate': 500,
+    'Discount': 0,
+    'Taxable Amount': 500,
+    'GST Rate (%)': 18,
+    'IGST Amount': 0,
+    'CGST Amount': 45,
+    'SGST Amount': 45,
+    'Total Amount': 590
   }
 ];
 
 const SAMPLE_PURCHASES = [
   {
-    'Bill Number': 'BILL-9801',
-    'Date': '2026-10-20',
+    'Bill Number': 'BILL-001',
+    'Bill Date': '30-10-2026',
+    'Document Type': 'INVOICE',
     'Vendor Name': 'Godrej Supplies Ltd',
-    'Vendor GSTIN': '27AAACG1234D1Z9',
-    'Place of Supply': '27-Maharashtra',
+    'Vendor GSTIN': '06AAACG1234D1Z9',
+    'Place of Supply': '06',
     'Item Name': 'Raw Metal Sheets',
-    'HSN': '7208',
-    'Quantity': 20,
-    'Rate': 3500,
-    'Tax Rate': 18
-  },
-  {
-    'Bill Number': 'BILL-9802',
-    'Date': '2026-10-22',
-    'Vendor Name': 'Havells Power Cables',
-    'Vendor GSTIN': '07AAAAP4321E1Z3',
-    'Place of Supply': '07-Delhi',
-    'Item Name': 'Electrical Copper Wires',
-    'HSN': '8544',
-    'Quantity': 15,
-    'Rate': 4200,
-    'Tax Rate': 18
-  },
-  {
-    'Bill Number': 'BILL-9803',
-    'Date': '2026-10-24',
-    'Vendor Name': 'Apex Packaging',
-    'Vendor GSTIN': '27AAACA5678F1Z2',
-    'Place of Supply': '27-Maharashtra',
-    'Item Name': 'Corrugated Shipping Boxes',
-    'HSN': '4819',
-    'Quantity': 100,
-    'Rate': 65,
-    'Tax Rate': 12
+    'HSN/SAC': '7208',
+    'Unit (UQC)': 'PCS',
+    'Quantity': 10,
+    'Rate': 350,
+    'Discount': 0,
+    'Taxable Amount': 3500,
+    'GST Rate (%)': 18,
+    'IGST Amount': 0,
+    'CGST Amount': 315,
+    'SGST Amount': 315,
+    'Total Amount': 4130
   }
 ];
 
 export default function ExcelImportPage() {
+  const { user } = useAuth();
   const [importType, setImportType] = useState('sales'); // 'sales' | 'bills'
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -121,12 +110,13 @@ export default function ExcelImportPage() {
     reader.onload = (event) => {
       try {
         const data = new Uint8Array(event.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const firstSheetName = workbook.SheetNames[0];
         if (!firstSheetName) {
           throw new Error('Workbook contains no sheets or readable data.');
         }
         const worksheet = workbook.Sheets[firstSheetName];
+        // defval: '' ensures empty cells become empty strings, not undefined
         const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
         if (!rows || rows.length === 0) {
           setError(new Error('The uploaded file is empty or missing data rows.'));
@@ -190,22 +180,33 @@ export default function ExcelImportPage() {
 
       const ws = XLSX.utils.json_to_sheet(data);
       if (format === 'xlsx') {
-        ws['!cols'] = isSales
-          ? [
-              { wch: 18 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 18 },
-              { wch: 26 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 10 }
-            ]
-          : [
-              { wch: 18 }, { wch: 14 }, { wch: 26 }, { wch: 18 }, { wch: 18 },
-              { wch: 26 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 10 }
-            ];
+        const standardCols = [
+          { wch: 16 }, // Invoice/Bill Number
+          { wch: 14 }, // Date
+          { wch: 16 }, // Document Type
+          { wch: 22 }, // Party Name
+          { wch: 18 }, // Party GSTIN
+          { wch: 16 }, // Place of Supply
+          { wch: 22 }, // Item Name
+          { wch: 12 }, // HSN/SAC
+          { wch: 12 }, // Unit (UQC)
+          { wch: 10 }, // Quantity
+          { wch: 10 }, // Rate
+          { wch: 10 }, // Discount
+          { wch: 16 }, // Taxable Amount
+          { wch: 14 }, // GST Rate (%)
+          { wch: 14 }, // IGST Amount
+          { wch: 14 }, // CGST Amount
+          { wch: 14 }, // SGST Amount
+          { wch: 16 }  // Total Amount
+        ];
+        ws['!cols'] = standardCols;
       }
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
       XLSX.writeFile(wb, filename, { bookType: format });
     } catch {
-      // Fallback to backend download endpoint if client-side write encounters any sandbox issue
       const isSales = importType === 'sales';
       const fallbackUrl = `/api/import/template/${isSales ? 'sales' : 'bills'}?format=${format}`;
       window.location.href = fallbackUrl;
@@ -217,11 +218,44 @@ export default function ExcelImportPage() {
       <div className="zoho-page-header">
         <h1 className="fw-bold fs-4 text-dark mb-1">Excel & CSV Data Import</h1>
         <p className="text-secondary small mb-0">
-          Bulk import your sales invoices and purchase bills from Excel or CSV spreadsheets with automated GST tax calculation.
+          Bulk import your sales invoices and purchase bills. <span className="text-success fw-semibold">Backend auto-cleans trailing spaces, formats dates, and validates GSTINs.</span>
         </p>
       </div>
 
       <div className="zoho-page-body" style={{ maxWidth: '900px' }}>
+        {/* Active Client Workspace Context Banner */}
+        <div className="card border-0 mb-4 rounded-3 p-3 text-xs" style={{ backgroundColor: '#f8fafc', borderLeft: '4px solid #4f46e5', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div>
+              <div className="d-flex align-items-center gap-2 flex-wrap">
+                <span className="badge px-2.5 py-1 small fw-bold" style={{ backgroundColor: '#e0e7ff', color: '#4338ca' }}>
+                  🏢 Active Client: {user?.currentWorkspace?.tradeName || user?.currentWorkspace?.name || user?.workspaceName || 'Client Workspace'}
+                </span>
+                {user?.currentWorkspace?.gstin || user?.gstin ? (
+                  <span className="badge px-2 py-1 small font-monospace" style={{ backgroundColor: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
+                    GSTIN: {user?.currentWorkspace?.gstin || user?.gstin}
+                  </span>
+                ) : (
+                  <span className="badge px-2 py-1 small" style={{ backgroundColor: '#fef3c7', color: '#b45309' }}>
+                    Unlinked GSTIN
+                  </span>
+                )}
+                {user?.currentWorkspace?.stateCode && (
+                  <span className="badge px-2 py-1 small" style={{ backgroundColor: '#f1f5f9', color: '#475569' }}>
+                    State: {user.currentWorkspace.stateName || user.currentWorkspace.stateCode} ({user.currentWorkspace.stateCode})
+                  </span>
+                )}
+              </div>
+              <div className="text-secondary small mt-1.5" style={{ fontSize: '11px', lineHeight: '1.5' }}>
+                <strong className="text-dark">Seller / Supplier Profile:</strong> All imported sales invoices will automatically be assigned to this client. Their registered business address (<span className="text-dark font-medium">{user?.currentWorkspace?.address || 'Configured in Workspace Settings'}</span>) and GST details will show on all printed Tax Invoices and GSTR-1 filings.
+              </div>
+            </div>
+            <Link to="/settings" className="btn btn-outline-secondary btn-sm" style={{ fontSize: '11px' }}>
+              ⚙️ Client Settings
+            </Link>
+          </div>
+        </div>
+
         {/* Import Type Selector */}
         <div className="card border shadow-sm bg-white p-3 mb-4">
           <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -293,7 +327,7 @@ export default function ExcelImportPage() {
               {selectedFile ? selectedFile.name : 'Choose an Excel (.xlsx, .xls) or CSV (.csv) file or drag and drop it here'}
             </div>
             <div className="text-muted small mb-3">
-              Supports Microsoft Excel (.xlsx, .xls) & standard CSV with column headers. Auto-calculates GST.
+              Supports Microsoft Excel (.xlsx, .xls) & standard CSV with column headers.
             </div>
             <input
               id="excelFileInput"
@@ -313,7 +347,7 @@ export default function ExcelImportPage() {
             </div>
           )}
 
-          {/* Parsed Preview Table & GSTR-1 Section Distribution (Image 3 Blueprint) */}
+          {/* Parsed Preview Table & GSTR-1 Section Distribution */}
           {parsedRows.length > 0 && !result && (
             <div className="mt-4 pt-3 border-top">
               <div className="d-flex justify-content-between align-items-center mb-3">
@@ -332,7 +366,7 @@ export default function ExcelImportPage() {
                 </label>
               </div>
 
-              {/* GSTR-1 Section Auto-Distribution Cards (Blueprint Image 3) */}
+              {/* GSTR-1 Section Auto-Distribution Cards */}
               {importType === 'sales' && (() => {
                 const b2bRows = [];
                 const b2clRows = [];
@@ -341,24 +375,22 @@ export default function ExcelImportPage() {
                 const expRows = [];
 
                 for (const row of parsedRows) {
-                  const gstin = (row['Customer GSTIN'] || row['GSTIN'] || row['customerGstin'] || '').trim();
-                  const rate = Number(row['Rate'] || row['rate'] || 0);
-                  const qty = Number(row['Quantity'] || row['quantity'] || 1);
-                  const taxRate = Number(row['Tax Rate'] || row['taxRate'] || 18);
-                  const rowTotal = (rate * qty) * (1 + taxRate / 100);
-                  const pos = String(row['Place of Supply'] || row['pos'] || '');
-                  const invNum = String(row['Invoice Number'] || row['invoiceNumber'] || '');
+                  const docType = String(row['Document Type'] || row['documentType'] || 'INVOICE').toUpperCase();
+                  const pos = String(row['Place of Supply'] || row['pos'] || '').trim();
+                  const gstin = String(row['Customer GSTIN'] || row['customerGstin'] || '').trim().toUpperCase();
+                  const totalAmount = Number(row['Total Amount'] || row['totalAmount'] || 0);
 
-                  if (invNum.toLowerCase().startsWith('cn') || invNum.toLowerCase().startsWith('dn')) {
-                    cdnrRows.push({ ...row, rowTotal });
-                  } else if (pos.startsWith('96') || String(row['isExport']).toLowerCase() === 'true') {
-                    expRows.push({ ...row, rowTotal });
+                  // ✅ Fixed Logic: Use Document Type for CDNR, valid GSTIN length for B2B
+                  if (docType === 'CREDIT_NOTE' || docType === 'DEBIT_NOTE') {
+                    cdnrRows.push(row);
+                  } else if (pos === '96' || String(row['isExport'] || row['Is Export']).toLowerCase() === 'true') {
+                    expRows.push(row);
                   } else if (gstin.length === 15) {
-                    b2bRows.push({ ...row, rowTotal });
-                  } else if (rowTotal > 250000 && pos && !pos.startsWith('29')) {
-                    b2clRows.push({ ...row, rowTotal });
+                    b2bRows.push(row);
+                  } else if (totalAmount > 250000 && pos.length === 2) {
+                    b2clRows.push(row);
                   } else {
-                    b2csRows.push({ ...row, rowTotal });
+                    b2csRows.push(row);
                   }
                 }
 
@@ -367,9 +399,9 @@ export default function ExcelImportPage() {
                     <div className="d-flex align-items-center justify-content-between mb-2">
                       <span className="small fw-bold text-dark d-flex align-items-center gap-1.5">
                         <span>📊</span>
-                        <span>Auto-Distributed GSTR-1 Sections Preview (Image 3 Flow)</span>
+                        <span>Auto-Distributed GSTR-1 Sections Preview</span>
                       </span>
-                      <span className="text-muted text-[11px]">Click a card to filter rows</span>
+                      <span className="text-muted text-[11px]">Based on GSTIN, POS, and Amount</span>
                     </div>
 
                     <div className="row g-2">
@@ -420,7 +452,7 @@ export default function ExcelImportPage() {
               {/* Preview Table snippet */}
               <div className="table-responsive border rounded mb-3" style={{ maxHeight: '220px' }}>
                 <table className="table table-sm table-hover mb-0 small">
-                  <thead className="table-light">
+                  <thead className="table-light sticky-top">
                     <tr>
                       {Object.keys(parsedRows[0] || {}).slice(0, 6).map((key) => (
                         <th key={key} className="text-nowrap">{key}</th>
@@ -481,9 +513,9 @@ export default function ExcelImportPage() {
                     {result.errors?.length > 0 ? '⚠️ Import Completed with Warnings' : '✓ Import Completed Successfully!'}
                   </div>
                   <div>
-                    <span className="badge bg-success me-1">{result.importedCount} Imported</span>
+                    <span className="badge bg-success me-1">{result.importedCount || result.successCount} Imported</span>
                     {result.skippedCount > 0 && (
-                      <span className="badge bg-secondary me-1">{result.skippedCount} Skipped (Duplicates)</span>
+                      <span className="badge bg-secondary me-1">{result.skippedCount} Skipped</span>
                     )}
                     {result.errors?.length > 0 && (
                       <span className="badge bg-danger">{result.errors.length} Failed</span>
@@ -493,7 +525,7 @@ export default function ExcelImportPage() {
                 <p className="small mb-2">
                   Processed {result.totalProcessed || parsedRows.length} transactions into your active workspace.
                 </p>
-                <div className="d-flex gap-2">
+                <div className="d-flex gap-2 flex-wrap">
                   {importType === 'sales' ? (
                     <>
                       <Link to="/returns/gstr1" className="btn btn-sm btn-success fw-semibold">
@@ -521,12 +553,12 @@ export default function ExcelImportPage() {
               {result.errors?.length > 0 && (
                 <div className="border border-danger rounded p-3 bg-light">
                   <h4 className="fs-6 fw-bold text-danger mb-2">Row Errors:</h4>
-                  <ul className="small text-danger mb-0 ps-3">
+                  <ul className="small text-danger mb-0 ps-3" style={{ maxHeight: '150px', overflowY: 'auto' }}>
                     {result.errors.map((err, idx) => (
                       <li key={idx}>
                         {err.invoiceNumber || err.billNumber ? `[${err.invoiceNumber || err.billNumber}] ` : ''}
                         {err.row ? `Row ${err.row}: ` : ''}
-                        {err.error}
+                        {err.error || err.message}
                       </li>
                     ))}
                   </ul>
@@ -540,14 +572,14 @@ export default function ExcelImportPage() {
         <div className="card border shadow-sm bg-white p-4">
           <h3 className="fs-6 fw-bold text-dark mb-2">Spreadsheet Guidelines</h3>
           <p className="text-muted small mb-3">
-            To ensure zero validation errors, follow standard GST offline specifications:
+            To ensure zero validation errors, follow standard GST specifications:
           </p>
           <div className="row g-3 small text-secondary">
             <div className="col-md-6">
               <div className="p-3 border rounded bg-light">
                 <div className="fw-bold text-dark mb-1">Sales Invoices Format</div>
                 <p className="mb-0">
-                  Includes Invoice Number, Customer Name, 15-digit Customer GSTIN, Place of Supply (e.g. 27-Maharashtra), HSN code, Qty, Rate, and GST Rate (5, 12, 18, 28).
+                  Includes Invoice Number, Invoice Date (DD-MM-YYYY), Document Type (INVOICE/CREDIT_NOTE), Customer Name, Customer GSTIN, Place of Supply (e.g., 06), Item Name, HSN/SAC, Unit (UQC), Quantity, Rate, Discount, Taxable Amount, GST Rate (%), IGST, CGST, SGST, and Total Amount.
                 </p>
               </div>
             </div>
@@ -555,7 +587,7 @@ export default function ExcelImportPage() {
               <div className="p-3 border rounded bg-light">
                 <div className="fw-bold text-dark mb-1">Purchase Bills Format</div>
                 <p className="mb-0">
-                  Includes Bill Number, Vendor Name, Vendor GSTIN, Category (Expense, Inventory, Asset), Item Description, Quantity, Rate, and Tax Rate.
+                  Includes Bill Number, Bill Date, Document Type, Vendor Name, Vendor GSTIN, Place of Supply, Item Name, HSN/SAC, Unit (UQC), Quantity, Rate, Discount, Taxable Amount, GST Rate (%), IGST, CGST, SGST, and Total Amount.
                 </p>
               </div>
             </div>

@@ -36,12 +36,15 @@ export const verifyOtp = async ({ gstin, username, otp }) => {
 /**
  * Request EVC OTP for electronic return verification (Aadhaar / PAN OTP)
  * @param {Object} payload
+ * @param {string} [payload.gstin] - GSTIN whose return is being filed
  * @param {string} payload.pan - 10-character PAN of authorized signatory
  * @param {string} [payload.form_type] - e.g. 'R1', 'R3B'
+ * @param {string} [payload.period] - MMYYYY return period
+ * @param {string} [payload.username] - GST portal username
  * @returns {Promise<{ success: boolean, message: string }>}
  */
-export const requestEvcOtp = async ({ pan, form_type = 'R1' }) => {
-  return client.post('/auth/otp/evc', { pan, form_type });
+export const requestEvcOtp = async ({ gstin, pan, form_type = 'R1', period, username }) => {
+  return client.post('/auth/otp/evc', { gstin, pan, form_type, period, username });
 };
 
 /**
@@ -119,9 +122,19 @@ export const linkGstin = async ({ gstin, name }) => {
  * @param {string} [payload.gstin] - 15-character GSTIN
  * @returns {Promise<{ success: boolean, message: string, workspace: Object }>}
  */
-export const createWorkspace = async ({ name, gstin }) => {
-  return client.post('/auth/workspace/create', { name, gstin });
+export const createWorkspace = async (payload) => {
+  return client.post('/auth/workspace/create', payload);
 };
+
+/**
+ * Update active workspace/organization details (Name, Trade Name, Address, State Code, GSTIN)
+ * @param {Object} payload
+ * @returns {Promise<{ success: boolean, message: string, workspace: Object }>}
+ */
+export const updateWorkspace = async (payload) => {
+  return client.put('/auth/workspace', payload);
+};
+
 
 
 /**
@@ -140,6 +153,3 @@ export const switchRole = async (role) => {
 export const logout = async () => {
   return client.post('/auth/logout');
 };
-
-
-

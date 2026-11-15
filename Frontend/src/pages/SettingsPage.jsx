@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { linkGstin } from '../api/auth.api';
+import { linkGstin, updateWorkspace } from '../api/auth.api';
 import { isValidGstin } from '../utils/validators';
 
 export default function SettingsPage() {
   const { user, checkAuth } = useAuth();
 
   const [orgName, setOrgName] = useState('');
+  const [tradeNameInput, setTradeNameInput] = useState('');
   const [gstinInput, setGstinInput] = useState('');
+  const [addressInput, setAddressInput] = useState('');
+  const [stateCodeInput, setStateCodeInput] = useState('');
   const [invoicePrefix, setInvoicePrefix] = useState('INV-YYYYMM-');
   const [paymentTerms, setPaymentTerms] = useState('Due on Receipt');
 
@@ -21,7 +24,10 @@ export default function SettingsPage() {
   useEffect(() => {
     if (user) {
       if (user.gstin) setGstinInput(user.gstin);
-      if (user.name) setOrgName(user.name);
+      if (user.workspaceName || user.name) setOrgName(user.workspaceName || user.name);
+      if (user.tradeName) setTradeNameInput(user.tradeName);
+      if (user.address) setAddressInput(user.address);
+      if (user.stateCode) setStateCodeInput(user.stateCode);
     }
   }, [user]);
 
@@ -39,14 +45,17 @@ export default function SettingsPage() {
 
     setSaving(true);
     try {
-      const res = await linkGstin({
-        gstin: cleanGstin,
-        name: orgName.trim() || undefined
+      await updateWorkspace({
+        name: orgName.trim() || undefined,
+        tradeName: tradeNameInput.trim() || undefined,
+        gstin: cleanGstin || undefined,
+        address: addressInput.trim() || undefined,
+        stateCode: stateCodeInput.trim().slice(0, 2) || undefined,
       });
-      setSuccessMsg(res.message || 'Organization GSTIN updated successfully.');
+      setSuccessMsg('Organization profile, registered address & GSTIN updated successfully.');
       await checkAuth().catch(() => {});
     } catch (err) {
-      setErrorMsg(err.message || 'Failed to update organization GSTIN.');
+      setErrorMsg(err.message || 'Failed to update organization details.');
     } finally {
       setSaving(false);
     }
@@ -157,9 +166,22 @@ export default function SettingsPage() {
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="e.g. Vikram Kumar's Enterprise"
+                  placeholder="e.g. CandidTax Enterprise Solutions"
                   value={orgName}
                   onChange={(e) => setOrgName(e.target.value)}
+                />
+              </div>
+
+              <div className="col-12 col-md-6">
+                <label className="form-label small fw-semibold text-secondary">
+                  Brand / Trade Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="e.g. CandidTax"
+                  value={tradeNameInput}
+                  onChange={(e) => setTradeNameInput(e.target.value)}
                 />
               </div>
 
@@ -173,12 +195,51 @@ export default function SettingsPage() {
                   placeholder="e.g. 33AANCS2882A1ZG"
                   maxLength={15}
                   value={gstinInput}
-                  onChange={(e) => setGstinInput(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    const val = e.target.value.toUpperCase();
+                    setGstinInput(val);
+                    if (val.length >= 2 && !stateCodeInput) {
+                      setStateCodeInput(val.slice(0, 2));
+                    }
+                  }}
                 />
                 <div className="form-text small text-muted">
                   {isLinked
                     ? 'Your organization is linked with this GSTIN.'
                     : 'Enter your 15-character GSTIN to link it to your account.'}
+                </div>
+              </div>
+
+              <div className="col-12 col-md-6">
+                <label className="form-label small fw-semibold text-secondary">
+                  State Code (2 Digits)
+                </label>
+                <input
+                  type="text"
+                  className="form-control font-monospace text-uppercase"
+                  placeholder="e.g. 06 for Haryana, 29 for Karnataka"
+                  maxLength={2}
+                  value={stateCodeInput}
+                  onChange={(e) => setStateCodeInput(e.target.value)}
+                />
+                <div className="form-text small text-muted">
+                  Determines intra-state vs inter-state tax on invoices.
+                </div>
+              </div>
+
+              <div className="col-12">
+                <label className="form-label small fw-semibold text-secondary">
+                  Registered Business Address (Shows on Invoices)
+                </label>
+                <textarea
+                  className="form-control"
+                  rows={2}
+                  placeholder="e.g. 123 Cyber Park, Sector 29, Gurugram, Haryana - 122001"
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
+                />
+                <div className="form-text small text-muted">
+                  This address is printed directly on your official tax invoices.
                 </div>
               </div>
 

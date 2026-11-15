@@ -2,11 +2,11 @@ import { useAuth } from '../../context/AuthContext';
 import EmptyState from '../common/EmptyState';
 
 /**
- * RoleGuard - Enforces workspace role access (OWNER, ADMIN, MEMBER, VIEWER)
+ * RoleGuard - Enforces workspace role access (OWNER, ADMIN, MEMBER, VIEWER, CA)
  * Displays access denied state if user's active role is not in allowedRoles.
  */
 export default function RoleGuard({
-  allowedRoles = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'],
+  allowedRoles = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER', 'CA'],
   children,
   fallback,
 }) {

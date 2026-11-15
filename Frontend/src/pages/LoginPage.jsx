@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import GoogleLoginButton from '../components/GoogleLoginButton';
 import { signin } from '../api/auth.api';
 import { useAuth } from '../context/AuthContext';
@@ -12,10 +12,9 @@ import {
   ArrowLeft,
   ShieldCheck,
   Zap,
-  CheckCircle2,
   AlertCircle,
-  Star,
-  Check
+  CheckCircle2,
+  Loader2
 } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -24,28 +23,111 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const { loginSuccess } = useAuth();
+
+  // ✅ Get redirect path from location state
+  const from = location.state?.from?.pathname || '/dashboard';
+
+  // ✅ Auto-clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  // ✅ Email validation
+  const isValidEmail = (email) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
 
   const handleAccountSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccess(false);
+
+    // ✅ Client-side validation
+    if (!isValidEmail(email)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const res = await signin({ email, password });
+      const res = await signin({
+        email,
+        password,
+        rememberMe // ✅ Pass remember preference to backend
+      });
+
       if (res && res.success) {
+        setSuccess(true);
         loginSuccess(res);
-        navigate('/dashboard');
+
+        // ✅ Show success message briefly before redirect
+        setTimeout(() => {
+          if (res.isSuperAdmin || res.user?.isSuperAdmin || res.user?.systemRole === 'SUPER_ADMIN') {
+            navigate('/admin', { replace: true });
+          } else {
+            navigate(from, { replace: true }); // ✅ Redirect to intended page
+          }
+        }, 800);
       }
     } catch (err) {
-      setError(err?.message || 'Invalid email or password.');
+      // ✅ More specific error messages
+      const errorCode = err?.code || err?.response?.data?.code;
+      let errorMessage = 'Invalid email or password. Please try again.';
+
+      switch (errorCode) {
+        case 'ACCOUNT_LOCKED':
+          errorMessage = 'Your account has been locked due to too many failed attempts. Please try again in 15 minutes.';
+          break;
+        case 'EMAIL_NOT_VERIFIED':
+          errorMessage = 'Please verify your email address before signing in.';
+          break;
+        case 'ACCOUNT_DISABLED':
+          errorMessage = 'Your account has been disabled. Please contact support.';
+          break;
+        case 'INVALID_CREDENTIALS':
+          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+          break;
+        case 'NETWORK_ERROR':
+          errorMessage = 'Network error. Please check your internet connection and try again.';
+          break;
+        case 'SERVER_ERROR':
+          errorMessage = 'Server is temporarily unavailable. Please try again in a few moments.';
+          break;
+        default:
+          errorMessage = err?.message || errorMessage;
+      }
+
+      setError(errorMessage);
+
+      // ✅ Focus on password field after error for quick retry
+      document.getElementById('password')?.focus();
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleForgotPassword = () => {
+    // ✅ Navigate to forgot password page
+    navigate('/forgot-password', {
+      state: { email } // Pre-fill email if available
+    });
   };
 
   return (
@@ -190,11 +272,34 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Login Error Notification */}
+          {/* ✅ Success Notification */}
+          {success && (
+            <div
+              className="p-3.5 rounded-xl bg-success-50 border border-success-200 text-success-700 text-xs flex items-center gap-2.5 mb-4"
+              role="alert"
+              aria-live="polite"
+            >
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>Login successful! Redirecting...</span>
+            </div>
+          )}
+
+          {/* ✅ Error Notification with auto-dismiss */}
           {error && (
-            <div className="p-3.5 rounded-xl bg-danger-50 border border-danger-200 text-danger-700 text-xs flex items-center gap-2.5 mb-4">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
+            <div
+              className="p-3.5 rounded-xl bg-danger-50 border border-danger-200 text-danger-700 text-xs flex items-start gap-2.5 mb-4"
+              role="alert"
+              aria-live="assertive"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span className="flex-1">{error}</span>
+              <button
+                onClick={() => setError('')}
+                className="text-danger-500 hover:text-danger-700 font-bold"
+                aria-label="Dismiss error"
+              >
+                ×
+              </button>
             </div>
           )}
 
@@ -212,15 +317,16 @@ export default function LoginPage() {
               </span>
             </div>
 
-            <form onSubmit={handleAccountSubmit} className="space-y-3.5">
+            <form onSubmit={handleAccountSubmit} className="space-y-3.5" noValidate>
               {/* Email Field */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <label htmlFor="email" className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Email Address
                 </label>
                 <div className="relative flex items-center">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
                   <input
+                    id="email"
                     type="email"
                     required
                     value={email}
@@ -228,6 +334,9 @@ export default function LoginPage() {
                     placeholder="name@company.com"
                     className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl border border-surface-border bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
                     autoComplete="username"
+                    disabled={loading}
+                    aria-invalid={error ? 'true' : 'false'}
+                    aria-describedby={error ? 'login-error' : undefined}
                   />
                 </div>
               </div>
@@ -235,16 +344,21 @@ export default function LoginPage() {
               {/* Password Field */}
               <div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-xs font-semibold text-slate-700">
+                  <label htmlFor="password" className="block text-xs font-semibold text-slate-700">
                     Password
                   </label>
-                  <span className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer">
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    className="text-[11px] text-brand-600 hover:text-brand-700 font-semibold hover:underline focus:outline-none focus:underline"
+                  >
                     Forgot password?
-                  </span>
+                  </button>
                 </div>
                 <div className="relative flex items-center">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
                   <input
+                    id="password"
                     type={showPassword ? 'text' : 'password'}
                     required
                     value={password}
@@ -252,25 +366,31 @@ export default function LoginPage() {
                     placeholder="Enter your password"
                     className="w-full pl-9 pr-10 py-2.5 text-xs rounded-xl border border-surface-border bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
                     autoComplete="current-password"
+                    disabled={loading}
+                    aria-invalid={error ? 'true' : 'false'}
+                    aria-describedby={error ? 'login-error' : undefined}
                   />
                   <button
                     type="button"
                     className="absolute right-3 p-0.5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    disabled={loading}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
-              {/* Remember Device Checkbox */}
+              {/* ✅ Remember Device Checkbox (Functional) */}
               <div className="flex items-center gap-2 pt-1 text-xs">
                 <input
                   type="checkbox"
                   id="rememberMe"
-                  defaultChecked
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
                   className="rounded border-surface-border text-brand-600 focus:ring-brand-500 cursor-pointer"
+                  disabled={loading}
                 />
                 <label htmlFor="rememberMe" className="text-[11px] text-slate-600 select-none cursor-pointer">
                   Remember this device for 30 days
@@ -281,10 +401,19 @@ export default function LoginPage() {
                 type="submit"
                 variant="fintech"
                 className="w-full justify-center py-2.5"
-                disabled={loading}
+                disabled={loading || success}
+                aria-busy={loading}
               >
                 {loading ? (
-                  <span>Signing in...</span>
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Signing in...</span>
+                  </span>
+                ) : success ? (
+                  <span className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Success! Redirecting...</span>
+                  </span>
                 ) : (
                   <>
                     <span>Sign In to Portal</span>

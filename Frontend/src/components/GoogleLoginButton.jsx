@@ -41,7 +41,11 @@ export default function GoogleLoginButton({ onSuccess, onError }) {
       if (res && res.success) {
         loginSuccess(res);
         if (onSuccess) onSuccess(res);
-        navigate('/dashboard');
+        if (res.isSuperAdmin || res.user?.isSuperAdmin || res.user?.systemRole === 'SUPER_ADMIN') {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
       }
     } catch (err) {
       if (onError) onError(err);

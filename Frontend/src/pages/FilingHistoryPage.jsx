@@ -7,20 +7,15 @@ import PeriodSelector from '../components/PeriodSelector';
 import Loader from '../components/Loader';
 import ErrorMessage from '../components/ErrorMessage';
 import EmptyState from '../components/EmptyState';
-import { formatPeriod } from '../utils/format';
+import { formatPeriod, formatDate } from '../utils/format';
 import NilReturnModal from '../components/NilReturnModal';
 import FilingCertificateModal from '../components/FilingCertificateModal';
 import {
-  FileCheck,
-  Zap,
   ArrowRight,
   Copy,
   Check,
   RefreshCw,
-  ShieldCheck,
-  Calendar,
   Award,
-  Printer
 } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -50,7 +45,9 @@ export default function FilingHistoryPage() {
     setError(null);
     try {
       const data = await getReturnsSummary(p);
-      setFilings(data?.filings || []);
+      // ✅ FIX: Robust data extraction - handle both 'filings' and 'data.filings' keys
+      const filingsData = data?.filings || data?.data?.filings || [];
+      setFilings(Array.isArray(filingsData) ? filingsData : []);
     } catch (err) {
       setError(err);
     } finally {
@@ -75,6 +72,14 @@ export default function FilingHistoryPage() {
       setCopiedArn(arn);
       setTimeout(() => setCopiedArn(null), 2000);
     }
+  };
+
+  // ✅ FIX: Robust date display helper
+  const getFilingDate = (f) => {
+    if (f.date) return f.date;
+    if (f.dateStr) return f.dateStr;
+    if (f.filingDate) return formatDate(f.filingDate);
+    return 'Not available';
   };
 
   return (
@@ -149,22 +154,25 @@ export default function FilingHistoryPage() {
                       </TableCell>
                       <TableCell className="py-3 px-4">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-bold text-brand-700">{f.arn}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleCopyArn(f.arn)}
-                            className="p-1 text-slate-400 hover:text-slate-600 transition cursor-pointer"
-                            title="Copy ARN"
-                          >
-                            {isCopied ? <Check className="w-3.5 h-3.5 text-success-600" /> : <Copy className="w-3.5 h-3.5" />}
-                          </button>
+                          <span className="font-mono font-bold text-brand-700">{f.arn || '—'}</span>
+                          {f.arn && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyArn(f.arn)}
+                              className="p-1 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                              title="Copy ARN"
+                            >
+                              {isCopied ? <Check className="w-3.5 h-3.5 text-success-600" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
                         </div>
                       </TableCell>
-                      <TableCell className="py-3 px-4 text-slate-500">{f.date}</TableCell>
-                      <TableCell className="py-3 px-4 text-slate-500 font-medium">{f.mode}</TableCell>
+                      {/* ✅ FIX: Use robust date helper */}
+                      <TableCell className="py-3 px-4 text-slate-500">{getFilingDate(f)}</TableCell>
+                      <TableCell className="py-3 px-4 text-slate-500 font-medium">{f.mode || '—'}</TableCell>
                       <TableCell className="py-3 px-4">
                         <Badge variant="success" size="sm">
-                          {f.status}
+                          {f.status || 'Filed'}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right py-3 px-4">
@@ -196,11 +204,14 @@ export default function FilingHistoryPage() {
         </Card>
       )}
 
+      {/* ✅ FIX: Added gstin and username props required by NilReturnModal */}
       <NilReturnModal
         isOpen={nilModalOpen}
         onClose={() => setNilModalOpen(false)}
         initialPeriod={period}
         initialType="GSTR1"
+        gstin={user?.gstin}
+        username={user?.portalUsername || user?.email?.split('@')[0]}
         onSuccess={() => fetchHistory(period)}
       />
 
@@ -209,8 +220,8 @@ export default function FilingHistoryPage() {
         onClose={() => setSelectedCertificate(null)}
         filing={selectedCertificate}
         workspace={{
-          name: user?.name || 'Candidtax Private Limited',
-          gstin: user?.gstin || '06AAMCC3439Q1Z2'
+          name: user?.workspaceName || user?.currentWorkspace?.name,
+          gstin: user?.gstin
         }}
       />
     </div>

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getReturnsSummary } from '../api/returns.api';
 import { getLastMonthPeriod } from '../hooks/useReturns';
+import { useAuth } from '../context/AuthContext'; // ✅ Added useAuth import
 import PeriodSelector from '../components/PeriodSelector';
 import Loader from '../components/Loader';
 import ErrorMessage from '../components/ErrorMessage';
@@ -33,6 +34,7 @@ import {
 } from '../components/ui/Table';
 
 export default function ReturnSummaryPage() {
+  const { user } = useAuth(); // ✅ Extract user from Auth Context
   const [period, setPeriod] = useState(getLastMonthPeriod());
   const [summaryData, setSummaryData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -63,8 +65,9 @@ export default function ReturnSummaryPage() {
     };
   }, [fetchSummary, period]);
 
-  const returns = summaryData?.returns || [];
-  const periods = summaryData?.availablePeriods || [];
+  // ✅ Safe fallback in case API wraps response in a 'data' object
+  const returns = summaryData?.returns || summaryData?.data?.returns || [];
+  const periods = summaryData?.availablePeriods || summaryData?.data?.availablePeriods || [];
 
   return (
     <div className="space-y-6">
@@ -139,7 +142,7 @@ export default function ReturnSummaryPage() {
               </TableHeader>
               <TableBody>
                 {returns.map((ret, idx) => (
-                  <TableRow key={idx} className="hover:bg-slate-50/50 transition-colors">
+                  <TableRow key={ret.type || idx} className="hover:bg-slate-50/50 transition-colors">
                     <TableCell className="py-3 px-4 font-bold text-slate-900">{ret.type}</TableCell>
                     <TableCell className="py-3 px-4 font-mono text-slate-600">{formatPeriod(ret.period)}</TableCell>
                     <TableCell className="text-right py-3 px-4 font-mono font-medium">{formatCurrency(ret.totals?.taxable || 0)}</TableCell>
@@ -221,12 +224,15 @@ export default function ReturnSummaryPage() {
         </Card>
       )}
 
+      {/* ✅ FIX: Added gstin and username props required by NilReturnModal */}
       <NilReturnModal
         isOpen={nilModalOpen}
         onClose={() => setNilModalOpen(false)}
         initialPeriod={period}
         initialType="GSTR1"
         onSuccess={() => fetchSummary(period)}
+        gstin={user?.gstin}
+        username={user?.portalUsername}
       />
     </div>
   );
