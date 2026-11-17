@@ -9,20 +9,90 @@ const { resolveGstnCatalogError } = require('./gstnErrorCatalog');
 // Official TaxPro / GSTN error codes for an expired or invalid taxpayer auth token
 const SESSION_ERROR_CODES = [
   'AUTH4038', 'AUTH4033', 'AUTH4042', 'GSP052', 'GSP052A',
-  'TEC4002', 'GSP102', 'OTP0008', 'OTP0011', 'RET11407', 'AUTH158', 'RET13001'
+  'TEC4002', 'GSP102', 'OTP0008', 'OTP0011', 'RET11407',
+  'AUTH158', 'RET13001', 'AUTH403'
 ];
 
+// Statutory safety: do not fabricate isnil Y unless explicitly enabled.
+const TAXPRO_ALLOW_NIL_SUMMARY_FALLBACK =
+  String(process.env.TAXPRO_ALLOW_NIL_SUMMARY_FALLBACK || 'false').toLowerCase() === 'true';
+
 /**
- * FIX #1: GSTN success responses do NOT always carry status_cd.
+ * GSTN success responses do NOT always carry status_cd.
  * Per the GSTN schemas the success bodies are:
  *   Save (GSTR-1 / 3B)  -> { reference_id }
+ *   Submit GSTR-1       -> { reference_id }
  *   Proceed to File     -> { reference_id } or { isSync: 'Y' }
  *   File                -> { ack_num }
  *   Offset 3B           -> { message: 'Payment of tax successfully done' }
- *   RETSTATUS           -> { status_cd: 'P' | 'PE' | 'ER' | 'IP', ... }
+ *   RETSTATUS           -> { status_cd: 'P' | 'PE' | 'ER' | 'IP' } or TaxPro wrapper status_cd '1'
  * Each operation therefore declares what a successful body looks like.
  */
 const SAVE_REF_ALIASES = ['reference_id', 'ref_id'];
+
+/* -------------------------------------------------------------------------- */
+/* Generic helpers                                                            */
+/* -------------------------------------------------------------------------- */
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Defensive GSTN Save payload cleaner.
+ *
+ * Official GSTR-1 Save request schema has additionalProperties: false and does
+ * not allow chksum / null / undefined values in the save payload.
+ *
+ * This does NOT replace schema validation. It only removes clearly illegal
+ * legacy artifacts before sending to TaxPro/GSTN.
+ */
+function cleanSaveValue(value) {
+  if (value === undefined || value === null) return undefined;
+
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    const out = [];
+
+    for (const item of value) {
+      const cleaned = cleanSaveValue(item);
+      if (cleaned !== undefined) out.push(cleaned);
+    }
+
+    return out;
+  }
+
+  if (isPlainObject(value)) {
+    const out = {};
+
+    for (const [key, val] of Object.entries(value)) {
+      // chksum is a summary/response concept, not allowed in Save request schema.
+      if (key === 'chksum') continue;
+
+      const cleaned = cleanSaveValue(val);
+      if (cleaned !== undefined) out[key] = cleaned;
+    }
+
+    return out;
+  }
+
+  return value;
+}
+
+function safeParseJson(value) {
+  if (isPlainObject(value) || Array.isArray(value)) return value;
+
+  if (typeof value !== 'string') return null;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
 
 function getReferenceId(data, aliases = SAVE_REF_ALIASES) {
   for (const key of aliases) {
@@ -32,17 +102,20 @@ function getReferenceId(data, aliases = SAVE_REF_ALIASES) {
     const nested = data?.data?.[key];
     if (typeof nested === 'string' && nested.trim()) return nested.trim();
   }
+
   return null;
 }
 
 function requireReferenceId(data, label, aliases = SAVE_REF_ALIASES) {
   const refId = getReferenceId(data, aliases);
+
   if (!refId) {
     throw ApiError.providerError(
       `${label}: GSTN response did not include required reference_id. Operation was not confirmed.`,
       502
     );
   }
+
   return refId;
 }
 
@@ -53,23 +126,26 @@ const OK_SHAPE = {
   proceedToFile: (d) => Boolean(getReferenceId(d) || d?.isSync === 'Y' || d?.data?.isSync === 'Y'),
   fileGstr1: (d) => typeof (d?.ack_num || d?.data?.ack_num) === 'string' && (d?.ack_num || d?.data?.ack_num).trim(),
   fileGstr3b: (d) => typeof (d?.ack_num || d?.data?.ack_num) === 'string' && (d?.ack_num || d?.data?.ack_num).trim(),
-  offsetGstr3b: (d) => (d?.message === 'Payment of tax successfully done' || d?.data?.message === 'Payment of tax successfully done'),
+  offsetGstr3b: (d) => (
+    d?.message === 'Payment of tax successfully done' ||
+    d?.data?.message === 'Payment of tax successfully done'
+  ),
   trackStatus: (d) => {
     const s = String(d?.data?.status_cd || d?.status_cd || '').toUpperCase();
-    return ['P', 'PE', 'ER', 'IP'].includes(s) || s === '1';
+    return ['P', 'PE', 'ER', 'IP', '1'].includes(s);
   }
 };
 
 /**
- * FIX #2: one place to read the provider error code.
- * Works for axios errors (error.response.data...) AND for ApiError objects that
- * were thrown by checkTaxProResponse (HTTP 200 with status_cd "0"), which have
- * no error.response at all.
+ * One place to read the provider error code.
+ * Works for axios errors AND ApiError objects thrown by checkTaxProResponse.
  */
 function getErrCd(e) {
   if (!e) return undefined;
   if (typeof e.errorCd === 'string' && e.errorCd) return e.errorCd;
+
   let d = e.response?.data;
+
   if (typeof d === 'string') {
     try {
       d = JSON.parse(d);
@@ -77,18 +153,20 @@ function getErrCd(e) {
       return undefined;
     }
   }
+
   if (d && typeof d === 'object') {
     return d.error?.error_cd || d.error_cd || undefined;
   }
+
   return undefined;
 }
 
 /**
- * Mask anything that looks like PAN / GSTIN / numeric secrets before logging a
- * provider message, so logs stay useful without leaking identifiers.
+ * Mask anything that looks like PAN / GSTIN / numeric secrets before logging.
  */
 function maskSensitive(text) {
   if (typeof text !== 'string') return undefined;
+
   return text
     .replace(/[A-Z]{5}[0-9]{4}[A-Z]/gi, '[PAN]')
     .replace(/[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]/gi, '[GSTIN]')
@@ -99,52 +177,52 @@ function maskSensitive(text) {
     .slice(0, 200);
 }
 
-/**
- * Safely format error message without leaking URLs or query credentials in server logs.
- */
 function safeErrorMessage(error) {
   if (!error) return 'unknown';
+
   const msg = typeof error.message === 'string' ? error.message : '';
+
   return maskSensitive(msg.replace(/https?:\/\/\S+/gi, '[URL_REDACTED]')) || 'unknown';
 }
 
 /**
- * Deterministic retry check: only retry on route/config errors (404/405/GEN5001).
- * Never retry on timeouts (ECONNABORTED/ETIMEDOUT) or 5xx server errors to avoid duplicate requests.
+ * Deterministic retry check: only retry on route/config errors.
+ * Never retry on timeouts or 5xx to avoid duplicate mutating requests.
  */
 function isSafeConfigRetryError(error) {
   const status = error?.response?.status;
   const code = error?.code;
   const errCd = getErrCd(error);
+
   if (code === 'ECONNABORTED' || code === 'ETIMEDOUT' || !error?.response) return false;
   if (typeof status === 'number' && status >= 500) return false;
+
   return status === 404 || status === 405 || ['GEN5001', 'AUTH143'].includes(errCd);
 }
 
-/**
- * Validate error_cd before logging: must match /^[A-Za-z0-9_-]{1,32}$/ or return 'invalid'
- */
 function getValidErrorCd(errorCd) {
   if (typeof errorCd === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(errorCd)) {
     return errorCd;
   }
+
   return 'invalid';
 }
 
-/**
- * Safe header diagnostics: reports header names and presence only.
- * Never log secrets, passwords, auth tokens, OTPs, or private keys.
- */
 function formatSafeHeaderDiagnostics(headers) {
   const summary = {};
+
   for (const [key, val] of Object.entries(headers || {})) {
-    summary[key] = val !== undefined && val !== null && String(val).length > 0 ? '[PRESENT]' : '[EMPTY]';
+    summary[key] = val !== undefined && val !== null && String(val).length > 0
+      ? '[PRESENT]'
+      : '[EMPTY]';
   }
+
   return summary;
 }
 
 function mapTaxProErrorCode(errorCd) {
   let err = null;
+
   if (SESSION_ERROR_CODES.includes(errorCd)) {
     err = ApiError.sessionExpired('Please verify OTP again.');
   } else if (
@@ -190,9 +268,15 @@ function mapTaxProErrorCode(errorCd) {
     err = ApiError.validationError('GST Portal Error (AUTH143): Invalid request parameters. Please verify the return period (MMYYYY) and ensure it is an active open tax period on the GST portal.');
   } else if (errorCd === 'AUTH4041') {
     err = ApiError.providerError('Could not complete the request. Please try again.', 502);
+  } else if (errorCd === 'RET13507') {
+    err = ApiError.validationError('GST Portal Error (RET13507): EVC signature mismatch. Please retry filing with a fresh EVC OTP.');
+  } else if (errorCd === 'RT_FIL_10') {
+    err = ApiError.validationError('GST Portal Error (RT_FIL_10): Return must be submitted / proceed-to-file before RETFILE.');
+  } else if (errorCd === 'RET09001') {
+    err = ApiError.providerError('GST portal summary is still being generated. Please try again in a few moments.', 502);
   } else {
-    // Check comprehensive GSTN error catalog
     const catalogMatch = resolveGstnCatalogError(errorCd);
+
     if (catalogMatch) {
       err = catalogMatch;
     } else if (errorCd) {
@@ -203,16 +287,17 @@ function mapTaxProErrorCode(errorCd) {
   if (err && errorCd) {
     err.errorCd = errorCd;
   }
+
   return err;
 }
 
 /**
- * Handle and map errors from TaxPro upstream calls
+ * Handle and map errors from TaxPro upstream calls.
+ *
  * SECURITY RULE:
- * - ASP credentials and taxpayer auth tokens travel in headers where supported
- * - Never log a URL, params, request config, request headers or whole axios error object
- * - Map errors using only error.response?.status and error.code (plus server-side error_cd)
- * - Never forward raw provider message to the client
+ * - Never log URL, params, request config, request headers or whole axios error object.
+ * - Map errors using only error.response?.status, error.code and server-side error_cd.
+ * - Never forward raw provider message to the client.
  */
 function handleTaxProError(error, operation) {
   if (error instanceof ApiError) {
@@ -225,6 +310,7 @@ function handleTaxProError(error, operation) {
   let providerErrorCd = null;
   let providerMessage;
   let responseData = error.response?.data;
+
   if (typeof responseData === 'string') {
     try {
       responseData = JSON.parse(responseData);
@@ -232,6 +318,7 @@ function handleTaxProError(error, operation) {
       // responseData remains a string if unparseable
     }
   }
+
   if (responseData && typeof responseData === 'object') {
     providerErrorCd = responseData.error?.error_cd || responseData.error_cd;
     providerMessage = responseData.error?.message || responseData.message;
@@ -258,7 +345,6 @@ function handleTaxProError(error, operation) {
   ) {
     mappedError = ApiError.providerDown('GST service is unavailable. Please try again later.');
   } else if (status === 401 || status === 403) {
-    // Upstream 401/403 maps to PROVIDER_AUTH per instructions
     mappedError = ApiError.providerAuth('Could not complete the request. Please try again.');
   } else {
     mappedError = ApiError.providerError('Could not complete the request. Please try again.', 502);
@@ -270,8 +356,6 @@ function handleTaxProError(error, operation) {
 
   const errorCdForLog = providerErrorCd ? getValidErrorCd(providerErrorCd) : undefined;
 
-  // Log only safe operational metadata; never credentials, config or raw errors.
-  // The provider message is masked and truncated so unmapped codes stay debuggable.
   logger.error(`TaxPro request failed during [${operation}]`, {
     status,
     code: mappedError.code,
@@ -285,23 +369,20 @@ function handleTaxProError(error, operation) {
 
 /**
  * Compute TaxPro EVC HMAC-SHA256 signature supporting standard GSTN & TaxPro encoding modes.
- * Mode 'std': Standard GSTN EVC spec (HMAC-SHA256 of Base64(payload) with Key "PAN|OTP")
- * Mode 'raw': HMAC-SHA256 of raw UTF-8 payload with Key "PAN|OTP"
- * Mode 'single_b64key': HMAC-SHA256 of Base64(payload) with Key Base64("PAN|OTP")
- * Mode 'double': Legacy TaxPro spec (HMAC-SHA256 of Double-Base64(payload) with Key Base64("PAN|OTP"))
- * Mode 'raw_b64key': HMAC-SHA256 of raw UTF-8 payload with Key Base64("PAN|OTP")
- * @param {string} step1RawResponse - Payload string to sign
- * @param {string} pan - Authorized signatory PAN
- * @param {string} otp - EVC OTP
- * @param {string} [mode='std'] - Signature encoding mode
- * @returns {string} Base64-encoded HMAC-SHA256 signature
  */
-function computeTaxProEvcSignature(step1RawResponse, pan, otp, mode = process.env.TAXPRO_EVC_ENCODING || 'double') {
+function computeTaxProEvcSignature(
+  step1RawResponse,
+  pan,
+  otp,
+  mode = process.env.TAXPRO_EVC_ENCODING || 'double'
+) {
   const cleanPan = String(pan || '').trim().toUpperCase();
   const cleanOtp = String(otp || '').trim();
   const rawString = String(step1RawResponse || '');
+
   const b64_1 = Buffer.from(rawString, 'utf8').toString('base64');
   const b64_2 = Buffer.from(b64_1, 'utf8').toString('base64');
+
   const keyRaw = `${cleanPan}|${cleanOtp}`;
   const keyB64 = Buffer.from(keyRaw, 'utf8').toString('base64');
 
@@ -338,6 +419,7 @@ function computeTaxProEvcSignature(step1RawResponse, pan, otp, mode = process.en
 
   const hmac = crypto.createHmac('sha256', key);
   hmac.update(data, 'utf8');
+
   return hmac.digest('base64');
 }
 
@@ -345,8 +427,9 @@ function shortHash(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16);
 }
 
-const SUMMARY_ROOT_KEYS = ['gstin', 'ret_period', 'chksum', 'smryTyp', 'newSumFlag', 'sec_sum'];
-const SUMMARY_NIL_KEYS = ['gstin', 'ret_period', 'isnil'];
+/* -------------------------------------------------------------------------- */
+/* GSTR-1 Summary validation                                                  */
+/* -------------------------------------------------------------------------- */
 
 const SEC_NM_ENUM = new Set([
   'AT', 'ATA', 'CDNUR', 'B2BA_4A', 'CDNURA', 'B2BA_4B', 'EXP', 'B2BA_6C', 'EXPA',
@@ -359,18 +442,22 @@ const SEC_NM_ENUM = new Set([
 
 function isMultipleOf01(val) {
   if (typeof val !== 'number' || !Number.isFinite(val)) return false;
+
   const scaled = Math.round(val * 100);
   return Math.abs(val * 100 - scaled) < 1e-8;
 }
 
 function assertSummaryNumber(val, field, loc, { allowNegative = false } = {}) {
   if (val === undefined || val === null) return;
+
   if (typeof val !== 'number' || !Number.isFinite(val)) {
     throw ApiError.providerError(`Summary ${loc}: '${field}' must be finite number.`, 502);
   }
+
   if (!allowNegative && val < 0) {
     throw ApiError.providerError(`Summary ${loc}: '${field}' must be >= 0.`, 502);
   }
+
   if (!isMultipleOf01(val)) {
     throw ApiError.providerError(`Summary ${loc}: '${field}' must be multiple of 0.01.`, 502);
   }
@@ -422,9 +509,17 @@ function validateGstr1SummaryResponse(data, gstin, period, isNil = false) {
 
   if (isNil) {
     if (!isNilPortal) {
-      throw ApiError.providerError('GST portal did not explicitly confirm Nil return (isnil: "Y"). Nil filing aborted.', 502);
+      throw ApiError.providerError(
+        'GST portal did not explicitly confirm Nil return (isnil: "Y"). Nil filing aborted.',
+        502
+      );
     }
-    return { gstin: String(data.gstin).toUpperCase(), ret_period: String(data.ret_period).trim(), isnil: 'Y' };
+
+    return {
+      gstin: String(data.gstin).toUpperCase(),
+      ret_period: String(data.ret_period).trim(),
+      isnil: 'Y'
+    };
   }
 
   if (isNilPortal) {
@@ -466,65 +561,103 @@ function validateGstr1SummaryResponse(data, gstin, period, isNil = false) {
 
 function buildGstr1RetFileBody(rawSummary, gstin, period, isNil) {
   let summary;
+
   try {
     summary = typeof rawSummary === 'string' ? JSON.parse(rawSummary) : rawSummary;
   } catch {
-    throw ApiError.providerError('TaxPro GSTR-1 RETSUM did not return valid JSON required by the RETFILE schema.', 502);
+    throw ApiError.providerError(
+      'TaxPro GSTR-1 RETSUM did not return valid JSON required by the RETFILE schema.',
+      502
+    );
   }
 
   const data = summary?.data && typeof summary.data === 'object' ? summary.data : summary;
   const validated = validateGstr1SummaryResponse(data, gstin, period, isNil);
+
   return JSON.stringify(validated);
 }
 
-// FIX #5: fields allowed by the official "File GSTR3B" request schema (regular return).
+/* -------------------------------------------------------------------------- */
+/* GSTR-3B RETFILE helpers                                                    */
+/* -------------------------------------------------------------------------- */
+
 const GSTR3B_FILE_FIELDS = [
   'gstin', 'ret_period', 'sup_details', 'inter_sup', 'eco_dtls',
   'itc_elg', 'inward_sup', 'tx_pmt', 'intr_ltfee', 'liab_breakup'
 ];
 
-/**
- * Build the GSTR-3B RETFILE body strictly from the final (final=Y) summary.
- * hash / pan / evc_otp are NOT part of the schema and must never be in the body.
- */
 function buildGstr3bRetFileBody(summaryData, gstin, period, isNil) {
   if (isNil) {
     return { gstin, ret_period: period, isnil: 'Y' };
   }
-  const src = summaryData?.data && typeof summaryData.data === 'object' ? summaryData.data : summaryData;
+
+  const src = summaryData?.data && typeof summaryData.data === 'object'
+    ? summaryData.data
+    : summaryData;
+
   if (!src || typeof src !== 'object' || Array.isArray(src)) {
-    throw ApiError.providerError('GSTR-3B final summary is missing. Cannot build the RETFILE request.', 502);
+    throw ApiError.providerError(
+      'GSTR-3B final summary is missing. Cannot build the RETFILE request.',
+      502
+    );
   }
+
   if (src.gstin && String(src.gstin).toUpperCase() !== String(gstin).toUpperCase()) {
-    throw ApiError.providerError('GSTR-3B final summary does not match the requested GSTIN.', 502);
+    throw ApiError.providerError(
+      'GSTR-3B final summary does not match the requested GSTIN.',
+      502
+    );
   }
+
   const body = {};
+
   for (const key of GSTR3B_FILE_FIELDS) {
     if (src[key] !== undefined) body[key] = src[key];
   }
+
   body.gstin = gstin;
   body.ret_period = period;
+
   if (!body.sup_details || !body.itc_elg) {
-    throw ApiError.providerError('GSTR-3B final summary is incomplete (sup_details / itc_elg missing). Filing aborted.', 502);
+    throw ApiError.providerError(
+      'GSTR-3B final summary is incomplete (sup_details / itc_elg missing). Filing aborted.',
+      502
+    );
   }
+
   return body;
 }
+
+/* -------------------------------------------------------------------------- */
+/* TaxPro response checker                                                    */
+/* -------------------------------------------------------------------------- */
 
 function checkTaxProResponse(data, operation) {
   if (!data || typeof data !== 'object') {
     logger.error(`TaxPro returned non-object response during [${operation}]`, {
       code: 'PROVIDER_ERROR'
     });
+
     throw ApiError.providerError('Could not complete the request. Please try again.', 502);
   }
 
-  // FIX #1: accept the documented success body of this operation, even without status_cd.
+  const statusCdRaw = data.status_cd;
+
+  // Accept documented success body even without status_cd, but never if status_cd is explicit 0.
   const shape = OK_SHAPE[operation];
-  if (shape && shape(data) && !data.error?.error_cd) {
+
+  if (
+    shape &&
+    shape(data) &&
+    String(statusCdRaw ?? '') !== '0' &&
+    !data.error?.error_cd
+  ) {
     return data;
   }
 
-  const statusCd = data.status_cd === undefined || data.status_cd === null ? undefined : String(data.status_cd);
+  const statusCd = statusCdRaw === undefined || statusCdRaw === null
+    ? undefined
+    : String(statusCdRaw);
 
   if (statusCd === '0') {
     const errorCd = data.error?.error_cd;
@@ -547,35 +680,40 @@ function checkTaxProResponse(data, operation) {
       operation.startsWith('gsp:') ||
       operation === 'searchGstin'
     );
+
     if (
       isReadOperation &&
-      ((data.gstin && data.lgnm) ||
-      Array.isArray(data.EFiledlist) ||
-      Array.isArray(data.b2b) ||
-      Array.isArray(data.sec_sum) ||
-      Array.isArray(data.b2cs) ||
-      Array.isArray(data.cdnr) ||
-      Array.isArray(data.exp) ||
-      Array.isArray(data.hsn) ||
-      data.sup_details ||
-      data.itc_elg ||
-      data.inter_sup ||
-      data.inward_sup ||
-      data.docdata ||
-      data.data ||
-      data.itcsumm ||
-      Array.isArray(data.itc_categories) ||
-      Array.isArray(data.sections) ||
-      (!data.error))
+      (
+        (data.gstin && data.lgnm) ||
+        Array.isArray(data.EFiledlist) ||
+        Array.isArray(data.b2b) ||
+        Array.isArray(data.sec_sum) ||
+        Array.isArray(data.b2cs) ||
+        Array.isArray(data.cdnr) ||
+        Array.isArray(data.exp) ||
+        Array.isArray(data.hsn) ||
+        data.sup_details ||
+        data.itc_elg ||
+        data.inter_sup ||
+        data.inward_sup ||
+        data.docdata ||
+        data.data ||
+        data.itcsumm ||
+        Array.isArray(data.itc_categories) ||
+        Array.isArray(data.sections) ||
+        data.isnil === 'Y' ||
+        (!data.error)
+      )
     ) {
       return data;
     }
-    // Do not put data.status_cd into any log message. Log a fixed message plus typeof data.status_cd.
+
     logger.error(`TaxPro returned unexpected status_cd during [${operation}] (type: ${typeof data.status_cd})`, {
       code: 'PROVIDER_ERROR',
       status_cd_type: typeof data.status_cd,
       keys: Object.keys(data).slice(0, 12)
     });
+
     throw ApiError.providerError('Could not complete the request. Please try again.', 502);
   }
 
@@ -583,6 +721,10 @@ function checkTaxProResponse(data, operation) {
 }
 
 const PERIOD_PLACEMENT = 'both';
+
+/* -------------------------------------------------------------------------- */
+/* Provider                                                                   */
+/* -------------------------------------------------------------------------- */
 
 class TaxProProvider {
   /**
@@ -597,45 +739,76 @@ class TaxProProvider {
    */
   constructor(options = {}) {
     this.baseURL = options.baseURL || process.env.TAXPRO_BASE_URL || 'https://gstsandbox.charteredinfo.com';
+
     let providerUrl;
+
     try {
       providerUrl = new URL(this.baseURL);
     } catch {
       throw new Error('TAXPRO_BASE_URL must be a valid HTTPS URL');
     }
+
     if (providerUrl.protocol !== 'https:') {
       throw new Error('TAXPRO_BASE_URL must use HTTPS');
     }
-    if (providerUrl.username || providerUrl.password || providerUrl.port || providerUrl.pathname !== '/' ||
-      providerUrl.search || providerUrl.hash) {
+
+    if (
+      providerUrl.username ||
+      providerUrl.password ||
+      providerUrl.port ||
+      providerUrl.pathname !== '/' ||
+      providerUrl.search ||
+      providerUrl.hash
+    ) {
       throw new Error('TAXPRO_BASE_URL must be an HTTPS origin without credentials, port, path, query, or fragment');
     }
+
     if (!['gstsandbox.charteredinfo.com', 'gstapi.charteredinfo.com'].includes(providerUrl.hostname.toLowerCase())) {
       throw new Error('TAXPRO_BASE_URL must use the official TaxPro sandbox or production host');
     }
+
     this.aspid = options.aspid !== undefined ? options.aspid : (process.env.TAXPRO_ASPID || '');
     this.password = options.password !== undefined ? options.password : (process.env.TAXPRO_PASSWORD || '');
+
     const rawProfile = (options.apiProfile || process.env.TAXPRO_API_PROFILE || 'legacy').trim().toLowerCase();
     this.apiProfile = rawProfile === 'lagency' ? 'legacy' : rawProfile;
+
     if (!['legacy', 'current'].includes(this.apiProfile)) {
       throw new Error('TAXPRO_API_PROFILE must be legacy or current');
     }
-    this.periodPlacement = (options.periodPlacement || process.env.TAXPRO_PERIOD_PLACEMENT || PERIOD_PLACEMENT).trim().toLowerCase();
+
+    this.periodPlacement = (
+      options.periodPlacement ||
+      process.env.TAXPRO_PERIOD_PLACEMENT ||
+      PERIOD_PLACEMENT
+    ).trim().toLowerCase();
+
     if (!['header', 'query', 'both'].includes(this.periodPlacement)) {
       throw new Error('TAXPRO_PERIOD_PLACEMENT must be header, query, or both');
     }
-    this.gstr1ActionRequired = (options.gstr1ActionRequired !== undefined ? options.gstr1ActionRequired : (process.env.TAXPRO_GSTR1_ACTION_REQUIRED || '')).trim().toUpperCase();
+
+    this.gstr1ActionRequired = (
+      options.gstr1ActionRequired !== undefined
+        ? options.gstr1ActionRequired
+        : (process.env.TAXPRO_GSTR1_ACTION_REQUIRED || '')
+    ).trim().toUpperCase();
 
     // RETFILE can be slow on the GST side; give it its own, longer timeout.
     this.fileTimeoutMs = Number(options.fileTimeoutMs || process.env.TAXPRO_FILE_TIMEOUT_MS) || 60000;
 
-    // What the EVC signature is computed over for GSTR-1: 'raw' (RETSUM raw string) or 'body'
-    // (the RETFILE request body). Empty = keep the profile based default (current -> body, legacy -> raw).
-    // Confirm the correct value with TaxPro and then set TAXPRO_EVC_SIGN_OVER explicitly.
-    const signOver = (options.evcSignOver !== undefined ? options.evcSignOver : (process.env.TAXPRO_EVC_SIGN_OVER || '')).trim().toLowerCase();
-    if (!['', 'raw', 'body'].includes(signOver)) {
-      throw new Error('TAXPRO_EVC_SIGN_OVER must be raw or body');
+    // What the EVC signature is computed over for GSTR-1:
+    // 'raw' = RETSUM raw string, 'body' = RETFILE request body.
+    // Empty = profile-based default: current -> body, legacy -> raw.
+    const signOver = (
+      options.evcSignOver !== undefined
+        ? options.evcSignOver
+        : (process.env.TAXPRO_EVC_SIGN_OVER || '')
+    ).trim().toLowerCase();
+
+    if (!['', 'raw', 'body', 'reconstructed'].includes(signOver)) {
+      throw new Error('TAXPRO_EVC_SIGN_OVER must be raw, body, or reconstructed');
     }
+
     this.evcSignOver = signOver;
 
     // Injectable HTTP client for network-free testing
@@ -644,9 +817,12 @@ class TaxProProvider {
       timeout: 20000,
       maxRedirects: 0
     });
+
     this.aspCallerGstin = options.aspCallerGstin || process.env.TAXPRO_ASP_GSTIN || '';
     this.ipUsr = options.ipUsr !== undefined ? options.ipUsr : (process.env.TAXPRO_GSP_IP_USR || '');
+
     const sessionKey = options.gspSecret || process.env.TAXPRO_GSP_SECRET || this.password;
+
     this.gspSession = options.gspSession || new TaxProGspSession({
       aspid: this.aspid,
       password: sessionKey,
@@ -656,22 +832,25 @@ class TaxProProvider {
       httpClient: this.httpClient
     });
 
-    // ✅ FIX 1: Initialize token cache (Map will be managed via helper methods)
     this.activeTokens = new Map();
   }
 
-  // ✅ Token cache helper methods with TTL (5.5 hours to align with 6-hr GSTN token lifecycle)
+  /* ---------------------------------------------------------------------- */
+  /* Token cache                                                            */
+  /* ---------------------------------------------------------------------- */
+
   _setActiveToken(gstin, username, token) {
     const key = `${String(gstin).toUpperCase()}:${String(username).trim()}`;
-    const ttlMinutes = Number(process.env.TAXPRO_TOKEN_TTL_MINUTES) || 330; // 5.5 hours = 330 mins (30-min buffer before 6-hr GSTN expiry)
+    const ttlMinutes = Number(process.env.TAXPRO_TOKEN_TTL_MINUTES) || 330;
+
     this.activeTokens.set(key, {
       token,
       expiresAt: Date.now() + (ttlMinutes * 60 * 1000)
     });
 
-    // Cleanup: Remove expired tokens if map size > 1000 (Prevents memory leak in long-running processes)
     if (this.activeTokens.size > 1000) {
       const now = Date.now();
+
       for (const [k, v] of this.activeTokens.entries()) {
         if (v.expiresAt < now) this.activeTokens.delete(k);
       }
@@ -681,11 +860,13 @@ class TaxProProvider {
   _getActiveToken(gstin, username) {
     const key = `${String(gstin).toUpperCase()}:${String(username).trim()}`;
     const entry = this.activeTokens.get(key);
+
     if (entry && entry.expiresAt > Date.now()) {
       return entry.token;
     }
-    // Clean up expired entry
+
     if (entry) this.activeTokens.delete(key);
+
     return null;
   }
 
@@ -698,47 +879,54 @@ class TaxProProvider {
   }
 
   getIpUsr() {
-    return this.ipUsr !== undefined && this.ipUsr !== '' ? this.ipUsr : (process.env.TAXPRO_GSP_IP_USR || '');
+    return this.ipUsr !== undefined && this.ipUsr !== ''
+      ? this.ipUsr
+      : (process.env.TAXPRO_GSP_IP_USR || '');
   }
 
-  /**
-   * Latest token known to this process for a gstin+username (after silent refresh).
-   * The caller can persist it back into the user session.
-   */
   getActiveToken(gstin, username) {
     return this._getActiveToken(gstin, username);
   }
 
-  /**
-   * FIX #6: no more hard-coded test identity. A missing gstin / username is an error,
-   * never a silent fallback to somebody else's GSTIN.
-   */
   _identity(options = {}, extra = {}) {
     const gstin = String(options.gstin || extra.gstin || '').trim().toUpperCase();
+
     if (!isValidGstin(gstin)) {
       throw ApiError.invalidGstin('A valid taxpayer GSTIN is required.');
     }
+
     const username = typeof options.username === 'string'
       ? options.username.trim()
       : (typeof extra.username === 'string' ? extra.username.trim() : '');
+
     if (!username && extra.requireUsername !== false) {
       throw ApiError.validationError('GST portal username is required.');
     }
-    const token = options.token || options.gstToken || (username ? this._getActiveToken(gstin, username) : null);
+
+    const token = options.token ||
+      options.gstToken ||
+      (username ? this._getActiveToken(gstin, username) : null);
+
     return { gstin, username, token };
   }
 
   _requireAsp() {
     const aspid = this.getAspid();
     const password = this.getPassword();
+
     if (!aspid || !password) {
-      throw ApiError.providerError('TaxPro ASP credentials (TAXPRO_ASPID, TAXPRO_PASSWORD) are not configured.', 500);
+      throw ApiError.providerError(
+        'TaxPro ASP credentials (TAXPRO_ASPID, TAXPRO_PASSWORD) are not configured.',
+        500
+      );
     }
+
     return { aspid, password };
   }
 
   getCurrentGstr3bHeaders(gstin, username, token) {
     const ipUsr = this.getIpUsr();
+
     if (!ipUsr) {
       logger.error('TaxPro GSTR-3B request failed: TAXPRO_GSP_IP_USR is required for current profile');
       throw ApiError.providerError('TAXPRO_GSP_IP_USR is required for TaxPro return requests.', 500);
@@ -757,27 +945,34 @@ class TaxProProvider {
     };
   }
 
-  /**
-   * Search taxpayer business details by GSTIN.
-   * TaxPro documents this public API, but it requires the ASP GSP-session signing flow.
-   */
+  /* ---------------------------------------------------------------------- */
+  /* Public GSTIN search                                                    */
+  /* ---------------------------------------------------------------------- */
+
   async searchGstin(gstin) {
-    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!isValidGstin(gstin)) {
+      throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    }
+
     if (!isValidGstin(this.aspCallerGstin)) {
       throw ApiError.providerError('TaxPro taxpayer search is not configured.', 502);
     }
+
     const response = await this.requestGspPublicApi('/commonapi/v1.1/search', {
       action: 'TP',
       gstin: this.aspCallerGstin,
       searchgstin: gstin
     }, 'gsp:searchTaxpayer');
 
-    // The provider documents these fields but not the response envelope. Accept the
-    // documented flat object and fail closed on an unverified wrapper shape.
-    if (typeof response.gstin !== 'string' || response.gstin.toUpperCase() !== gstin.toUpperCase() ||
-      typeof response.lgnm !== 'string' || !response.lgnm.trim()) {
+    if (
+      typeof response.gstin !== 'string' ||
+      response.gstin.toUpperCase() !== gstin.toUpperCase() ||
+      typeof response.lgnm !== 'string' ||
+      !response.lgnm.trim()
+    ) {
       throw ApiError.providerError('TaxPro taxpayer-search response shape is not recognized.', 502);
     }
+
     return {
       gstin: gstin.toUpperCase(),
       legalName: response.lgnm,
@@ -792,55 +987,69 @@ class TaxProProvider {
 
   async requestGspPublicApi(path, params, operation) {
     let headers;
+
     try {
       headers = await this.gspSession.getHeaders();
     } catch (error) {
       if (error instanceof ApiError) throw error;
+
       const safeReason = error && typeof error.message === 'string'
         ? error.message
         : 'TaxPro GSP signing-key configuration is invalid.';
+
       logger.error(`TaxPro GSP signing-key error during [${operation}]`, {
         code: 'PROVIDER_ERROR',
         reason: safeReason
       });
-      // The detailed reason stays in the server log only.
+
       throw ApiError.providerError('TaxPro GSP signing-key configuration is invalid.', 502);
     }
+
     try {
       const targetGstin = params?.gstin || this.aspCallerGstin;
+
       const gspHeaders = {
         ...headers,
         ...(targetGstin ? { gstin: targetGstin, GSTIN: targetGstin } : {}),
         ...(this.password ? { password: this.password } : {})
       };
+
       const response = await this.httpClient.get(path, { params, headers: gspHeaders });
+
       return checkTaxProResponse(response.data, operation);
     } catch (error) {
       throw handleTaxProError(error, operation);
     }
   }
 
-  /**
-   * Request OTP from GST System via TaxPro
-   * GET /taxpayerapi/dec/v1.0/authenticate action=OTPREQUEST
-   */
+  /* ---------------------------------------------------------------------- */
+  /* Auth / OTP / EVC OTP                                                   */
+  /* ---------------------------------------------------------------------- */
+
   async requestOtp(gstin, username) {
-    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!isValidGstin(gstin)) {
+      throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    }
+
     if (!username || typeof username !== 'string' || !username.trim()) {
       throw ApiError.validationError('Username is required.');
     }
+
     const { aspid, password } = this._requireAsp();
     const path = '/taxpayerapi/dec/v1.0/authenticate';
+
     const params = {
       action: 'OTPREQUEST',
       gstin: gstin.toUpperCase(),
       username: username.trim()
     };
+
     const headers = { aspid, password };
 
     try {
       const response = await this.httpClient.get(path, { params, headers });
       const data = checkTaxProResponse(response.data, 'requestOtp');
+
       return {
         status_cd: data.status_cd,
         message: 'OTP has been dispatched successfully to the registered mobile/email on GST portal.'
@@ -850,46 +1059,52 @@ class TaxProProvider {
     }
   }
 
-  /**
-   * Verify OTP and get GST auth token via TaxPro
-   * GET /taxpayerapi/dec/v1.0/authenticate action=AUTHTOKEN
-   * Returns { token: response.auth_token }. Never store sek.
-   */
   async verifyOtp(gstin, username, otp) {
-    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!isValidGstin(gstin)) {
+      throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    }
+
     if (!username || typeof username !== 'string' || !username.trim()) {
       throw ApiError.validationError('Username is required.');
     }
+
     if (!otp || typeof otp !== 'string' || !/^[0-9]{4,8}$/.test(otp.trim())) {
       throw ApiError.validationError('OTP must be 4 to 8 digits.');
     }
+
     const { aspid, password } = this._requireAsp();
     const path = '/taxpayerapi/dec/v1.0/authenticate';
+
     const params = {
       action: 'AUTHTOKEN',
       gstin: gstin.toUpperCase(),
       username: username.trim(),
       OTP: otp.trim()
     };
+
     const headers = { aspid, password };
 
     try {
       const response = await this.httpClient.get(path, { params, headers });
       const data = checkTaxProResponse(response.data, 'verifyOtp');
+
       if (typeof data.auth_token !== 'string' || !data.auth_token.trim()) {
         throw ApiError.providerError('Could not complete the request. Please try again.', 502);
       }
-      // ✅ FIX 1: Use helper method with TTL
+
       this._setActiveToken(gstin, username, data.auth_token);
+
       return {
         token: data.auth_token
       };
     } catch (error) {
       const errorCd = getErrCd(error);
       const cachedToken = this._getActiveToken(gstin, username);
+
       if (errorCd === 'AUTH403' && cachedToken) {
         try {
           const refreshed = await this.refreshToken(gstin, username, cachedToken);
+
           if (refreshed?.token) {
             this._setActiveToken(gstin, username, refreshed.token);
             return { token: refreshed.token };
@@ -899,34 +1114,35 @@ class TaxProProvider {
           return { token: cachedToken };
         }
       }
+
       throw handleTaxProError(error, 'verifyOtp');
     }
   }
 
-  /**
-   * Refresh GST AuthToken via TaxPro
-   * GET /taxpayerapi/dec/v1.0/authenticate action=REFRESHTOKEN
-   * Query params: action=REFRESHTOKEN, gstin, username
-   * Headers: aspid, password, auth-token / AuthToken
-   * Returns { token: response.auth_token }. Never store sek.
-   */
   async refreshToken(gstin, username, token) {
-    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!isValidGstin(gstin)) {
+      throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    }
+
     if (!username || typeof username !== 'string' || !username.trim()) {
       throw ApiError.validationError('Username is required.');
     }
+
     if (!token || typeof token !== 'string' || !token.trim()) {
       throw ApiError.validationError('Auth token is required to refresh session.');
     }
+
     const { aspid, password } = this._requireAsp();
     const cleanToken = token.trim();
     const path = '/taxpayerapi/dec/v1.0/authenticate';
+
     const params = {
       action: 'REFRESHTOKEN',
       gstin: gstin.toUpperCase(),
       username: username.trim(),
       authtoken: cleanToken
     };
+
     const headers = {
       aspid,
       password,
@@ -937,11 +1153,13 @@ class TaxProProvider {
     try {
       const response = await this.httpClient.get(path, { params, headers });
       const data = checkTaxProResponse(response.data, 'refreshToken');
+
       if (typeof data.auth_token !== 'string' || !data.auth_token.trim()) {
         throw ApiError.providerError('Could not complete the request. Please try again.', 502);
       }
-      // ✅ FIX 1: Use helper method with TTL
+
       this._setActiveToken(gstin, username, data.auth_token);
+
       return {
         token: data.auth_token
       };
@@ -950,26 +1168,27 @@ class TaxProProvider {
     }
   }
 
-  /**
-   * Request EVC OTP for electronic verification / return filing via TaxPro
-   * GET /taxpayerapi/dec/v1.0/authenticate action=EVCOTP
-   * Query params: action=EVCOTP, gstin, username, pan, form_type
-   * Headers: aspid, password, auth-token / authtoken
-   */
   async requestEvcOtp(gstin, username, pan, formType, token, period) {
-    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    if (!isValidGstin(gstin)) {
+      throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    }
+
     if (!username || typeof username !== 'string' || !username.trim()) {
       throw ApiError.validationError('Username is required.');
     }
+
     if (!pan || typeof pan !== 'string' || !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan.trim().toUpperCase())) {
       throw ApiError.validationError('Invalid PAN format. Must be 10 characters (e.g. ABCDE1234F).');
     }
+
     if (!formType || typeof formType !== 'string' || !formType.trim()) {
       throw ApiError.validationError('Form type is required for EVC OTP.');
     }
+
     if (!token || typeof token !== 'string' || !token.trim()) {
       throw ApiError.validationError('Auth token is required for EVC OTP request.');
     }
+
     const { aspid, password } = this._requireAsp();
 
     const cleanToken = token.trim();
@@ -978,7 +1197,10 @@ class TaxProProvider {
     const cleanPan = pan.trim().toUpperCase();
     const cleanPeriod = (period || '').trim();
     const ipUsr = this.getIpUsr();
-    const isCurrentGstr1 = this.apiProfile === 'current' && cleanPeriod && (formType.trim().toUpperCase() === 'R1' || formType.trim().toUpperCase() === 'GSTR1');
+
+    const isCurrentGstr1 = this.apiProfile === 'current' &&
+      cleanPeriod &&
+      (formType.trim().toUpperCase() === 'R1' || formType.trim().toUpperCase() === 'GSTR1');
 
     if (this.apiProfile === 'current' && formType.trim().toUpperCase() === 'R1' && !isValidPeriod(period)) {
       throw ApiError.validationError('Return period (MMYYYY) is required for GSTR-1 EVC OTP.');
@@ -986,7 +1208,6 @@ class TaxProProvider {
 
     let lastError = null;
 
-    // The client collection defines one GSTR-1 v4.1 EVCOTP endpoint and parameter shape.
     if (isCurrentGstr1) {
       try {
         const params = {
@@ -999,33 +1220,44 @@ class TaxProProvider {
           ret_periode: cleanPeriod,
           form_type: formType.trim().toUpperCase()
         };
+
         const response = await this.httpClient.get('/taxpayerapi/dec/v4.1/returns/gstr1', {
           params,
           headers: { password }
         });
+
         const data = checkTaxProResponse(response.data, 'requestEvcOtp');
+
         return {
           status_cd: data.status_cd,
           message: 'EVC OTP has been dispatched successfully to the registered mobile/email on GST portal.',
           token: cleanToken
         };
       } catch (error) {
-        // If upstream returns a documented GSTN business failure (e.g. status_cd: '0'), fail-fast
         const errCd = getErrCd(error);
-        if (errCd && ['OTP0001', 'OTP0005', 'OTP0006', 'OTP0010', 'AUTH002', 'AUTH003', 'AUTH4037', 'AUTH4038', 'AUTH4033', 'EVC_REJECTED'].includes(errCd)) {
+
+        if (
+          errCd &&
+          [
+            'OTP0001', 'OTP0005', 'OTP0006', 'OTP0010',
+            'AUTH002', 'AUTH003', 'AUTH4037', 'AUTH4038',
+            'AUTH4033', 'EVC_REJECTED'
+          ].includes(errCd)
+        ) {
           throw handleTaxProError(error, 'requestEvcOtp');
         }
-        // If v4.1 route is rejected upstream (e.g. 400 Bad Request, 404), fall back to Universal Authenticate endpoint
+
         logger.warn('GSTR-1 v4.1 EVCOTP route rejected upstream, falling back to universal authenticate endpoint', {
           error: safeErrorMessage(error),
           error_cd: errCd
         });
+
         lastError = error;
       }
     }
 
-    // Strategy B: TaxPro Universal Authenticate endpoint
     const formTypeUpper = formType.trim().toUpperCase();
+
     const candidateTypes = isCurrentGstr1
       ? ['R1', 'GSTR1', 'GSTR-1']
       : (formTypeUpper === 'R3B' || formTypeUpper === 'GSTR3B' || formTypeUpper === 'GSTR-3B')
@@ -1041,13 +1273,16 @@ class TaxProProvider {
           pan: cleanPan,
           form_type: cand
         };
+
         if (cleanPeriod) {
           authParams.ret_period = cleanPeriod;
         }
+
         if (this.apiProfile !== 'current') {
           authParams.aspid = aspid;
           authParams.authtoken = cleanToken;
         }
+
         const headers = {
           aspid,
           password,
@@ -1056,8 +1291,14 @@ class TaxProProvider {
           ...(ipUsr ? { 'ip-usr': ipUsr } : {}),
           txn: crypto.randomUUID().replace(/-/g, '')
         };
-        const response = await this.httpClient.get('/taxpayerapi/dec/v1.0/authenticate', { params: authParams, headers });
+
+        const response = await this.httpClient.get('/taxpayerapi/dec/v1.0/authenticate', {
+          params: authParams,
+          headers
+        });
+
         const data = checkTaxProResponse(response.data, 'requestEvcOtp');
+
         return {
           status_cd: data.status_cd,
           message: 'EVC OTP has been dispatched successfully to the registered mobile/email on GST portal.',
@@ -1065,25 +1306,43 @@ class TaxProProvider {
         };
       } catch (authErr) {
         lastError = authErr;
-        logger.debug(`EVCOTP authenticate with form_type=${cand} failed`, { error_cd: getValidErrorCd(getErrCd(authErr)) });
+
+        logger.debug(`EVCOTP authenticate with form_type=${cand} failed`, {
+          error_cd: getValidErrorCd(getErrCd(authErr))
+        });
+
         const errCd = getErrCd(authErr);
-        if (errCd && ['OTP0001', 'OTP0005', 'OTP0006', 'OTP0010', 'AUTH002', 'AUTH003', 'AUTH4037', 'AUTH4038', 'AUTH4033', 'GSP052', 'GSP053', 'GEN5001'].includes(errCd)) {
+
+        if (
+          errCd &&
+          [
+            'OTP0001', 'OTP0005', 'OTP0006', 'OTP0010',
+            'AUTH002', 'AUTH003', 'AUTH4037', 'AUTH4038',
+            'AUTH4033', 'GSP052', 'GSP053', 'GEN5001'
+          ].includes(errCd)
+        ) {
           break;
         }
+
         const status = authErr?.response?.status;
         const isRouteError = status === 404 || status === 405 || errCd === 'GEN5001';
+
         if (!isRouteError) {
-          break; // Stop immediately on non-route errors to prevent duplicate OTP dispatches
+          break;
         }
       }
     }
 
-    // Silent Auto-Refresh: If lastError indicates an expired session token, attempt refresh and retry once
     const errorCd = getErrCd(lastError);
+
     if (SESSION_ERROR_CODES.includes(errorCd) && cleanToken && cleanUser) {
       try {
-        logger.info('TaxPro session token expired during EVCOTP. Attempting silent auto-refresh...', { error_cd: getValidErrorCd(errorCd) });
+        logger.info('TaxPro session token expired during EVCOTP. Attempting silent auto-refresh...', {
+          error_cd: getValidErrorCd(errorCd)
+        });
+
         const refreshRes = await this.refreshToken(cleanGstin, cleanUser, cleanToken);
+
         if (refreshRes?.token && refreshRes.token !== cleanToken) {
           this._setActiveToken(cleanGstin, cleanUser, refreshRes.token);
           return await this.requestEvcOtp(cleanGstin, cleanUser, cleanPan, formType, refreshRes.token, cleanPeriod);
@@ -1096,20 +1355,20 @@ class TaxProProvider {
     throw handleTaxProError(lastError, 'requestEvcOtp');
   }
 
-  /**
-   * Fetch filed-return tracking data.
-   * TaxPro documents RETTRACK; it requires the ASP GSP-session signing flow.
-   */
+  /* ---------------------------------------------------------------------- */
+  /* Return tracking                                                        */
+  /* ---------------------------------------------------------------------- */
+
   async getReturnsSummary(gstin, period, gstToken) {
-    // TaxPro requires a financial year rather than a monthly period for RETTRACK.
-    // A response mapper remains gated on a real sandbox sample of this API's wrapper.
     if (!isValidPeriod(period)) {
       throw ApiError.validationError('Return tracking requires a valid MMYYYY period.');
     }
+
     const month = Number(period.slice(0, 2));
     const year = Number(period.slice(2));
     const startYear = month >= 4 ? year : year - 1;
     const financialYear = `${startYear}-${String(startYear + 1).slice(-2)}`;
+
     const response = await this.requestGspPublicApi('/commonapi/v1.0/returns', {
       action: 'RETTRACK',
       gstin: gstin.toUpperCase(),
@@ -1127,6 +1386,7 @@ class TaxProProvider {
       }));
 
       const periodMap = new Map();
+
       for (const f of filings) {
         if (!periodMap.has(f.period)) {
           periodMap.set(f.period, {
@@ -1137,7 +1397,9 @@ class TaxProProvider {
             gstr3b: 'NOT_FILED'
           });
         }
+
         const record = periodMap.get(f.period);
+
         if (f.type === 'GSTR1') record.gstr1 = f.status.toUpperCase();
         if (f.type === 'GSTR3B') record.gstr3b = f.status.toUpperCase();
       }
@@ -1156,39 +1418,34 @@ class TaxProProvider {
     );
   }
 
-  /**
-   * Safe lookup used after a RETFILE timeout / unconfirmed response:
-   * returns the ARN if the GST portal already shows the return as filed, otherwise null.
-   * Never throws.
-   */
   async findFiledArn(gstin, period, returnType = 'GSTR1') {
     try {
       const summary = await this.getReturnsSummary(gstin, period);
       const hit = (summary.filings || []).find((f) =>
         f.type === String(returnType).toUpperCase() && f.period === period && f.arn
       );
+
       return hit ? hit.arn : null;
     } catch (err) {
-      logger.warn('findFiledArn could not confirm filing status', { error_cd: getValidErrorCd(getErrCd(err)) });
+      logger.warn('findFiledArn could not confirm filing status', {
+        error_cd: getValidErrorCd(getErrCd(err))
+      });
+
       return null;
     }
   }
 
-  /**
-   * Fetch raw return payload for GSTR1, GSTR2B, or GSTR3B.
-   * The TaxPro email confirms the legacy routes. Current routes use documented
-   * common headers (including ret_prd) and endpoint-specific query parameters.
-   * Uses headers for ASP credentials and taxpayer auth token to avoid putting them in URLs.
-   */
-  /**
- * Fetch raw return payload for GSTR1, GSTR2B, or GSTR3B.
- */
+  /* ---------------------------------------------------------------------- */
+  /* Raw return fetch                                                       */
+  /* ---------------------------------------------------------------------- */
+
   async getReturn(type, gstin, period, token, username = '') {
     if (!token || typeof token !== 'string' || !token.trim()) {
       throw ApiError.sessionExpired('Please verify OTP again to fetch live GST returns.');
     }
 
     const normType = (type || '').toUpperCase();
+
     let path;
     let action;
     let extraParams = {};
@@ -1203,11 +1460,13 @@ class TaxProProvider {
           : '/taxpayerapi/dec/v2.0/returns/gstr1';
         action = 'B2B';
         extraParams = {};
+
         if (this.apiProfile === 'current') {
           if (sendQueryPeriod) extraParams.ret_period = period;
         } else {
           extraParams.ret_period = period;
         }
+
         break;
 
       case 'GSTR3B':
@@ -1216,11 +1475,13 @@ class TaxProProvider {
           : '/taxpayerapi/dec/v0.3/returns/gstr3b';
         action = 'RETSUM';
         extraParams = {};
+
         if (this.apiProfile === 'current') {
           if (sendQueryPeriod) extraParams.ret_period = period;
         } else {
           extraParams.ret_period = period;
         }
+
         break;
 
       case 'GSTR2B':
@@ -1229,6 +1490,7 @@ class TaxProProvider {
           : '/taxpayerapi/dec/v1.0/returns/gstr2b';
         action = 'GET2B';
         extraParams = {};
+
         if (this.apiProfile === 'current') {
           if (sendQueryPeriod) {
             extraParams.ret_period = period;
@@ -1238,6 +1500,7 @@ class TaxProProvider {
           extraParams.ret_period = period;
           extraParams.rtnprd = period;
         }
+
         break;
 
       case 'GSTR2A':
@@ -1251,8 +1514,18 @@ class TaxProProvider {
     }
 
     const params = this.apiProfile === 'current'
-      ? { action, gstin, ...(normType === 'GSTR1' ? { username: username || '' } : {}), ...extraParams }
-      : { action, gstin, username: username || '', ...extraParams };
+      ? {
+        action,
+        gstin,
+        ...(normType === 'GSTR1' ? { username: username || '' } : {}),
+        ...extraParams
+      }
+      : {
+        action,
+        gstin,
+        username: username || '',
+        ...extraParams
+      };
 
     const headers = this.apiProfile === 'current' && normType === 'GSTR3B'
       ? this.getCurrentGstr3bHeaders(gstin, username, token)
@@ -1262,111 +1535,161 @@ class TaxProProvider {
         'auth-token': token
       };
 
-    // ✅ GUARANTEED TXN FIX: 32 chars, no hyphens, lowercase
     const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
 
     if (this.apiProfile === 'current') {
       const stateCd = typeof gstin === 'string' && gstin.length >= 2 ? gstin.slice(0, 2) : '';
       const ipUsr = this.getIpUsr();
+
       if (!ipUsr) {
         logger.error('TaxPro return request failed: TAXPRO_GSP_IP_USR is required for current profile');
         throw ApiError.providerError('TAXPRO_GSP_IP_USR is required for TaxPro return requests.', 500);
       }
+
       if (normType !== 'GSTR3B') {
         Object.assign(headers, {
           gstin,
           username: username || '',
           'state-cd': stateCd,
-          txn: safeTxn,       // ✅ Added here
+          txn: safeTxn,
           'ip-usr': ipUsr
         });
+
         if (sendHeaderPeriod) {
           headers.ret_period = period;
         }
       }
     } else {
-      // ✅ FALLBACK: Even in legacy mode, GSTN sometimes mandates txn in headers
       Object.assign(headers, {
         txn: safeTxn
       });
     }
 
     try {
-      // ✅ DEBUG LOG: Ye log terminal me print hoga taaki hum 100% confirm kar saken
       logger.debug(`[TXN DEBUG] normType: ${normType} | txn: ${headers.txn} | Length: ${headers.txn?.length} | HasHyphen: ${headers.txn?.includes('-')}`);
 
       const response = await this.httpClient.get(path, { params, headers });
       const data = checkTaxProResponse(response.data, `getReturn:${normType}`);
+
       return data;
     } catch (error) {
       const errorCd = getErrCd(error);
 
-      // Silent Auto-Refresh: If token expired, attempt seamless refresh and single retry
       if (SESSION_ERROR_CODES.includes(errorCd) && token && username) {
         try {
-          logger.info('TaxPro session token expired. Attempting silent auto-refresh...', { error_cd: getValidErrorCd(errorCd) });
+          logger.info('TaxPro session token expired. Attempting silent auto-refresh...', {
+            error_cd: getValidErrorCd(errorCd)
+          });
+
           const refreshRes = await this.refreshToken(gstin, username, token);
+
           if (refreshRes?.token) {
             headers['auth-token'] = refreshRes.token;
             this._setActiveToken(gstin, username, refreshRes.token);
+
             const retryRes = await this.httpClient.get(path, { params, headers });
             return checkTaxProResponse(retryRes.data, `getReturn:${normType}:retry`);
           }
         } catch {
-          // If refresh fails, fall through to standard error handler
+          // Fall through to standard error handler
         }
       }
 
       if (normType === 'GSTR1' && action === 'B2B') {
-        if (errorCd === 'RET13509' || errorCd === 'RET13510') {
+        if (errorCd === 'RET13509' || errorCd === 'RET13510' || errorCd === 'RET09001') {
           try {
             const sumParams = { ...params, action: 'RETSUM' };
+
             logger.debug(`TaxPro GSTR-1 B2B empty (${errorCd}); attempting RETSUM`);
+
             const sumRes = await this.httpClient.get(path, { params: sumParams, headers });
             const sumData = checkTaxProResponse(sumRes.data, `getReturn:${normType}:RETSUM`);
+
             return sumData;
           } catch (sumErr) {
+            try {
+              if (token && typeof this.getGstr1RetSum === 'function') {
+                const verifiedSumRaw = await this.getGstr1RetSum(gstin, period, username, token);
+                const parsed = safeParseJson(verifiedSumRaw);
+
+                if (parsed) {
+                  const checked = checkTaxProResponse(parsed, `getReturn:${normType}:RETSUM`);
+                  return checked?.data && typeof checked.data === 'object' ? checked.data : checked;
+                }
+
+                return { raw: verifiedSumRaw };
+              }
+            } catch {
+              // fall through to clean empty shape
+            }
+
             const sumErrorCd = getErrCd(sumErr);
+
             if (sumErrorCd === 'RET13509' || sumErrorCd === 'RET13510') {
               return { uiOnly: true, empty: true, gstin, fp: period, b2b: [], sec_sum: [] };
             }
           }
         }
       }
+
+      if (normType === 'GSTR3B') {
+        try {
+          if (token && typeof this.getGstr3bRetSum === 'function') {
+            const sum3b = await this.getGstr3bRetSum(gstin, period, { username, token });
+            return sum3b;
+          }
+        } catch {
+          // fall through to standard error handler
+        }
+      }
+
       throw handleTaxProError(error, `getReturn:${normType}`);
     }
   }
-  /**
-   * Save / Upload GSTR-1 payload to GSTN via TaxPro Decrypted RETSAVE
-   * PUT /taxpayerapi/dec/v2.0/returns/gstr1?action=RETSAVE (API version 2.1)
-   */
+
+  /* ---------------------------------------------------------------------- */
+  /* GSTR-1 Save / Submit / Proceed / Status                                */
+  /* ---------------------------------------------------------------------- */
+
   async saveGstr1(payload, options = {}) {
     const gstin = options.gstin || payload?.gstin;
     const username = typeof options.username === 'string' ? options.username.trim() : '';
     const period = options.period || payload?.fp;
+
     if (!isValidGstin(gstin)) {
       throw ApiError.invalidGstin('A valid taxpayer GSTIN is required to save GSTR-1.');
     }
+
     if (!username) {
       throw ApiError.validationError('GST portal username is required to save GSTR-1.');
     }
+
     if (!isValidPeriod(period)) {
       throw ApiError.validationError('A valid MMYYYY return period is required to save GSTR-1.');
     }
 
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      throw ApiError.validationError('GSTR-1 payload must be a valid JSON object.');
+    const cleaned = cleanSaveValue(payload);
+
+    if (!isPlainObject(cleaned) || Object.keys(cleaned).length === 0) {
+      throw ApiError.validationError('GSTR-1 payload must be a valid non-empty JSON object.');
     }
-    if (payload.gstin && String(payload.gstin).toUpperCase() !== String(gstin).toUpperCase()) {
+
+    if (cleaned.gstin && String(cleaned.gstin).toUpperCase() !== String(gstin).toUpperCase()) {
       throw ApiError.validationError('GSTR-1 payload GSTIN does not match request GSTIN.');
     }
-    if (payload.fp && String(payload.fp).trim() !== String(period).trim()) {
+
+    if (cleaned.fp && String(cleaned.fp).trim() !== String(period).trim()) {
       throw ApiError.validationError('GSTR-1 payload financial period does not match request period.');
     }
 
-    const token = options.token || options.gstToken || this._getActiveToken(gstin, username.trim());
+    const token = options.token ||
+      options.gstToken ||
+      this._getActiveToken(gstin, username.trim());
+
     if (!token || typeof token !== 'string' || !token.trim()) {
-      throw ApiError.sessionExpired('A current GST Portal auth token is required to save GSTR-1. Please verify OTP again.');
+      throw ApiError.sessionExpired(
+        'A current GST Portal auth token is required to save GSTR-1. Please verify OTP again.'
+      );
     }
 
     const path = this.apiProfile === 'current'
@@ -1376,13 +1699,14 @@ class TaxProProvider {
     const params = this.apiProfile === 'current'
       ? { action: 'RETSAVE', gstin, ret_period: period }
       : {
-          action: 'RETSAVE',
-          aspid: this.getAspid(),
-          gstin,
-          username,
-          authtoken: token || '',
-          ret_period: period
-        };
+        action: 'RETSAVE',
+        aspid: this.getAspid(),
+        gstin,
+        username,
+        authtoken: token || '',
+        ret_period: period
+      };
+
     const headers = {
       aspid: this.getAspid(),
       password: this.getPassword(),
@@ -1399,9 +1723,11 @@ class TaxProProvider {
 
     try {
       logger.debug(`TaxPro GSTR-1 RETSAVE dispatched for period ${period}`);
-      const response = await this.httpClient.put(path, payload, { params, headers });
+
+      const response = await this.httpClient.put(path, cleaned, { params, headers });
       const data = checkTaxProResponse(response.data, 'saveGstr1');
       const refId = requireReferenceId(data, 'TaxPro RETSAVE');
+
       return {
         success: true,
         reference_id: refId,
@@ -1413,23 +1739,22 @@ class TaxProProvider {
     }
   }
 
-  /**
-   * Track Return Upload Status via TaxPro RETSTATUS (Row 1 from API Spec)
-   * GET /taxpayerapi/dec/v1.1/returns?action=RETSTATUS
-   * GSTN status codes: P = processed, PE = processed with errors, ER = error, IP = in progress.
-   */
   async trackStatus(refId, options = {}) {
     const resolvedRefId = typeof refId === 'string' ? refId : (refId?.reference_id || refId?.ref_id);
     const effectiveRefId = resolvedRefId || options.reference_id || options.ref_id;
+
     if (!effectiveRefId) {
       throw ApiError.validationError('A reference id is required to track the return status.');
     }
+
     const { gstin, username, token } = this._identity(options);
+
     if (!token) {
       throw ApiError.sessionExpired('A current GST Portal auth token is required to track status.');
     }
 
     const path = '/taxpayerapi/dec/v1.1/returns';
+
     const params = {
       action: 'RETSTATUS',
       gstin,
@@ -1438,21 +1763,32 @@ class TaxProProvider {
       reference_id: effectiveRefId,
       ...(options.isSync ? { isSync: options.isSync } : {})
     };
+
     if (this.apiProfile !== 'current') {
       params.aspid = this.getAspid();
       params.authtoken = token;
     }
+
+    const cleanGstin = gstin ? String(gstin).trim().toUpperCase() : '';
+    const stateCd = cleanGstin.length >= 2 ? cleanGstin.slice(0, 2) : '';
+    const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
+
     const headers = {
       aspid: this.getAspid(),
       password: this.getPassword(),
       'auth-token': token,
-      authtoken: token
+      authtoken: token,
+      'state-cd': stateCd,
+      gstin: cleanGstin,
+      txn: safeTxn
     };
 
     try {
       logger.debug('TaxPro RETSTATUS dispatched');
+
       const response = await this.httpClient.get(path, { params, headers });
       const data = checkTaxProResponse(response.data, 'trackStatus');
+
       const innerData = data?.data && typeof data.data === 'object' ? data.data : data;
 
       const nestedStatus = String(innerData?.status_cd || '').toUpperCase();
@@ -1466,7 +1802,12 @@ class TaxProProvider {
         statusCd = topLevelStatus === 'PE' ? 'PE' : 'ER';
       } else if (innerData?.error_report || data?.error_report || innerData?.error?.error_cd || data?.error?.error_cd) {
         statusCd = 'ER';
-      } else if (nestedStatus === 'P' || topLevelStatus === 'P' || nestedStatus === '1') {
+      } else if (
+        nestedStatus === 'P' ||
+        topLevelStatus === 'P' ||
+        nestedStatus === '1' ||
+        topLevelStatus === '1'
+      ) {
         statusCd = 'P';
       } else if (nestedStatus === 'IP' || topLevelStatus === 'IP') {
         statusCd = 'IP';
@@ -1485,19 +1826,13 @@ class TaxProProvider {
     }
   }
 
-  /**
-   * Proceed to File / Generate Summary via TaxPro PROCEEDFILE
-   * Official TaxPro .NET C# Library Method: SharedAPI.ProceedToFileGSTRAsync
-   * Toolbar Action: [Proceed To File / Gen. Summary] (with optional [ ] Nil Return checkbox)
-   * Params: FormNo = "GSTR1", returnPeriod, jGSTR, isNil
-   * Paths: /taxpayerapi/dec/v1.0/returns/gstr?action=PROCEEDFILE (with v1.1 fallback)
-   * Response: { reference_id } (async) or { isSync: 'Y' } (synchronous summary generation & freeze).
-   */
   async proceedToFile(period, options = {}) {
     const { gstin, username, token } = this._identity(options);
+
     if (!isValidPeriod(period)) {
       throw ApiError.validationError('A valid MMYYYY return period is required to proceed with filing.');
     }
+
     if (!token || typeof token !== 'string' || !token.trim()) {
       throw ApiError.sessionExpired('A current GST Portal auth token is required to proceed with filing.');
     }
@@ -1507,7 +1842,6 @@ class TaxProProvider {
     const cleanPeriod = period.trim();
     const cleanToken = token.trim();
     const stateCd = cleanGstin.slice(0, 2);
-    const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
 
     const candidateConfigs = [
       {
@@ -1536,8 +1870,11 @@ class TaxProProvider {
     };
 
     let lastError = null;
+
     for (const config of candidateConfigs) {
+      const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
       const path = config.path;
+
       const params = {
         action: config.action,
         gstin: cleanGstin,
@@ -1545,6 +1882,7 @@ class TaxProProvider {
         ret_period: cleanPeriod,
         form_no: rtnTyp
       };
+
       if (this.apiProfile !== 'current') {
         params.aspid = this.getAspid();
         params.authtoken = cleanToken;
@@ -1566,11 +1904,16 @@ class TaxProProvider {
       };
 
       try {
-        logger.debug(`TaxPro PROCEEDFILE dispatched via ${path} (action: ${config.action}, period: ${cleanPeriod}, FormNo: ${rtnTyp}, isNil: ${Boolean(options.isNil)})`);
+        logger.debug(
+          `TaxPro PROCEEDFILE dispatched via ${path} (action: ${config.action}, period: ${cleanPeriod}, FormNo: ${rtnTyp}, isNil: ${Boolean(options.isNil)})`
+        );
+
         const response = await this.httpClient.post(path, body, { params, headers });
         const data = checkTaxProResponse(response.data, 'proceedToFile');
+
         const refId = getReferenceId(data);
         const isSync = data?.isSync || data?.data?.isSync || (data?.status_cd === '1' && !refId ? 'Y' : undefined);
+
         return {
           success: true,
           reference_id: refId,
@@ -1580,7 +1923,9 @@ class TaxProProvider {
         };
       } catch (error) {
         lastError = error;
+
         logger.debug(`proceedToFile via ${path} (${config.action}) note: ${safeErrorMessage(error)}`);
+
         if (!isSafeConfigRetryError(error)) break;
       }
     }
@@ -1588,16 +1933,13 @@ class TaxProProvider {
     throw handleTaxProError(lastError, 'proceedToFile');
   }
 
-  /**
-   * Submit Saved Invoices for GSTR-1 via TaxPro
-   * POST /taxpayerapi/dec/v4.1/returns/gstr1 (current) or /taxpayerapi/dec/v2.0/returns/gstr1 (legacy)
-   * Response: { reference_id }
-   */
   async submitGstr1(period, options = {}) {
     const { gstin, username, token } = this._identity(options);
+
     if (!isValidPeriod(period)) {
       throw ApiError.validationError('A valid MMYYYY return period is required to submit GSTR-1.');
     }
+
     if (!token || typeof token !== 'string' || !token.trim()) {
       throw ApiError.sessionExpired('A current GST Portal auth token is required to submit GSTR-1.');
     }
@@ -1611,14 +1953,20 @@ class TaxProProvider {
       : '/taxpayerapi/dec/v2.0/returns/gstr1';
 
     const baseParams = {
-      gstin,
+      gstin: gstin.toUpperCase(),
       username,
-      ret_period: cleanPeriod
+      ret_period: cleanPeriod,
+      ...(this.apiProfile === 'current'
+        ? {}
+        : {
+          aspid: this.getAspid(),
+          authtoken: token
+        })
     };
 
     const candidateParams = [
-      { ...baseParams },
-      { action: 'RETSUBMIT', ...baseParams }
+      { action: 'RETSUBMIT', ...baseParams },
+      { ...baseParams }
     ];
 
     const requestBody = {
@@ -1626,14 +1974,17 @@ class TaxProProvider {
       ret_period: cleanPeriod
     };
 
-    if (options.generate_summary === 'Y') {
-      requestBody.generate_summary = 'Y';
-    } else if (options.generate_summary === 'N') {
-      requestBody.generate_summary = 'N';
-    } else if (options.generate_summary === undefined || options.generate_summary === null) {
+    // Official Submit request schema allows generate_summary only as "Y".
+    if (options.generate_summary !== undefined && options.generate_summary !== null) {
+      const gen = String(options.generate_summary).trim().toUpperCase();
+
+      if (gen !== 'Y') {
+        throw ApiError.validationError('generate_summary must be "Y" when provided.');
+      }
+
       requestBody.generate_summary = 'Y';
     } else {
-      throw ApiError.validationError('generate_summary must be "Y" or "N" when provided.');
+      requestBody.generate_summary = 'Y';
     }
 
     const headers = {
@@ -1652,12 +2003,15 @@ class TaxProProvider {
     };
 
     let lastError = null;
+
     for (const params of candidateParams) {
       try {
         logger.debug(`TaxPro GSTR-1 Submit dispatched for period ${cleanPeriod} (action: ${params.action || 'none'})`);
+
         const response = await this.httpClient.post(path, requestBody, { params, headers });
         const data = checkTaxProResponse(response.data, 'submitGstr1');
         const refId = requireReferenceId(data, 'GSTR-1 submit');
+
         return {
           success: true,
           reference_id: refId,
@@ -1666,25 +2020,35 @@ class TaxProProvider {
         };
       } catch (err) {
         lastError = err;
+
         logger.debug(`submitGstr1 attempt (action: ${params.action || 'none'}) returned: ${safeErrorMessage(err)}`);
+
         if (!isSafeConfigRetryError(err)) break;
       }
     }
 
-    // Modern fallback: If direct submit fails or if filing Nil, GSTN proceed-to-file endpoint freezes return
     if (typeof this.proceedToFile === 'function') {
       try {
-        logger.info(`Direct submit unconfirmed; invoking proceedToFile fallback for [${gstin} - ${cleanPeriod}] (isNil: ${Boolean(options.isNil)})...`);
+        logger.info(
+          `Direct submit unconfirmed; invoking proceedToFile fallback for [${gstin} - ${cleanPeriod}] (isNil: ${Boolean(options.isNil)})...`
+        );
+
         const procRes = await this.proceedToFile(cleanPeriod, {
-          gstin, username, token, isNil: options.isNil
+          gstin,
+          username,
+          token,
+          isNil: options.isNil
         });
+
         const fallbackRefId = procRes?.reference_id || procRes?.ref_id || null;
+
         if (!fallbackRefId && procRes?.isSync !== 'Y') {
           throw ApiError.providerError(
             'GSTR-1 submit fallback did not return reference_id and was not synchronous. Submit was not confirmed.',
             502
           );
         }
+
         return {
           success: true,
           reference_id: fallbackRefId,
@@ -1698,22 +2062,29 @@ class TaxProProvider {
     }
 
     throw handleTaxProError(lastError, 'submitGstr1');
-  }/**
-   * Step 1 of TaxPro EVC Return Filing Spec:
-   * GET GSTR-1 summary using the configured TaxPro API profile.
-   * Query params: action=RETSUM, aspid, userrole=GSTR1, rtn_typ=GSTR1, gstin, username, ret_period, authtoken
-   * Legacy catalogue: /dec/v2.0 route, API version 2.1
-   * Returns: raw response string (without indentation)
-   */
-  async getGstr1RetSum(gstin, period, username, token, isNil = false) {
-    if (!isValidGstin(gstin)) throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
-    if (!isValidPeriod(period)) throw ApiError.validationError('Return period must be MMYYYY format.');
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* GSTR-1 RETSUM                                                          */
+  /* ---------------------------------------------------------------------- */
+
+  async _getGstr1RetSumRaw(gstin, period, username, token, isNil = false) {
+    if (!isValidGstin(gstin)) {
+      throw ApiError.invalidGstin('Invalid GSTIN format. Must be 15 alphanumeric characters.');
+    }
+
+    if (!isValidPeriod(period)) {
+      throw ApiError.validationError('Return period must be MMYYYY format.');
+    }
+
     if (!username || typeof username !== 'string' || !username.trim()) {
       throw ApiError.validationError('Username is required.');
     }
+
     if (!token || typeof token !== 'string' || !token.trim()) {
       throw ApiError.validationError('Auth token is required for GSTR-1 summary.');
     }
+
     const { aspid, password } = this._requireAsp();
 
     const cleanToken = token.trim();
@@ -1726,9 +2097,6 @@ class TaxProProvider {
       ? '/taxpayerapi/dec/v4.1/returns/gstr1'
       : '/taxpayerapi/dec/v2.0/returns/gstr1';
 
-    // GSTR-1 endpoints require 'username' parameter
-    // In current profile (v4.1), smrytyp='L' ensures long summary with section checksums (chksum) is returned.
-    // In legacy profile (v2.0), params conform to official TaxPro Step-1 doc (aspid, authtoken, userrole, rtn_typ).
     const params = {
       action: 'RETSUM',
       gstin: cleanGstin,
@@ -1737,16 +2105,13 @@ class TaxProProvider {
       ...(this.apiProfile === 'current'
         ? { smrytyp: 'L' }
         : {
-            aspid,
-            authtoken: cleanToken,
-            userrole: 'GSTR1',
-            rtn_typ: 'GSTR1'
-          })
+          aspid,
+          authtoken: cleanToken
+        })
     };
 
     const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
 
-    // All credentials and metadata go strictly in headers
     const headers = {
       aspid,
       password,
@@ -1773,8 +2138,10 @@ class TaxProProvider {
       });
 
       const rawBody = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+
       try {
         const parsed = JSON.parse(rawBody);
+
         if (parsed && (String(parsed.status_cd) === '0' || parsed.error?.error_cd)) {
           checkTaxProResponse(parsed, 'getGstr1RetSum');
         }
@@ -1786,37 +2153,47 @@ class TaxProProvider {
     } catch (error) {
       const errorCd = getErrCd(error);
 
-      // Auto-Retry for RET09001 (Summary generation in progress on GST portal)
       if (errorCd === 'RET09001') {
-        logger.info(`GST portal summary generation in progress (RET09001) for [${cleanGstin} - ${cleanPeriod}]. Waiting 4 seconds for GSTN to calculate summary and retrying...`);
+        logger.info(
+          `GST portal summary generation in progress (RET09001) for [${cleanGstin} - ${cleanPeriod}]. Waiting 4 seconds for GSTN to calculate summary and retrying...`
+        );
+
         try {
           await new Promise((resolve) => setTimeout(resolve, 4000));
+
           const retryRes = await this.httpClient.get(path, {
             params,
             headers,
             responseType: 'text',
             timeout: this.fileTimeoutMs
           });
+
           const retryRaw = typeof retryRes.data === 'string' ? retryRes.data : JSON.stringify(retryRes.data);
+
           try {
             const parsed = JSON.parse(retryRaw);
+
             if (parsed && (String(parsed.status_cd) === '0' || parsed.error?.error_cd)) {
               checkTaxProResponse(parsed, 'getGstr1RetSum');
             }
           } catch (pErr) {
             if (pErr instanceof ApiError) throw pErr;
           }
+
           return retryRaw;
         } catch {
           // Fall through to standard error handler if retry also fails
         }
       }
 
-      // Silent Auto-Refresh logic remains exactly as you had it
       if (SESSION_ERROR_CODES.includes(errorCd) && cleanToken && cleanUser) {
         try {
-          logger.info('TaxPro session token expired during RETSUM. Attempting silent auto-refresh...', { error_cd: getValidErrorCd(errorCd) });
+          logger.info('TaxPro session token expired during RETSUM. Attempting silent auto-refresh...', {
+            error_cd: getValidErrorCd(errorCd)
+          });
+
           const refreshRes = await this.refreshToken(cleanGstin, cleanUser, cleanToken);
+
           if (refreshRes?.token) {
             headers['auth-token'] = refreshRes.token;
             headers.authtoken = refreshRes.token;
@@ -1828,62 +2205,131 @@ class TaxProProvider {
               responseType: 'text',
               timeout: this.fileTimeoutMs
             });
+
             return typeof retryRes.data === 'string' ? retryRes.data : JSON.stringify(retryRes.data);
           }
         } catch {
           // Fall through to standard error handler
         }
       }
+
       throw handleTaxProError(error, 'getGstr1RetSum');
     }
-  }/**
-   * File GSTR-1 via TaxPro RETFILE using the configured regular or Nil request schema.
-   * Errors that leave the real filing state unknown (timeout / 5xx / missing ack_num) carry
-   * error.pendingVerification = true so the caller can confirm with findFiledArn().
-   */
+  }
+
   /**
- * File GSTR-1 via TaxPro RETFILE using the configured regular or Nil request schema.
- */
+   * Backward-compatible raw RETSUM.
+   * Supports both positional and options-based calls.
+   */
+  async getGstr1RetSum(gstin, period, usernameOrOptions, token, isNil) {
+    if (usernameOrOptions && typeof usernameOrOptions === 'object' && !Array.isArray(usernameOrOptions)) {
+      const opts = usernameOrOptions;
+
+      return this._getGstr1RetSumRaw(
+        gstin,
+        period,
+        opts.username || '',
+        opts.token || opts.gstToken,
+        opts.isNil === true
+      );
+    }
+
+    return this._getGstr1RetSumRaw(gstin, period, usernameOrOptions, token, isNil === true);
+  }
+
+  /**
+   * Parsed GSTR-1 summary for nil confirmation / UI / validation.
+   * Returns validated summary object, not raw string.
+   */
+  async getGstr1Summary(gstin, period, options = {}) {
+    const opts = options || {};
+
+    const username = typeof opts === 'string' ? '' : (opts.username || '');
+    const token = typeof opts === 'string' ? '' : (opts.token || opts.gstToken);
+    const isNil = typeof opts === 'object' && opts.isNil === true;
+
+    const raw = await this._getGstr1RetSumRaw(gstin, period, username, token, isNil);
+    const parsed = safeParseJson(raw);
+
+    if (!parsed) {
+      throw ApiError.providerError('TaxPro GSTR-1 RETSUM did not return valid JSON.', 502);
+    }
+
+    const data = parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed;
+
+    return validateGstr1SummaryResponse(data, gstin, period, isNil);
+  }
+
+  async fetchGstr1Summary(gstin, period, options = {}) {
+    return this.getGstr1Summary(gstin, period, options);
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* GSTR-1 RETFILE                                                         */
+  /* ---------------------------------------------------------------------- */
+
   async fileGstr1(period, options = {}) {
     const { gstin, username, token: initialToken } = this._identity(options);
     let token = initialToken;
+
     const cleanPan = options.pan ? String(options.pan).trim().toUpperCase() : '';
     const cleanOtp = options.otp ? String(options.otp).trim() : '';
 
     if (!isValidPeriod(period)) {
       throw ApiError.validationError('A valid MMYYYY return period is required to file GSTR-1.');
     }
+
     if (!cleanPan || !cleanOtp) {
       throw ApiError.validationError('PAN and EVC OTP are required to file GSTR-1 with the configured RETFILE schema.');
     }
+
     if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(cleanPan) || !/^[A-Za-z0-9]{4,8}$/.test(cleanOtp)) {
       throw ApiError.validationError('Invalid PAN or EVC OTP format for GSTR-1 filing.');
     }
+
     const { aspid, password } = this._requireAsp();
+
     if (!token) {
       throw ApiError.sessionExpired('Auth token is required to file GSTR-1. Please verify OTP again.');
     }
 
     try {
-      // Step 1: RETSUM (fresh summary from the GST portal for both Regular & Nil returns)
       let step1Raw = options.step1Response;
+
       if (!step1Raw) {
-        step1Raw = await this.getGstr1RetSum(gstin, period, username, token, options.isNil === true);
-        const refreshedToken = this._getActiveToken(gstin, username);
-        if (refreshedToken) {
-          token = refreshedToken;
+        try {
+          step1Raw = await this.getGstr1RetSum(gstin, period, username, token, options.isNil === true);
+
+          const refreshedToken = this._getActiveToken(gstin, username);
+          if (refreshedToken) {
+            token = refreshedToken;
+          }
+        } catch (sumErr) {
+          if (options.isNil === true && TAXPRO_ALLOW_NIL_SUMMARY_FALLBACK) {
+            logger.info(
+              `Nil GSTR-1 summary call note: ${sumErr.message}. Falling back to canonical Nil payload for RETFILE because TAXPRO_ALLOW_NIL_SUMMARY_FALLBACK=true.`
+            );
+
+            step1Raw = JSON.stringify({
+              status_cd: '1',
+              gstin: gstin.toUpperCase(),
+              ret_period: period,
+              isnil: 'Y'
+            });
+          } else {
+            throw sumErr;
+          }
         }
       }
+
       const rawString = typeof step1Raw === 'string' ? step1Raw : JSON.stringify(step1Raw);
+
       const path = this.apiProfile === 'current'
         ? '/taxpayerapi/dec/v4.1/returns/gstr1'
         : '/taxpayerapi/dec/v2.0/returns/gstr1';
 
-      // Build request body and determine signed string:
-      // - Nil returns: canonical nil body {"gstin":"...","ret_period":"...","isnil":"Y"} is signed and sent.
-      // - Regular returns: per official TaxPro Step 3 doc: Request Body = Step1-Response (as-is, without indentation)
-      //   and sign is computed over that exact raw string. Re-serializing risks RET13507 signature mismatch.
       const isNilReturn = options.isNil === true;
+
       let requestBody;
       let signedString;
 
@@ -1891,27 +2337,35 @@ class TaxProProvider {
         requestBody = buildGstr1RetFileBody(rawString, gstin, period, true);
         signedString = requestBody;
       } else {
-        // Validate summary schema (throws if shape is invalid)
         const validatedBody = buildGstr1RetFileBody(rawString, gstin, period, false);
-        // If rawString contains wrapper fields (like status_cd or data) or extraneous fields like isnil: 'N', use validatedBody so schema does not reject
+
         let hasWrapper = false;
+
         try {
           const parsed = JSON.parse(rawString);
-          if (parsed && (parsed.status_cd !== undefined || parsed.data !== undefined || parsed.isnil !== undefined)) {
+
+          if (parsed && (
+            parsed.status_cd !== undefined ||
+            parsed.data !== undefined ||
+            parsed.isnil !== undefined
+          )) {
             hasWrapper = true;
           }
-        } catch {}
+        } catch {
+          // ignore parse issue; rawString already validated by buildGstr1RetFileBody
+        }
 
-        const signOver = this.evcSignOver;
-        if (signOver === 'reconstructed' || hasWrapper) {
+        const effectiveSignOver = this.evcSignOver || (this.apiProfile === 'current' ? 'body' : 'raw');
+
+        if (effectiveSignOver === 'body' || effectiveSignOver === 'reconstructed' || hasWrapper) {
           requestBody = validatedBody;
           signedString = validatedBody;
         } else {
-          // As-is per TaxPro/GSTN Step 3 doc: Request Body = Step1-Response (without indentation)
           requestBody = rawString;
           signedString = rawString;
         }
       }
+
       const sid = `${cleanPan}|${cleanOtp}`;
       const stateCd = gstin.slice(0, 2);
 
@@ -1925,6 +2379,7 @@ class TaxProProvider {
 
       const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
       const ipUsr = this.getIpUsr();
+
       const headers = this.apiProfile === 'current' ? {
         aspid,
         password,
@@ -1953,22 +2408,19 @@ class TaxProProvider {
         'Content-Type': 'application/json'
       };
 
-      // Candidate signature modes:
-      // 1. 'std' (GSTN standard spec: Key "PAN|OTP", Data Base64(payload))
-      // 2. 'raw' (Key "PAN|OTP", Data raw UTF-8 payload)
-      // 3. 'single_b64key' (Key Base64("PAN|OTP"), Data Base64(payload))
-      // 4. 'double' (Legacy TaxPro: Key Base64("PAN|OTP"), Data Double-Base64(payload))
-      // 5. 'raw_b64key' (Key Base64("PAN|OTP"), Data raw UTF-8 payload)
       const envMode = process.env.TAXPRO_EVC_ENCODING || process.env.TAXPRO_EVC_SIGN_MODE;
+
       const candidateModes = options.evcMode
         ? [options.evcMode]
         : (envMode ? [envMode] : ['double', 'std', 'raw', 'single_b64key', 'raw_b64key']);
 
       let lastError;
       let hasAutoSubmitted = false;
+
       for (let modeIdx = 0; modeIdx < candidateModes.length; modeIdx++) {
         const mode = candidateModes[modeIdx];
         const sign = computeTaxProEvcSignature(signedString, cleanPan, cleanOtp, mode);
+
         const params = this.apiProfile === 'current'
           ? {
             action: 'RETFILE',
@@ -1991,21 +2443,35 @@ class TaxProProvider {
           };
 
         logger.debug(`TaxPro GSTR-1 RETFILE EVC dispatched (mode: ${mode}, period: ${period}, Nil: ${isNilReturn})`);
+
         try {
           const httpMethod = this.apiProfile === 'current' ? 'put' : 'post';
+
           const response = await this.httpClient[httpMethod](path, requestBody, {
             params,
             headers,
             timeout: this.fileTimeoutMs,
             transformRequest: [(data) => data]
           });
+
           const data = checkTaxProResponse(response.data, 'fileGstr1');
-          const ackNum = (typeof (data?.ack_num || data?.data?.ack_num) === 'string' ? (data?.ack_num || data?.data?.ack_num) : '').trim();
+
+          const ackNum = (
+            typeof (data?.ack_num || data?.data?.ack_num) === 'string'
+              ? (data?.ack_num || data?.data?.ack_num)
+              : ''
+          ).trim();
+
           if (!ackNum) {
-            const unconfirmed = ApiError.providerError('TaxPro RETFILE response did not include the required acknowledgement number. Filing was not confirmed.', 502);
+            const unconfirmed = ApiError.providerError(
+              'TaxPro RETFILE response did not include the required acknowledgement number. Filing was not confirmed.',
+              502
+            );
+
             unconfirmed.pendingVerification = true;
             throw unconfirmed;
           }
+
           return {
             success: true,
             arn: ackNum,
@@ -2015,59 +2481,90 @@ class TaxProProvider {
         } catch (postErr) {
           const mapped = handleTaxProError(postErr, 'fileGstr1:EVC');
           lastError = mapped;
+
           if (mapped.errorCd === 'RT_FIL_10' && !hasAutoSubmitted) {
             hasAutoSubmitted = true;
-            logger.info(`GST portal requires GSTR-1 submit step (RT_FIL_10) for [${gstin} - ${period}]. Auto-submitting return before filing...`);
+
+            logger.info(
+              `GST portal requires GSTR-1 submit step (RT_FIL_10) for [${gstin} - ${period}]. Auto-submitting return before filing...`
+            );
+
             try {
-              const subRes = await this.submitGstr1(period, { gstin, username, token, isNil: options.isNil });
+              const activeToken = this._getActiveToken(gstin, username) || token;
+
+              const subRes = await this.submitGstr1(period, {
+                gstin,
+                username,
+                token: activeToken,
+                isNil: options.isNil
+              });
+
               logger.info(`Auto-submit succeeded (ref: ${subRes?.reference_id || 'OK'}). Waiting 2s for GSTN to freeze summary...`);
               await new Promise((resolve) => setTimeout(resolve, 2000));
-              modeIdx--; // Retry this mode after successful submission
+
+              modeIdx--;
               continue;
             } catch (subErr) {
               logger.warn(`Auto-submit after RT_FIL_10 failed: ${safeErrorMessage(subErr)}`);
             }
           }
+
           if (mapped.errorCd === 'RET13507' && modeIdx < candidateModes.length - 1) {
-            logger.warn(`TaxPro RETFILE mode [${mode}] resulted in RET13507 (Mismatch of signed data). Seamlessly trying mode [${candidateModes[modeIdx + 1]}]...`);
+            logger.warn(
+              `TaxPro RETFILE mode [${mode}] resulted in RET13507 (Mismatch of signed data). Seamlessly trying mode [${candidateModes[modeIdx + 1]}]...`
+            );
+
             continue;
           }
+
           const netCode = postErr?.code;
           const status = postErr?.response?.status;
+
           const unknownOutcome =
-            netCode === 'ECONNABORTED' || netCode === 'ETIMEDOUT' ||
+            netCode === 'ECONNABORTED' ||
+            netCode === 'ETIMEDOUT' ||
             (typeof status === 'number' && status >= 500);
+
           if (unknownOutcome || postErr?.pendingVerification) {
             mapped.pendingVerification = true;
           }
+
           throw mapped;
         }
       }
+
       throw lastError;
     } catch (evcErr) {
       const mapped = handleTaxProError(evcErr, 'fileGstr1:EVC');
+
       const netCode = evcErr?.code;
       const status = evcErr?.response?.status;
+
       const unknownOutcome =
-        netCode === 'ECONNABORTED' || netCode === 'ETIMEDOUT' ||
+        netCode === 'ECONNABORTED' ||
+        netCode === 'ETIMEDOUT' ||
         (typeof status === 'number' && status >= 500);
+
       if (unknownOutcome || evcErr?.pendingVerification) {
         mapped.pendingVerification = true;
       }
+
       throw mapped;
     }
   }
-  /**
-   * Save GSTR-3B payload via TaxPro
-   * POST /taxpayerapi/dec/v0.3/returns/gstr3b
-   * Response schema: { reference_id } (required).
-   */
+
+  /* ---------------------------------------------------------------------- */
+  /* GSTR-3B Save / Summary / Offset / File                                 */
+  /* ---------------------------------------------------------------------- */
+
   async saveGstr3b(payload, options = {}) {
     const { gstin, username, token } = this._identity(options, { gstin: payload?.gstin });
     const period = options.period || payload?.ret_period;
+
     if (!isValidPeriod(period)) {
       throw ApiError.validationError('A valid MMYYYY return period is required to save GSTR-3B.');
     }
+
     if (!token) {
       throw ApiError.sessionExpired('A current GST Portal auth token is required to save GSTR-3B. Please verify OTP again.');
     }
@@ -2086,7 +2583,9 @@ class TaxProProvider {
         authtoken: token,
         ret_period: period
       };
+
     const apiVersion = this.apiProfile === 'current' ? '7.1' : '0.3';
+
     const headers = this.apiProfile === 'current'
       ? this.getCurrentGstr3bHeaders(gstin, username, token)
       : {
@@ -2104,9 +2603,11 @@ class TaxProProvider {
 
     try {
       logger.debug(`TaxPro GSTR-3B RETSAVE dispatched for period ${period}`);
+
       const response = await this.httpClient.post(path, payload, { params, headers });
       const data = checkTaxProResponse(response.data, 'saveGstr3b');
       const refId = requireReferenceId(data, 'TaxPro GSTR-3B RETSAVE');
+
       return {
         success: true,
         reference_id: refId,
@@ -2118,18 +2619,14 @@ class TaxProProvider {
     }
   }
 
-  /**
-   * Get GSTR-3B Return Summary via TaxPro RETSUM
-   * GET /taxpayerapi/dec/v0.3/returns/gstr3b?action=RETSUM
-   * With options.raw = true it returns { raw, data } where raw is the untouched response string
-   * (needed for the EVC signature).
-   */
   async getGstr3bRetSum(gstin, period, options = {}) {
     const { gstin: cleanGstin, username: cleanUser, token: cleanToken } = this._identity(options, { gstin });
     const cleanPeriod = (period || '').trim();
+
     if (!isValidPeriod(cleanPeriod)) {
       throw ApiError.validationError('A valid MMYYYY return period is required for the GSTR-3B summary.');
     }
+
     const isFinal = options.final === 'Y' || options.final === true;
 
     const path = this.apiProfile === 'current'
@@ -2155,6 +2652,7 @@ class TaxProProvider {
       };
 
     const apiVersion = this.apiProfile === 'current' ? '7.1' : '0.3';
+
     const headers = this.apiProfile === 'current'
       ? this.getCurrentGstr3bHeaders(cleanGstin, cleanUser, cleanToken)
       : {
@@ -2171,52 +2669,55 @@ class TaxProProvider {
 
     try {
       if (options.raw) {
-        // ✅ FIX 2: Use responseType: 'text' to guarantee exact raw bytes for EVC signing
         const response = await this.httpClient.get(path, {
           params,
           headers,
           responseType: 'text',
           timeout: this.fileTimeoutMs
         });
+
         const rawBody = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+
         let parsed;
+
         try {
           parsed = JSON.parse(rawBody);
         } catch {
           throw ApiError.providerError('TaxPro GSTR-3B RETSUM did not return valid JSON.', 502);
         }
+
         const checked = checkTaxProResponse(parsed, 'getGstr3bRetSum');
         const inner = checked?.data && typeof checked.data === 'object' ? checked.data : checked;
+
         return { raw: rawBody, data: inner };
       }
+
       const response = await this.httpClient.get(path, { params, headers });
+
       return checkTaxProResponse(response.data, 'getGstr3bRetSum');
     } catch (error) {
       throw handleTaxProError(error, 'getGstr3bRetSum');
     }
   }
 
-  /**
-   * Offset GSTR-3B Tax Liabilities via TaxPro RETOFFSET
-   * POST /taxpayerapi/dec/v0.3/returns/gstr3b?action=RETOFFSET
-   * Body must carry pdcash / pditc / pdnls (see Offset Liability request schema).
-   * Success response: { message: 'Payment of tax successfully done' }.
-   */
   async offsetGstr3b(period, options = {}) {
     const { gstin, username, token } = this._identity(options);
+
     if (!isValidPeriod(period)) {
       throw ApiError.validationError('A valid MMYYYY return period is required to offset GSTR-3B liability.');
     }
+
     if (!token) {
       throw ApiError.sessionExpired('A current GST Portal auth token is required to offset liability. Please verify OTP again.');
     }
 
-    // FIX #6: an offset call without payment details does nothing and later breaks RETFILE.
     const body = options.body && typeof options.body === 'object' ? options.body : null;
+
     const hasPaymentDetails = body && ['pdcash', 'pditc', 'pdnls'].some((key) => {
       const v = body[key];
       return Array.isArray(v) ? v.length > 0 : (v && typeof v === 'object' && Object.keys(v).length > 0);
     });
+
     if (!hasPaymentDetails) {
       throw ApiError.validationError('Offset payload (pdcash / pditc / pdnls) is required to offset GSTR-3B liability.');
     }
@@ -2235,7 +2736,9 @@ class TaxProProvider {
         authtoken: token,
         ret_period: period
       };
+
     const apiVersion = this.apiProfile === 'current' ? '7.1' : '0.3';
+
     const headers = this.apiProfile === 'current'
       ? this.getCurrentGstr3bHeaders(gstin, username, token)
       : {
@@ -2255,11 +2758,14 @@ class TaxProProvider {
 
     try {
       logger.debug(`TaxPro GSTR-3B RETOFFSET dispatched for period ${period}`);
+
       const response = await this.httpClient.post(path, payload, { params, headers });
       const data = checkTaxProResponse(response.data, 'offsetGstr3b');
+
       if (data.message !== 'Payment of tax successfully done') {
         throw ApiError.providerError('GSTR-3B liability offset was not confirmed by the GST portal.', 502);
       }
+
       return {
         success: true,
         message: data.message,
@@ -2270,26 +2776,24 @@ class TaxProProvider {
     }
   }
 
-  /**
-   * File GSTR-3B via TaxPro RETFILE
-   * POST /taxpayerapi/dec/v0.3/returns/gstr3b?action=RETFILE
-   * Body = final (final=Y) summary fields only. PAN / EVC OTP travel in sid + sign, never in the body.
-   * Success response: { ack_num }.
-   */
   async fileGstr3b(period, options = {}) {
     const { gstin, username, token } = this._identity(options);
+
     const cleanPan = options.pan ? String(options.pan).trim().toUpperCase() : '';
     const cleanOtp = options.otp ? String(options.otp).trim() : '';
 
     if (!isValidPeriod(period)) {
       throw ApiError.validationError('A valid MMYYYY return period is required to file GSTR-3B.');
     }
+
     if (!cleanPan || !cleanOtp) {
       throw ApiError.validationError('PAN and EVC OTP are required to file GSTR-3B.');
     }
+
     if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(cleanPan) || !/^[A-Za-z0-9]{4,8}$/.test(cleanOtp)) {
       throw ApiError.validationError('Invalid PAN or EVC OTP format for GSTR-3B filing.');
     }
+
     if (!token) {
       throw ApiError.sessionExpired('Auth token is required to file GSTR-3B. Please verify OTP again.');
     }
@@ -2298,9 +2802,9 @@ class TaxProProvider {
       ? '/taxpayerapi/dec/v7.1/returns/gstr3b'
       : '/taxpayerapi/dec/v0.3/returns/gstr3b';
 
-    // Step 1: final summary (final=Y) as RAW string + parsed data. The raw string is what gets signed.
     let summaryRaw = options.finalSummaryRaw;
     let summaryData = options.finalSummaryData;
+
     if (!summaryRaw || !summaryData || Object.keys(summaryData).length === 0) {
       const res = await this.getGstr3bRetSum(gstin, period, {
         username,
@@ -2308,15 +2812,19 @@ class TaxProProvider {
         final: 'Y',
         raw: true
       });
+
       summaryRaw = res.raw;
       summaryData = res.data;
     }
 
-    // Step 2: RETFILE body strictly per schema + EVC signature over the summary.
     const isNilReturn = options.isNil === true;
     const payload = buildGstr3bRetFileBody(summaryData, gstin, period, isNilReturn);
     const requestBody = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    const signOver = isNilReturn ? 'body' : (this.evcSignOver || (this.apiProfile === 'current' ? 'body' : 'raw'));
+
+    const signOver = isNilReturn
+      ? 'body'
+      : (this.evcSignOver || (this.apiProfile === 'current' ? 'body' : 'raw'));
+
     const signedString = signOver === 'body' ? requestBody : summaryRaw;
 
     const params = this.apiProfile === 'current'
@@ -2329,10 +2837,12 @@ class TaxProProvider {
         authtoken: token,
         ret_period: period
       };
+
     params.st = options.mode || 'EVC';
     params.sid = `${cleanPan}|${cleanOtp}`;
 
     const apiVersion = this.apiProfile === 'current' ? '7.1' : '0.3';
+
     const headers = this.apiProfile === 'current'
       ? this.getCurrentGstr3bHeaders(gstin, username, token)
       : {
@@ -2349,32 +2859,47 @@ class TaxProProvider {
       };
 
     const envMode = process.env.TAXPRO_EVC_ENCODING || process.env.TAXPRO_EVC_SIGN_MODE;
+
     const candidateModes = options.evcMode
       ? [options.evcMode]
       : (envMode ? [envMode] : ['double', 'std', 'raw', 'single_b64key', 'raw_b64key']);
 
     let lastError;
+
     for (let modeIdx = 0; modeIdx < candidateModes.length; modeIdx++) {
       const mode = candidateModes[modeIdx];
       const sign = computeTaxProEvcSignature(signedString, cleanPan, cleanOtp, mode);
+
       params.sign = sign;
 
       try {
         logger.debug(`TaxPro GSTR-3B RETFILE dispatched for period ${period} (mode: ${mode}, Nil: ${isNilReturn})`);
+
         const response = await this.httpClient.post(path, requestBody, {
           params,
           headers,
           timeout: this.fileTimeoutMs,
           transformRequest: [(data) => data]
         });
+
         const data = checkTaxProResponse(response.data, 'fileGstr3b');
-        // FIX #4: only ack_num is an ARN. reference_id is NOT an ARN.
-        const ackNum = (typeof (data?.ack_num || data?.data?.ack_num) === 'string' ? (data?.ack_num || data?.data?.ack_num) : '').trim();
+
+        const ackNum = (
+          typeof (data?.ack_num || data?.data?.ack_num) === 'string'
+            ? (data?.ack_num || data?.data?.ack_num)
+            : ''
+        ).trim();
+
         if (!ackNum) {
-          const unconfirmed = ApiError.providerError('TaxPro RETFILE response did not include the required acknowledgement number. Filing was not confirmed.', 502);
+          const unconfirmed = ApiError.providerError(
+            'TaxPro RETFILE response did not include the required acknowledgement number. Filing was not confirmed.',
+            502
+          );
+
           unconfirmed.pendingVerification = true;
           throw unconfirmed;
         }
+
         return {
           success: true,
           arn: ackNum,
@@ -2383,32 +2908,43 @@ class TaxProProvider {
         };
       } catch (error) {
         lastError = error;
+
         const mapped = handleTaxProError(error, 'fileGstr3b');
+
         if (mapped.errorCd === 'RET13507' && modeIdx < candidateModes.length - 1) {
           logger.warn(`TaxPro GSTR-3B RETFILE signature mismatch with mode '${mode}', trying next candidate mode...`);
           continue;
         }
+
         const netCode = error?.code;
         const status = error?.response?.status;
-        if (netCode === 'ECONNABORTED' || netCode === 'ETIMEDOUT' ||
-          (typeof status === 'number' && status >= 500) || error?.pendingVerification) {
+
+        if (
+          netCode === 'ECONNABORTED' ||
+          netCode === 'ETIMEDOUT' ||
+          (typeof status === 'number' && status >= 500) ||
+          error?.pendingVerification
+        ) {
           mapped.pendingVerification = true;
         }
+
         throw mapped;
       }
     }
+
     const finalMapped = handleTaxProError(lastError, 'fileGstr3b');
     throw finalMapped;
   }
 
-  /**
-   * Get File Details via TaxPro FILEDET (Row 2 from API Spec)
-   * GET /taxpayerapi/dec/v1.1/returns?action=FILEDET
-   */
+  /* ---------------------------------------------------------------------- */
+  /* File details                                                           */
+  /* ---------------------------------------------------------------------- */
+
   async getFileDetails(period, options = {}) {
     const { gstin, token } = this._identity(options, { requireUsername: false });
 
     const path = '/taxpayerapi/dec/v1.1/returns';
+
     const params = {
       action: 'FILEDET',
       aspid: this.getAspid(),
@@ -2417,6 +2953,7 @@ class TaxProProvider {
       ret_period: period,
       token: token || ''
     };
+
     const headers = {
       aspid: this.getAspid(),
       password: this.getPassword(),
@@ -2425,8 +2962,10 @@ class TaxProProvider {
 
     try {
       logger.debug(`TaxPro FILEDET dispatched for period ${period}`);
+
       const response = await this.httpClient.get(path, { params, headers });
       const data = checkTaxProResponse(response.data, 'getFileDetails');
+
       return { success: true, data };
     } catch (error) {
       throw handleTaxProError(error, 'getFileDetails');
@@ -2435,9 +2974,21 @@ class TaxProProvider {
 }
 
 const defaultTaxProInstance = new TaxProProvider();
+
 defaultTaxProInstance.TaxProProvider = TaxProProvider;
 defaultTaxProInstance.SESSION_ERROR_CODES = SESSION_ERROR_CODES;
 defaultTaxProInstance.PERIOD_PLACEMENT = PERIOD_PLACEMENT;
+defaultTaxProInstance.OK_SHAPE = OK_SHAPE;
+defaultTaxProInstance.checkTaxProResponse = checkTaxProResponse;
+defaultTaxProInstance.mapTaxProErrorCode = mapTaxProErrorCode;
+defaultTaxProInstance.handleTaxProError = handleTaxProError;
+defaultTaxProInstance.getErrCd = getErrCd;
+defaultTaxProInstance.formatSafeHeaderDiagnostics = formatSafeHeaderDiagnostics;
+defaultTaxProInstance.computeTaxProEvcSignature = computeTaxProEvcSignature;
+defaultTaxProInstance.buildGstr1RetFileBody = buildGstr1RetFileBody;
+defaultTaxProInstance.buildGstr3bRetFileBody = buildGstr3bRetFileBody;
+defaultTaxProInstance.cleanSaveValue = cleanSaveValue;
+defaultTaxProInstance.validateGstr1SummaryResponse = validateGstr1SummaryResponse;
 
 module.exports = defaultTaxProInstance;
 module.exports.TaxProProvider = TaxProProvider;

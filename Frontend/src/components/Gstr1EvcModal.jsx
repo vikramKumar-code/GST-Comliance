@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import useFocusTrap from '../hooks/useFocusTrap';
+import { useAuth } from '../context/AuthContext';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -18,7 +19,15 @@ import {
   Info
 } from 'lucide-react';
 import { requestEvcOtp } from '../api/auth.api';
-import { fileGstr1WithEvc, fileGstr3bWithEvc, saveGstr1, checkFilingStatus } from '../api/returns.api';
+import {
+  prepareGstr1Filing,
+  prepareGstr3bFiling,
+  fileGstr1WithEvc,
+  fileGstr3bWithEvc,
+  getReturnsSummary,
+  checkFilingStatus,
+  createReturnIdempotencyKey
+} from '../api/returns.api';
 import { formatCurrency, formatPeriod } from '../utils/format';
 import { isValidEvcOtp, isValidPan } from '../utils/validators';
 import Button from './ui/Button';
@@ -26,7 +35,10 @@ import Badge from './ui/Badge';
 import { Link } from 'react-router-dom';
 import FilingCertificateModal from './FilingCertificateModal';
 
-// ✅ Step constants for type safety
+/* -------------------------------------------------------------------------- */
+/* Constants / helpers                                                        */
+/* -------------------------------------------------------------------------- */
+
 const STEPS = {
   FORM: 'FORM',
   OTP: 'OTP',
@@ -36,9 +48,139 @@ const STEPS = {
   FAILED: 'FAILED'
 };
 
+const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
+
+const INVALID_OTP_ERROR_CODES = new Set([
+  'RETFILE01',
+  'RETFILE02',
+  'OTP_EXPIRED',
+  'INVALID_OTP',
+  'MAX_OTP_ATTEMPTS'
+]);
+
+function normalizeReturnType(type) {
+  const normalized = String(type || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+
+  if (normalized === 'GSTR3B' || normalized === 'GSTR3') {
+    return 'GSTR3B';
+  }
+
+  return 'GSTR1';
+}
+
+function isInvalidOtpErrorCode(code) {
+  return Boolean(code && INVALID_OTP_ERROR_CODES.has(String(code).toUpperCase()));
+}
+
+function isUncertainFilingError(err) {
+  if (!err) return false;
+
+  if (err.pendingVerification === true) return true;
+
+  if (
+    err.code === 'REQUEST_TIMEOUT' ||
+    err.code === 'TIMEOUT' ||
+    err.code === 'NETWORK_ERROR'
+  ) {
+    return true;
+  }
+
+  if (err.status === 504) return true;
+
+  const message = String(err.message || '').toLowerCase();
+
+  if (
+    err.code === 'PROVIDER_ERROR' &&
+    (
+      message.includes('timeout') ||
+      message.includes('network') ||
+      message.includes('did not confirm') ||
+      message.includes('unknown')
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function collectExcludedIds(value) {
+  let raw;
+
+  if (value instanceof Set) {
+    raw = Array.from(value);
+  } else if (Array.isArray(value)) {
+    raw = value;
+  } else if (typeof value === 'string') {
+    raw = value.split(',');
+  } else if (value === undefined || value === null) {
+    raw = [];
+  } else {
+    raw = [value];
+  }
+
+  const seen = new Set();
+  const ids = [];
+  const invalid = [];
+
+  for (const item of raw) {
+    const id = String(item ?? '').trim();
+
+    if (!id) continue;
+    if (seen.has(id)) continue;
+
+    if (OBJECT_ID_REGEX.test(id)) {
+      seen.add(id);
+      ids.push(id);
+    } else {
+      seen.add(id);
+      invalid.push(id);
+    }
+  }
+
+  return { ids, invalid };
+}
+
+function extractFilings(summary) {
+  if (!summary || typeof summary !== 'object') return [];
+
+  const candidates = [
+    summary.filings,
+    summary.data?.filings,
+    summary.result?.filings,
+    summary.returns,
+    summary.data?.returns
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  return [];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
+
 /**
- * GSTR-1/3B EVC Filing Modal
- * Statutory filing under CGST Rule 26(1) with 3-step verification
+ * GSTR-1 / GSTR-3B EVC Filing Modal
+ *
+ * Supported flows:
+ *
+ * 1. Self-contained flow:
+ *    - Modal calls prepareGstr1Filing()/prepareGstr3bFiling()
+ *    - Then requests EVC OTP
+ *    - Then files with alreadyPrepared=true
+ *
+ * 2. Parent-prepared flow:
+ *    - Parent calls prepare-filing first
+ *    - Then opens modal with:
+ *      alreadyPrepared={true}
+ *      preparedReferenceId="..."
+ *    - Modal skips prepare and directly requests OTP/files
  */
 export default function Gstr1EvcModal({
   isOpen,
@@ -51,8 +193,22 @@ export default function Gstr1EvcModal({
   summary = {},
   excludedInvoiceIds = [],
   onSuccess,
-  requiresOffset = false
+  onPending,
+  requiresOffset = false,
+  alreadyPrepared = false,
+  preparedReferenceId = null
 }) {
+  const auth = useAuth();
+  const userId =
+    auth?.user?._id ||
+    auth?.member?._id ||
+    auth?.user?.memberId ||
+    username ||
+    gstin ||
+    'anonymous';
+
+  const normalizedReturnType = normalizeReturnType(returnType);
+
   // Extract PAN from GSTIN (positions 3-12)
   const gstinPan = gstin?.length === 15 ? gstin.slice(2, 12).toUpperCase() : '';
   const defaultPan = gstinPan[3] === 'P' ? gstinPan : '';
@@ -65,19 +221,112 @@ export default function Gstr1EvcModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [errorCode, setErrorCode] = useState(null);
+  const [errorCd, setErrorCd] = useState(null);
+  const [rateLimitRetryAfter, setRateLimitRetryAfter] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
   const [filingResult, setFilingResult] = useState(null);
   const [timer, setTimer] = useState(0);
   const [copied, setCopied] = useState(false);
   const [showCert, setShowCert] = useState(false);
-  const [offsetDone, setOffsetDone] = useState(false);
+
+  const [prepareCompleted, setPrepareCompleted] = useState(Boolean(alreadyPrepared));
+  const [offsetDone, setOffsetDone] = useState(Boolean(alreadyPrepared));
+  const [prepareReferenceId, setPrepareReferenceId] = useState(preparedReferenceId || null);
 
   // Refs for focus management
   const otpInputRef = useRef(null);
   const panInputRef = useRef(null);
-  const modalRef = useFocusTrap(isOpen && !loading, () => handleClose());
 
-  // Auto-focus inputs based on step
+  // Idempotency keys:
+  // - prepareKey reused while same prepare attempt is retried after transient error
+  // - fileKey reused for same OTP submission attempt; reset on invalid/expired OTP
+  const prepareKeyRef = useRef(null);
+  const fileKeyRef = useRef(null);
+
+  // Polling / race protection
+  const pollTimerRef = useRef(null);
+  const statusAttemptsRef = useRef(0);
+  const mountedRef = useRef(true);
+  const checkStatusRef = useRef(null);
+
+  /* ------------------------------------------------------------------------ */
+  /* Cleanup helpers                                                          */
+  /* ------------------------------------------------------------------------ */
+
+  const clearPollTimer = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const resetInternalState = useCallback(() => {
+    clearPollTimer();
+
+    setStep(STEPS.FORM);
+    setOtpInput('');
+    setLoading(false);
+    setError(null);
+    setErrorCode(null);
+    setErrorCd(null);
+    setRateLimitRetryAfter(null);
+    setSuccessMsg(null);
+    setFilingResult(null);
+    setTimer(0);
+    setCopied(false);
+    setShowCert(false);
+
+    setPrepareCompleted(Boolean(alreadyPrepared));
+    setOffsetDone(Boolean(alreadyPrepared));
+    setPrepareReferenceId(preparedReferenceId || null);
+
+    prepareKeyRef.current = null;
+    fileKeyRef.current = null;
+    statusAttemptsRef.current = 0;
+
+    setPan(defaultPan);
+    setDeclaration(false);
+  }, [
+    alreadyPrepared,
+    preparedReferenceId,
+    defaultPan,
+    clearPollTimer
+  ]);
+
+  const handleClose = useCallback(() => {
+    if (step === STEPS.FILING || loading) {
+      const ok = window.confirm(
+        'Filing is in progress. Are you sure you want to close? This may not cancel the filing on the GST portal.'
+      );
+
+      if (!ok) return;
+    }
+
+    resetInternalState();
+    onClose?.();
+  }, [step, loading, resetInternalState, onClose]);
+
+  const modalRef = useFocusTrap(isOpen && !loading, handleClose);
+
+  /* ------------------------------------------------------------------------ */
+  /* Effects                                                                  */
+  /* ------------------------------------------------------------------------ */
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      clearPollTimer();
+    };
+  }, [clearPollTimer]);
+
+  useEffect(() => {
+    if (isOpen) {
+      resetInternalState();
+    }
+  }, [isOpen, resetInternalState]);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -88,7 +337,6 @@ export default function Gstr1EvcModal({
     }
   }, [isOpen, step]);
 
-  // ✅ Resend timer with visibility API
   useEffect(() => {
     if (timer <= 0) return;
 
@@ -101,98 +349,361 @@ export default function Gstr1EvcModal({
     return () => clearInterval(interval);
   }, [timer]);
 
-  if (!isOpen) return null;
+  /* ------------------------------------------------------------------------ */
+  /* Error mapping                                                            */
+  /* ------------------------------------------------------------------------ */
 
-  function handleClose() {
-    if (step === STEPS.FILING || loading) {
-      if (!window.confirm('Filing is in progress. Are you sure you want to close? This might not cancel the filing.')) {
-        return;
-      }
-    }
+  const getErrorMessage = useCallback((err) => {
+    const code = err?.code || null;
+    const cd =
+      err?.errorCd ||
+      err?.error_cd ||
+      err?.data?.error_cd ||
+      null;
 
-    setStep(STEPS.FORM);
-    setOtpInput('');
-    setError(null);
-    setErrorCode(null);
-    setSuccessMsg(null);
-    setFilingResult(null);
-    setOffsetDone(false);
-    onClose();
-  };
-
-  // ✅ Handle specific GSTN error codes
-  const getErrorMessage = (err) => {
-    const code = err?.code || err?.response?.data?.code;
-    const message = err?.message || 'An error occurred';
-
-    const errorMessages = {
-      'OTP0001': 'Invalid GSTIN. Please verify your GSTIN on the GST portal.',
-      'OTP0006': 'PAN does not match Authorized Signatory on GST portal. Please use personal PAN of Director/Partner.',
-      'OTP0008': 'GST session expired. Please re-login to GST portal and try again.',
-      'OTP0011': 'Session expired. Please generate new OTP.',
-      'AUTH4033': 'GST session invalid. Please refresh and try again.',
-      'RET11407': 'Auth token expired. Please re-verify OTP on GST Return Hub.',
-      'RET13504': 'GST portal is busy. Please try again after a few minutes.',
-      'RET13505': 'GST portal system failure. Please try again later.',
-      'RETOFFSET_REQUIRED': 'Tax liability must be offset before filing. Please offset liability first.',
-      'OTP_EXPIRED': 'OTP has expired. Please request a new OTP.',
-      'INVALID_OTP': 'Invalid OTP. Please check the code and try again.',
-      'MAX_OTP_ATTEMPTS': 'Maximum OTP attempts exceeded. Please try again after 30 minutes.',
-      'NETWORK_ERROR': 'Network error. Please check your internet connection.',
-      'SERVER_ERROR': 'Server temporarily unavailable. Please try again in a few moments.'
-    };
+    const message = err?.message || 'An error occurred.';
+    const retryAfter = err?.rateLimit?.retryAfterSeconds || null;
 
     setErrorCode(code);
-    return errorMessages[code] || message;
-  };
+    setErrorCd(cd);
+    setRateLimitRetryAfter(retryAfter);
 
-  // STEP 1: Request EVC OTP
+    if (code === 'RATE_LIMITED') {
+      return retryAfter
+        ? `Too many attempts. Please try again after ${retryAfter} seconds.`
+        : 'Too many attempts. Please wait before trying again.';
+    }
+
+    if (code === 'REQUEST_TIMEOUT' || code === 'TIMEOUT') {
+      return 'The GST portal did not respond in time. Please check filing status before retrying. Do not file again immediately.';
+    }
+
+    if (code === 'NETWORK_ERROR') {
+      return 'Network connection failed while filing. Please check filing status before retrying.';
+    }
+
+    const cdUpper = String(cd || '').toUpperCase();
+
+    if (cdUpper === 'OTP0001') {
+      return 'Invalid GSTIN. Please verify your GSTIN on the GST portal.';
+    }
+
+    if (cdUpper === 'OTP0006') {
+      return 'PAN does not match Authorized Signatory on GST portal. Please use personal PAN of Director/Partner.';
+    }
+
+    if (cdUpper === 'OTP0008' || cdUpper === 'OTP0011' || cdUpper === 'AUTH4033') {
+      return 'GST session expired or invalid. Please reconnect your GST portal session and try again.';
+    }
+
+    if (cdUpper === 'AUTH4038' || cdUpper === 'GSP052A' || cdUpper === 'GSP102' || cdUpper === 'RET11407') {
+      return 'GST Portal AuthToken expired or not found. Please re-verify OTP on GST Return Hub.';
+    }
+
+    if (cdUpper === 'OTP0010') {
+      return 'Not Authorized Signatory. Please enter personal PAN of the designated Director / Partner (4th letter must be "P").';
+    }
+
+    if (cdUpper === 'RET11406' || cdUpper === 'RET11404') {
+      return 'Return summary calculation is in progress on the GST portal. Please wait 1-2 minutes and retry.';
+    }
+
+    if (cdUpper === 'RETFILE01' || cdUpper === 'RET11407') {
+      return 'Invalid EVC OTP entered. Please check the code received on your mobile/email and try again.';
+    }
+
+    if (cdUpper === 'RETFILE02') {
+      return 'EVC OTP has expired. Please request a fresh EVC OTP.';
+    }
+
+    if (cdUpper === 'RET01202') {
+      return 'Previous tax period return is pending on GST portal. Please file earlier periods first.';
+    }
+
+    if (cdUpper === 'GSP101') {
+      return 'Request payload rejected by GST System. Please verify return parameters and prepared filing state.';
+    }
+
+    if (cdUpper === 'AUTH4037') {
+      return 'API Access is not enabled for this username. Please enable API Access under My Profile > Manage API Access on gst.gov.in.';
+    }
+
+    if (cdUpper === 'GSP500' || cdUpper === 'SYS500') {
+      return 'Government GST Portal is undergoing maintenance. Please retry in a few moments.';
+    }
+
+    if (cdUpper === 'GSTNBadRequest') {
+      return 'The government portal rejected the request. Please verify that the return period is open, return summary is generated, and signatory PAN is registered for this GSTIN.';
+    }
+
+    if (cdUpper) {
+      return message && message !== 'Could not complete the request. Please try again.'
+        ? message
+        : `GST Portal Notice (${cdUpper}): The government portal could not complete this request.`;
+    }
+
+    if (code === 'VALIDATION_ERROR') {
+      return message || 'Invalid input. Please check PAN, OTP, period, and declaration.';
+    }
+
+    if (code === 'PROVIDER_ERROR') {
+      return message || 'The GST service could not complete this request on the government portal. Please verify return status or try again in a few moments.';
+    }
+
+    return message;
+  }, []);
+
+  /* ------------------------------------------------------------------------ */
+  /* Prepare filing                                                           */
+  /* ------------------------------------------------------------------------ */
+
+  const ensurePrepared = useCallback(async () => {
+    if (alreadyPrepared || prepareCompleted) {
+      return {
+        alreadyPrepared: true,
+        referenceId: prepareReferenceId || null
+      };
+    }
+
+    if (!period) {
+      throw {
+        code: 'VALIDATION_ERROR',
+        message: 'Return period is required.'
+      };
+    }
+
+    if (!prepareKeyRef.current) {
+      prepareKeyRef.current = createReturnIdempotencyKey(
+        `${normalizedReturnType.toLowerCase()}-prepare-filing`,
+        period,
+        userId
+      );
+    }
+
+    const { ids, invalid } = collectExcludedIds(excludedInvoiceIds);
+
+    if (invalid.length > 0) {
+      throw {
+        code: 'VALIDATION_ERROR',
+        message: `Invalid excluded invoice id(s): ${invalid.slice(0, 3).join(', ')}. excludedInvoiceIds must be 24-character MongoDB ObjectIds.`
+      };
+    }
+
+    let res;
+
+    if (normalizedReturnType === 'GSTR3B') {
+      res = await prepareGstr3bFiling(period, {
+        userId,
+        idempotencyKey: prepareKeyRef.current
+      });
+    } else {
+      res = await prepareGstr1Filing(period, ids, {
+        userId,
+        idempotencyKey: prepareKeyRef.current
+      });
+    }
+
+    const refId =
+      res?.reference_id ||
+      res?.referenceId ||
+      res?.ref_id ||
+      null;
+
+    setPrepareCompleted(true);
+    setOffsetDone(true);
+    setPrepareReferenceId(refId);
+
+    return {
+      ...res,
+      referenceId: refId
+    };
+  }, [
+    alreadyPrepared,
+    prepareCompleted,
+    prepareReferenceId,
+    period,
+    userId,
+    normalizedReturnType,
+    excludedInvoiceIds
+  ]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Status polling                                                           */
+  /* ------------------------------------------------------------------------ */
+
+  const scheduleStatusCheck = useCallback((result, delay = 5000) => {
+    clearPollTimer();
+
+    pollTimerRef.current = setTimeout(() => {
+      checkStatusRef.current?.(result);
+    }, delay);
+  }, [clearPollTimer]);
+
+  async function handleCheckStatus(result) {
+    if (!mountedRef.current) return;
+
+    statusAttemptsRef.current += 1;
+    setLoading(true);
+
+    try {
+      let arn = null;
+
+      const refId =
+        result?.referenceId ||
+        result?.reference_id ||
+        result?.refId ||
+        prepareReferenceId ||
+        null;
+
+      if (refId) {
+        try {
+          const statusRes = await checkFilingStatus(refId);
+
+          if (statusRes?.arn) {
+            arn = statusRes.arn;
+          }
+        } catch (_) {
+          // Status endpoint may be unavailable. Fall back to summary lookup.
+        }
+      }
+
+      if (!arn && period) {
+        const summaryRes = await getReturnsSummary(period);
+        const filings = extractFilings(summaryRes);
+
+        const found = filings.find((f) => {
+          const filingPeriod = String(f?.period || f?.ret_period || '').trim();
+          const filingType = normalizeReturnType(f?.type || f?.returnType || '');
+          const filingStatus = String(f?.status || f?.filingStatus || '').toLowerCase();
+          const filingArn = f?.arn || f?.ARN || f?.acknowledgement_number || null;
+
+          return (
+            filingPeriod === String(period) &&
+            filingType === normalizedReturnType &&
+            filingStatus === 'filed' &&
+            filingArn
+          );
+        });
+
+        if (found?.arn) {
+          arn = found.arn;
+        }
+      }
+
+      if (arn) {
+        const successResult = {
+          ...(result || {}),
+          arn,
+          filingDate:
+            result?.filingDate ||
+            result?.dateStr ||
+            new Date().toLocaleDateString('en-IN'),
+          localRecordSaved: result?.localRecordSaved ?? true
+        };
+
+        setFilingResult(successResult);
+        setStep(STEPS.SUCCESS);
+        clearPollTimer();
+
+        if (typeof onSuccess === 'function') {
+          onSuccess(successResult);
+        }
+
+        return;
+      }
+
+      if (statusAttemptsRef.current < 3) {
+        scheduleStatusCheck(result, 8000);
+        return;
+      }
+
+      setStep(STEPS.PENDING);
+      setError(
+        'Could not confirm filing yet. Please check Filing History or the GST portal after some time. Do not file again immediately.'
+      );
+    } catch (err) {
+      if (statusAttemptsRef.current < 3) {
+        scheduleStatusCheck(result, 8000);
+        return;
+      }
+
+      setStep(STEPS.PENDING);
+      setError(
+        err?.message ||
+        'Could not verify filing status. Please check Filing History before retrying.'
+      );
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }
+
+  checkStatusRef.current = handleCheckStatus;
+
+  /* ------------------------------------------------------------------------ */
+  /* STEP 1: Prepare + request EVC OTP                                        */
+  /* ------------------------------------------------------------------------ */
+
   const handleRequestOtp = async (e) => {
     e?.preventDefault();
-    const cleanPan = pan.trim().toUpperCase();
+
+    const cleanPan = String(pan || '').trim().toUpperCase();
 
     if (!isValidPan(cleanPan)) {
       setError('Please enter a valid 10-character PAN (e.g., AABCP1234F).');
+      setErrorCode('VALIDATION_ERROR');
+      setErrorCd(null);
       return;
     }
 
     if (cleanPan[3] !== 'P') {
-      const panType = cleanPan[3];
       const panTypes = {
-        'C': 'Company', 'F': 'Firm/Partnership', 'H': 'HUF',
-        'A': 'Association of Persons', 'T': 'Trust', 'B': 'Body of Individuals',
-        'L': 'Local Authority', 'J': 'Artificial Juridical Person', 'G': 'Government'
+        C: 'Company',
+        F: 'Firm/Partnership',
+        H: 'HUF',
+        A: 'Association of Persons',
+        T: 'Trust',
+        B: 'Body of Individuals',
+        L: 'Local Authority',
+        J: 'Artificial Juridical Person',
+        G: 'Government'
       };
 
-      if (panTypes[panType]) {
-        setError(`Entity PAN detected (${panTypes[panType]}). For EVC filing, you must use the personal PAN of the Authorized Signatory (4th letter should be 'P' for Person). Please contact your company director/partner for their personal PAN.`);
-        return;
-      }
+      const detected = panTypes[cleanPan[3]] || 'Non-person';
+
+      setError(
+        `Entity PAN detected (${detected}). For EVC filing, GST portal generally requires the personal PAN of the Authorized Signatory (4th letter must be 'P'). Please use the designated Director/Partner personal PAN.`
+      );
+      setErrorCode('VALIDATION_ERROR');
+      setErrorCd('OTP0010');
+      return;
     }
 
     if (!declaration) {
       setError('You must accept the CGST statutory declaration before proceeding.');
+      setErrorCode('VALIDATION_ERROR');
+      setErrorCd(null);
       return;
     }
 
-    if (returnType === 'GSTR3B' && requiresOffset && !offsetDone) {
-      setError('GSTR-3B tax liability must be offset before filing. Please click "Offset Liability" first from the GSTR-3B hub.');
+    if (!period) {
+      setError('Return period is missing.');
+      setErrorCode('VALIDATION_ERROR');
       return;
     }
 
     setLoading(true);
     setError(null);
     setErrorCode(null);
+    setErrorCd(null);
+    setRateLimitRetryAfter(null);
 
     try {
-      if (returnType === 'GSTR1') {
-        const excludedArray = Array.isArray(excludedInvoiceIds)
-          ? excludedInvoiceIds
-          : Array.from(excludedInvoiceIds || []);
-        await saveGstr1(period, excludedArray);
-      }
+      await ensurePrepared();
 
-      const formType = returnType === 'GSTR3B' ? 'R3B' : 'R1';
+      const formType = normalizedReturnType === 'GSTR3B' ? 'R3B' : 'R1';
+
       const res = await requestEvcOtp({
         pan: cleanPan,
         form_type: formType,
@@ -200,23 +711,63 @@ export default function Gstr1EvcModal({
         username
       });
 
-      setSuccessMsg(res?.message || 'EVC OTP dispatched to registered Mobile / Email linked with PAN.');
+      setSuccessMsg(
+        res?.message ||
+        'EVC OTP dispatched to registered Mobile / Email linked with PAN.'
+      );
+
       setStep(STEPS.OTP);
       setTimer(30);
+
+      // New OTP => new file idempotency key for this filing attempt.
+      fileKeyRef.current = createReturnIdempotencyKey(
+        `${normalizedReturnType.toLowerCase()}-file-evc`,
+        period,
+        userId
+      );
     } catch (err) {
-      setError(getErrorMessage(err));
+      const msg = getErrorMessage(err);
+
+      // Deterministic validation failure: allow fresh prepare key after user fixes data.
+      if (err?.code === 'VALIDATION_ERROR' || err?.status === 400) {
+        prepareKeyRef.current = null;
+        setPrepareCompleted(false);
+        setOffsetDone(false);
+      }
+
+      setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  // STEP 2: Verify OTP and File
+  /* ------------------------------------------------------------------------ */
+  /* STEP 2: Verify OTP and File                                              */
+  /* ------------------------------------------------------------------------ */
+
   const handleVerifyAndFile = async (e) => {
     e?.preventDefault();
-    const cleanOtp = otpInput.trim();
+
+    const cleanOtp = String(otpInput || '').trim();
+    const cleanPan = String(pan || '').trim().toUpperCase();
 
     if (!isValidEvcOtp(cleanOtp)) {
       setError('Enter the 4 to 8 character EVC code received on your mobile/email.');
+      setErrorCode('VALIDATION_ERROR');
+      return;
+    }
+
+    if (!isValidPan(cleanPan)) {
+      setError('Authorized signatory PAN is invalid.');
+      setErrorCode('VALIDATION_ERROR');
+      setStep(STEPS.FORM);
+      return;
+    }
+
+    if (!prepareCompleted && !alreadyPrepared) {
+      setError('Filing preparation is required before EVC filing. Please go back and prepare filing again.');
+      setErrorCode('VALIDATION_ERROR');
+      setStep(STEPS.FORM);
       return;
     }
 
@@ -224,40 +775,70 @@ export default function Gstr1EvcModal({
     setLoading(true);
     setError(null);
     setErrorCode(null);
+    setErrorCd(null);
+    setRateLimitRetryAfter(null);
 
     try {
-      let res;
-      const cleanPan = pan.trim().toUpperCase();
-      const excludedArray = Array.isArray(excludedInvoiceIds)
-        ? excludedInvoiceIds
-        : Array.from(excludedInvoiceIds || []);
+      const fileArgs = {
+        period,
+        otp: cleanOtp,
+        pan: cleanPan,
+        alreadyPrepared: true,
+        username,
+        userId,
+        idempotencyKey:
+          fileKeyRef.current ||
+          createReturnIdempotencyKey(
+            `${normalizedReturnType.toLowerCase()}-file-evc`,
+            period,
+            userId
+          )
+      };
 
-      if (returnType === 'GSTR3B') {
-        res = await fileGstr3bWithEvc({
-          period,
-          otp: cleanOtp,
-          pan: cleanPan,
-          username
-        });
-      } else {
-        res = await fileGstr1WithEvc({
-          period,
-          otp: cleanOtp,
-          pan: cleanPan,
-          excludedInvoiceIds: excludedArray,
-          username
-        });
-      }
+      const res =
+        normalizedReturnType === 'GSTR3B'
+          ? await fileGstr3bWithEvc(fileArgs)
+          : await fileGstr1WithEvc(fileArgs);
 
-      if (res?.pendingVerification) {
+      /**
+       * Backend may return HTTP 202 with:
+       * {
+       *   success: false,
+       *   pending: true,
+       *   message: '...'
+       * }
+       *
+       * Axios treats 2xx as success, so handle it explicitly.
+       */
+      if (res?.pending === true || (res?.success === false && res?.pending !== false)) {
+        const pendingResult = {
+          ...(res || {}),
+          pending: true,
+          referenceId:
+            res?.referenceId ||
+            res?.reference_id ||
+            res?.refId ||
+            prepareReferenceId ||
+            null
+        };
+
+        setFilingResult(pendingResult);
         setStep(STEPS.PENDING);
-        setFilingResult(res);
-        setTimeout(() => handleCheckStatus(res), 5000);
+
+        if (typeof onPending === 'function') {
+          onPending(pendingResult);
+        }
+
+        scheduleStatusCheck(pendingResult, 5000);
         return;
       }
 
       if (!res?.arn) {
-        throw new Error('The filing service did not return an official ARN. Filing status could not be confirmed.');
+        throw {
+          code: 'PROVIDER_ERROR',
+          message:
+            'The filing service did not return an official ARN. Filing status could not be confirmed.'
+        };
       }
 
       setFilingResult(res);
@@ -267,37 +848,51 @@ export default function Gstr1EvcModal({
         onSuccess(res);
       }
     } catch (err) {
-      setStep(STEPS.FAILED);
-      setError(getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+      const msg = getErrorMessage(err);
+      const cd =
+        err?.errorCd ||
+        err?.error_cd ||
+        err?.data?.error_cd ||
+        null;
 
-  const handleCheckStatus = async (result) => {
-    try {
-      setLoading(true);
-      const status = await checkFilingStatus(result?.referenceId || result?.refId);
+      /**
+       * If filing outcome is uncertain, do NOT show normal failure/retry.
+       * Show pending and ask user to verify status.
+       */
+      if (isUncertainFilingError(err)) {
+        const pendingResult = {
+          pending: true,
+          message: msg,
+          referenceId: prepareReferenceId || null,
+          arn: null
+        };
 
-      if (status?.arn) {
-        setFilingResult({ ...result, ...status });
-        setStep(STEPS.SUCCESS);
-        if (typeof onSuccess === 'function') {
-          onSuccess({ ...result, ...status });
+        setFilingResult(pendingResult);
+        setStep(STEPS.PENDING);
+
+        if (typeof onPending === 'function') {
+          onPending(pendingResult);
         }
-      } else if (status?.status === 'FAILED') {
-        setStep(STEPS.FAILED);
-        setError('Filing failed on GST portal. ' + (status?.error || 'Please try again.'));
-      } else {
-        setTimeout(() => handleCheckStatus(result), 5000);
+
+        scheduleStatusCheck(pendingResult, 5000);
+        return;
       }
-    } catch (err) {
-      setError('Could not verify filing status. Please check Filing History.');
+
       setStep(STEPS.FAILED);
+      setError(msg);
+
+      // Invalid/expired OTP => next submission should use a new file idempotency key.
+      if (isInvalidOtpErrorCode(cd)) {
+        fileKeyRef.current = null;
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  /* ------------------------------------------------------------------------ */
+  /* Misc handlers                                                            */
+  /* ------------------------------------------------------------------------ */
 
   const handleCopyArn = async () => {
     if (!filingResult?.arn) return;
@@ -306,7 +901,7 @@ export default function Gstr1EvcModal({
       await navigator.clipboard.writeText(filingResult.arn);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
+    } catch (_) {
       const textArea = document.createElement('textarea');
       textArea.value = filingResult.arn;
       document.body.appendChild(textArea);
@@ -319,11 +914,88 @@ export default function Gstr1EvcModal({
   };
 
   const handleResendOtp = () => {
+    if (timer > 0 || loading) return;
+
     setOtpInput('');
     setError(null);
     setErrorCode(null);
+    setErrorCd(null);
+    setRateLimitRetryAfter(null);
+
+    // Resend OTP means new OTP attempt; reset file key.
+    fileKeyRef.current = null;
+
     handleRequestOtp();
   };
+
+  const handleFailedTryAgain = () => {
+    const cdUpper = String(errorCd || '').toUpperCase();
+
+    if (isInvalidOtpErrorCode(cdUpper)) {
+      setStep(STEPS.OTP);
+      setOtpInput('');
+      setError(null);
+      setErrorCode(null);
+      setErrorCd(null);
+      fileKeyRef.current = createReturnIdempotencyKey(
+        `${normalizedReturnType.toLowerCase()}-file-evc`,
+        period,
+        userId
+      );
+      return;
+    }
+
+    setStep(STEPS.FORM);
+    setError(null);
+    setErrorCode(null);
+    setErrorCd(null);
+    setRateLimitRetryAfter(null);
+
+    // If form-level validation failed, allow fresh prepare key.
+    prepareKeyRef.current = null;
+    setPrepareCompleted(Boolean(alreadyPrepared));
+    setOffsetDone(Boolean(alreadyPrepared));
+  };
+
+  /* ------------------------------------------------------------------------ */
+  /* Derived display values                                                   */
+  /* ------------------------------------------------------------------------ */
+
+  const displayIncludedInvoices =
+    normalizedReturnType === 'GSTR1'
+      ? summary?.includedInvoices ?? summary?.totalInvoices ?? 0
+      : null;
+
+  const displayTaxable =
+    summary?.totalTaxable ??
+    summary?.outwardTaxable ??
+    null;
+
+  const displayTotalTax =
+    summary?.totalTax ??
+    summary?.outwardTax ??
+    summary?.netCashPayable ??
+    null;
+
+  const showOffsetWarning =
+    normalizedReturnType === 'GSTR3B' &&
+    requiresOffset &&
+    !prepareCompleted &&
+    !alreadyPrepared;
+
+  const isRateLimited =
+    errorCode === 'RATE_LIMITED' ||
+    (rateLimitRetryAfter && rateLimitRetryAfter > 0);
+
+  /* ------------------------------------------------------------------------ */
+  /* Render guard                                                             */
+  /* ------------------------------------------------------------------------ */
+
+  if (!isOpen) return null;
+
+  /* ------------------------------------------------------------------------ */
+  /* Modal content                                                            */
+  /* ------------------------------------------------------------------------ */
 
   const modalContent = (
     <div
@@ -345,7 +1017,7 @@ export default function Gstr1EvcModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 id="evc-modal-title" className="text-base font-bold text-white tracking-tight">
-                  File {returnType === 'GSTR3B' ? 'GSTR-3B' : 'GSTR-1'} with EVC
+                  File {normalizedReturnType === 'GSTR3B' ? 'GSTR-3B' : 'GSTR-1'} with EVC
                 </h3>
                 <Badge variant="fintech" size="sm" className="font-mono text-[10px]">
                   Rule 26(1)
@@ -380,33 +1052,45 @@ export default function Gstr1EvcModal({
                     {formatPeriod(period)} ({period})
                   </span>
                 </div>
-                {returnType === 'GSTR1' && (
+
+                {displayIncludedInvoices !== null && (
                   <div className="flex items-center justify-between text-xs text-slate-600">
                     <span>Included Sales Invoices:</span>
                     <span className="font-mono font-bold text-slate-900">
-                      {summary.includedInvoices ?? 0} Invoices
+                      {displayIncludedInvoices} Invoices
                     </span>
                   </div>
                 )}
+
                 <div className="flex items-center justify-between text-xs text-slate-600">
                   <span>Taxable Turnover:</span>
                   <span className="font-mono font-bold text-slate-900">
-                    {summary.totalTaxable == null ? 'Not available' : formatCurrency(summary.totalTaxable)}
+                    {displayTaxable == null ? 'Not available' : formatCurrency(displayTaxable)}
                   </span>
                 </div>
+
                 <div className="pt-2 border-t border-indigo-200/80 flex items-center justify-between text-xs">
                   <span className="font-bold text-indigo-950">Total Tax Liability:</span>
                   <span className="font-mono font-bold text-indigo-700 text-sm">
-                    {summary.totalTax == null ? 'Not available' : formatCurrency(summary.totalTax)}
+                    {displayTotalTax == null ? 'Not available' : formatCurrency(displayTotalTax)}
                   </span>
                 </div>
+
+                {(alreadyPrepared || prepareCompleted) && (
+                  <div className="pt-2 border-t border-indigo-200/80 flex items-center gap-2 text-[11px] text-emerald-700">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>
+                      Filing is already prepared on GST portal. OTP will be used for final EVC verification.
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {returnType === 'GSTR3B' && requiresOffset && !offsetDone && (
+              {showOffsetWarning && (
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <div>
-                    <strong>Offset Required:</strong> GSTR-3B tax liability must be offset before filing. Please offset liability from the GSTR-3B hub first.
+                    <strong>Offset Required:</strong> GSTR-3B liability offset will be performed during filing preparation. Please do not close this window while preparation is running.
                   </div>
                 </div>
               )}
@@ -441,7 +1125,7 @@ export default function Gstr1EvcModal({
                   <div className="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-start gap-2" role="alert">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <div>
-                      <strong>Entity PAN detected:</strong> 4th letter is '{pan[3]}'. For Companies and LLPs, GST Portal requires the personal PAN of the registered Director/Signatory (where the 4th letter is 'P').
+                      <strong>Entity PAN detected:</strong> 4th letter is '{pan[3]}'. For Companies and LLPs, GST Portal generally requires the personal PAN of the registered Director/Signatory (where the 4th letter is 'P').
                     </div>
                   </div>
                 )}
@@ -458,7 +1142,7 @@ export default function Gstr1EvcModal({
                     aria-describedby="declaration-text"
                   />
                   <span id="declaration-text" className="text-[11px] text-slate-600 leading-relaxed select-none">
-                    <strong>Statutory Declaration:</strong> I hereby solemnly declare that the outward supplies and tax liability details declared in this {returnType} are true, complete and correct in accordance with CGST Rules. I understand that filing a false return is punishable under Section 132 of the CGST Act.
+                    <strong>Statutory Declaration:</strong> I hereby solemnly declare that the outward supplies and tax liability details declared in this {normalizedReturnType === 'GSTR3B' ? 'GSTR-3B' : 'GSTR-1'} are true, complete and correct in accordance with CGST Rules. I understand that filing a false return is punishable under Section 132 of the CGST Act.
                   </span>
                 </label>
               </div>
@@ -471,6 +1155,16 @@ export default function Gstr1EvcModal({
                     {errorCode && (
                       <div className="mt-1 text-[10px] text-rose-500 font-mono">
                         Error Code: {errorCode}
+                      </div>
+                    )}
+                    {errorCd && (
+                      <div className="mt-1 text-[10px] text-rose-500 font-mono">
+                        GSTN Code: {errorCd}
+                      </div>
+                    )}
+                    {rateLimitRetryAfter && (
+                      <div className="mt-1 text-[10px] text-rose-500 font-mono">
+                        Retry after: {rateLimitRetryAfter}s
                       </div>
                     )}
                   </div>
@@ -489,20 +1183,38 @@ export default function Gstr1EvcModal({
                 type="submit"
                 variant="fintech"
                 className="w-full justify-center py-2.5"
-                disabled={loading || !declaration || !pan || pan.length !== 10}
+                disabled={
+                  loading ||
+                  !declaration ||
+                  !pan ||
+                  pan.length !== 10 ||
+                  isRateLimited
+                }
               >
                 {loading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                    <span>Requesting EVC from GSTN...</span>
+                    <span>
+                      {prepareCompleted || alreadyPrepared
+                        ? 'Requesting EVC from GSTN...'
+                        : 'Preparing filing & requesting EVC...'}
+                    </span>
                   </>
                 ) : (
                   <>
-                    <span>Send EVC OTP to Registered Mobile</span>
+                    <span>
+                      {prepareCompleted || alreadyPrepared
+                        ? 'Send EVC OTP to Registered Mobile'
+                        : 'Prepare Filing & Send EVC OTP'}
+                    </span>
                     <ArrowRight className="w-4 h-4 ml-2" />
                   </>
                 )}
               </Button>
+
+              <p className="text-[10px] text-slate-400 text-center">
+                Preparation may include GSTN RETSAVE, status polling, and for GSTR-3B liability offset.
+              </p>
             </form>
           )}
 
@@ -557,6 +1269,11 @@ export default function Gstr1EvcModal({
                         Error Code: {errorCode}
                       </div>
                     )}
+                    {errorCd && (
+                      <div className="mt-1 text-[10px] text-rose-500 font-mono">
+                        GSTN Code: {errorCd}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -568,6 +1285,9 @@ export default function Gstr1EvcModal({
                     setStep(STEPS.FORM);
                     setOtpInput('');
                     setError(null);
+                    setErrorCode(null);
+                    setErrorCd(null);
+                    fileKeyRef.current = null;
                   }}
                   className="text-slate-500 hover:text-slate-700 underline cursor-pointer disabled:opacity-50"
                   disabled={loading}
@@ -599,7 +1319,7 @@ export default function Gstr1EvcModal({
                 type="submit"
                 variant="fintech"
                 className="w-full justify-center py-2.5"
-                disabled={loading || !otpInput.trim() || otpInput.length < 4}
+                disabled={loading || !otpInput.trim() || otpInput.length < 4 || isRateLimited}
               >
                 {loading ? (
                   <>
@@ -627,7 +1347,7 @@ export default function Gstr1EvcModal({
                   Filing Return with GSTN...
                 </h4>
                 <p className="text-xs text-slate-500 mt-1">
-                  Please do not close this window. This may take up to 60 seconds.
+                  Please do not close this window. This may take up to 120 seconds.
                 </p>
               </div>
               <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
@@ -651,24 +1371,54 @@ export default function Gstr1EvcModal({
                   Checking Filing Status...
                 </h4>
                 <p className="text-xs text-slate-500 mt-1">
-                  GST portal is taking longer than usual. We're checking if your return was filed successfully.
+                  {filingResult?.message ||
+                    'GST portal did not confirm the filing immediately. We are checking whether your return was filed successfully.'}
+                </p>
+                <p className="text-[11px] text-amber-700 mt-2 font-semibold">
+                  Do not file again immediately. Duplicate filing risk exists.
                 </p>
               </div>
+
+              {error && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs text-left" role="alert">
+                  {error}
+                </div>
+              )}
+
               {loading && (
                 <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   <span>Verifying filing status...</span>
                 </div>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleCheckStatus(filingResult)}
-                disabled={loading}
-                className="mx-auto"
-              >
-                Check Status Manually
-              </Button>
+
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button
+                  variant="fintech"
+                  size="sm"
+                  onClick={() => handleCheckStatus(filingResult)}
+                  disabled={loading}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                  Check Status
+                </Button>
+
+                <Link
+                  to="/returns/filing-history"
+                  className="py-2 px-3 text-xs font-semibold rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition inline-flex items-center justify-center gap-1"
+                >
+                  Filing History →
+                </Link>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClose}
+                  disabled={loading}
+                >
+                  Close
+                </Button>
+              </div>
             </div>
           )}
 
@@ -681,15 +1431,24 @@ export default function Gstr1EvcModal({
 
               <div>
                 <Badge variant="success" size="sm" className="mb-1.5 font-bold">
-                  ✓ {returnType} OFFICIAL FILING COMPLETE
+                  ✓ {normalizedReturnType === 'GSTR3B' ? 'GSTR-3B' : 'GSTR-1'} OFFICIAL FILING COMPLETE
                 </Badge>
                 <h4 className="text-lg font-bold text-slate-900 tracking-tight">
                   Return Successfully Filed with GSTN!
                 </h4>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Your {returnType} for period {formatPeriod(period)} has been authenticated via EVC.
+                  Your {normalizedReturnType === 'GSTR3B' ? 'GSTR-3B' : 'GSTR-1'} for period {formatPeriod(period)} has been authenticated via EVC.
                 </p>
               </div>
+
+              {filingResult.localRecordSaved === false && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2" role="alert">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>Local record sync failed:</strong> Return is filed on GST portal with ARN {filingResult.arn}, but local filing record could not be saved. Please contact support before retrying.
+                  </div>
+                </div>
+              )}
 
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-left space-y-2">
                 <div className="flex items-center justify-between text-xs">
@@ -711,7 +1470,9 @@ export default function Gstr1EvcModal({
                 <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/80 text-[11px] text-slate-600">
                   <div>
                     <span className="block text-slate-400">Filing Date:</span>
-                    <strong className="text-slate-900 font-mono">{filingResult.filingDate || new Date().toLocaleDateString('en-IN')}</strong>
+                    <strong className="text-slate-900 font-mono">
+                      {filingResult.filingDate || filingResult.dateStr || new Date().toLocaleDateString('en-IN')}
+                    </strong>
                   </div>
                   <div>
                     <span className="block text-slate-400">Mode:</span>
@@ -778,16 +1539,24 @@ export default function Gstr1EvcModal({
                     Error Code: {errorCode}
                   </p>
                 )}
+                {errorCd && (
+                  <p className="text-[10px] text-slate-400 font-mono mt-1">
+                    GSTN Code: {errorCd}
+                  </p>
+                )}
+                {rateLimitRetryAfter && (
+                  <p className="text-[10px] text-amber-700 font-mono mt-1">
+                    Retry after: {rateLimitRetryAfter}s
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-2 pt-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    setStep(STEPS.OTP);
-                    setError(null);
-                  }}
+                  onClick={handleFailedTryAgain}
+                  disabled={loading || isRateLimited}
                   className="flex-1"
                 >
                   Try Again
@@ -816,7 +1585,7 @@ export default function Gstr1EvcModal({
           onClose={() => setShowCert(false)}
           filing={{
             ...filingResult,
-            type: returnType,
+            type: normalizedReturnType,
             period,
             summary
           }}

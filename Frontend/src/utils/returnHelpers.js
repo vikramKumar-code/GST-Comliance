@@ -488,29 +488,31 @@ export function buildSectionCards({
       icon: Tag,
       count: isPortalGstr1Active
         ? (portalHsnItems.length || (g1Taxable > 0 ? 1 : 0))
-        : (sections.hsnCount ?? 0),
+        : (sections.hsnCount ?? (sectionDetails.hsn?.length || prepareData?.payload?.hsn?.data?.length || 0)),
       included: isPortalGstr1Active
         ? (portalHsnItems.length || (g1Taxable > 0 ? 1 : 0))
-        : (sections.hsnCount ?? 0),
+        : (sections.hsnCount ?? (sectionDetails.hsn?.length || prepareData?.payload?.hsn?.data?.length || 0)),
       taxable: isPortalGstr1Active
-        ? (portalHsnTaxable || g1Taxable)
+        ? (portalHsnTaxable || calculatePortalTaxable(portalHsnItems) || g1Taxable)
         : (summary.totalTaxable ?? 0),
       tax: isPortalGstr1Active
-        ? (portalHsnTax || g1TotalTax)
+        ? (portalHsnTax || calculatePortalTax(portalHsnItems) || g1TotalTax)
         : (summary.totalTax ?? 0),
       items: isPortalGstr1Active
         ? portalHsnItems
-        : (prepareData?.payload?.hsn?.data || []).map((h) => ({
-            _id: `hsn-${h.num}`,
-            invoiceNumber: h.hsn_sc,
-            customerName: h.desc,
-            taxableAmount: h.txval,
-            igst: h.iamt,
-            cgst: h.camt,
-            sgst: h.samt,
-            grandTotal: h.txval + h.iamt + h.camt + h.samt,
-            isHsnRow: true
-          })),
+        : (prepareData?.payload?.hsn?.data && prepareData.payload.hsn.data.length > 0
+            ? prepareData.payload.hsn.data.map((h, idx) => ({
+                _id: `hsn-${h.num || idx + 1}`,
+                invoiceNumber: h.hsn_sc || 'HSN',
+                customerName: h.desc || 'General Goods/Services',
+                taxableAmount: Number(h.txval || 0),
+                igst: Number(h.iamt || 0),
+                cgst: Number(h.camt || 0),
+                sgst: Number(h.samt || 0),
+                grandTotal: Number(h.txval || 0) + Number(h.iamt || 0) + Number(h.camt || 0) + Number(h.samt || 0),
+                isHsnRow: true
+              }))
+            : (sectionDetails.hsn || [])),
       color: 'emerald'
     },
     {

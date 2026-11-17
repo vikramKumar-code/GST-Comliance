@@ -130,7 +130,7 @@ export function Gstr1Dashboard({
         gstr1Filing={gstr1Filing}
         onToggleViewMode={(mode) => {
           if (setGstr1ViewMode) setGstr1ViewMode(mode);
-          if (mode === 'taxpro' && !liveGstr1Data && fetchGstr1Data) {
+          if (mode === 'taxpro' && fetchGstr1Data) {
             fetchGstr1Data(period, excludedIds, true);
           }
         }}
