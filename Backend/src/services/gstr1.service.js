@@ -50,6 +50,11 @@ const TREAT_EXCLUDED_AS_CANCELLED_DEFAULT =
 const SANITIZE_INUM =
   String(process.env.GST_GSTR1_SANITIZE_INUM || 'false').toLowerCase() === 'true';
 
+// e-Invoice IRN is only mandatory for taxpayers above the e-Invoicing turnover threshold (Rs. 5 Cr).
+// Official GSTN GSTR-1 RETSAVE schema treats irn/irngendate/srctyp as optional.
+const REQUIRE_IRN =
+  String(process.env.GST_GSTR1_REQUIRE_IRN || 'false').toLowerCase() === 'true';
+
 const EXCLUDED_DOCUMENT_STATUSES = [
   'cancelled',
   'canceled',
@@ -628,15 +633,20 @@ function normalizeExcludedIds(value) {
 function addIrnFields(target, inv, idt, location, sectionDetails, warnings) {
   const irn = String(inv?.irn || '').trim();
 
-  if (irn) {
-    target.irn = irn;
-  } else {
-    sectionDetails.missingIrn.push({
-      location,
-      invoiceNumber: inv?.invoiceNumber || null,
-      reference: target.inum || target.nt_num || null
-    });
+  // Official GSTN GSTR-1 RETSAVE schema treats irn/irngendate/srctyp as optional.
+  // Only include IRN metadata when the invoice actually has an e-Invoice IRN.
+  if (!irn) {
+    if (REQUIRE_IRN) {
+      sectionDetails.missingIrn.push({
+        location,
+        invoiceNumber: inv?.invoiceNumber || null,
+        reference: target.inum || target.nt_num || null
+      });
+    }
+    return;
   }
+
+  target.irn = irn;
 
   const rawIrnDate = inv?.irnGenDate || inv?.irngendate;
   const irngendate = formatGstnDateStrict(rawIrnDate) || idt;
@@ -757,6 +767,9 @@ class Gstr1Service {
     const cdnrMap = new Map();
     const cdnurFlat = [];
     const hsnMap = new Map();
+    const hsnB2bMap = new Map();
+    const hsnB2cMap = new Map();
+    const useBifurcatedHsn = year > 2025 || (year === 2025 && month >= 5);
 
     const nilBuckets = {
       INTRB2B: { sply_ty: 'INTRB2B', nil_amt: 0, expt_amt: 0, ngsup_amt: 0 },
@@ -1183,30 +1196,33 @@ class Gstr1Service {
           const rt = getItemEffectiveRate(item);
           const uqc = cleanUqc(item.unit || item.uqc || inv.uqc || inv.unit, DEFAULT_UQC);
           const key = `${hsnCode}|${uqc}|${rt}`;
+          const hsnDesc = String(item.name || inv.description || 'Goods and Services').trim().slice(0, 30) || 'Goods and Services';
+          const bucketMap = (Boolean(ctin) || isExport) ? hsnB2bMap : hsnB2cMap;
 
-          if (!hsnMap.has(key)) {
-            const hsnDesc = String(item.name || inv.description || 'Goods and Services').trim().slice(0, 30) || 'Goods and Services';
-            hsnMap.set(key, {
-              hsn_sc: hsnCode,
-              desc: hsnDesc,
-              uqc,
-              qty: 0,
-              rt,
-              txval: 0,
-              iamt: 0,
-              camt: 0,
-              samt: 0,
-              csamt: 0
-            });
+          for (const targetMap of [hsnMap, bucketMap]) {
+            if (!targetMap.has(key)) {
+              targetMap.set(key, {
+                hsn_sc: hsnCode,
+                desc: hsnDesc,
+                uqc,
+                qty: 0,
+                rt,
+                txval: 0,
+                iamt: 0,
+                camt: 0,
+                samt: 0,
+                csamt: 0
+              });
+            }
+
+            const hsnRow = targetMap.get(key);
+            hsnRow.qty += hsnSign * absAmount(item.quantity);
+            hsnRow.txval += hsnSign * absAmount(item.taxableAmount ?? item.amount);
+            hsnRow.iamt += hsnSign * absAmount(item.igstAmount ?? item.igst);
+            hsnRow.camt += hsnSign * absAmount(item.cgstAmount ?? item.cgst);
+            hsnRow.samt += hsnSign * absAmount(item.sgstAmount ?? item.sgst);
+            hsnRow.csamt += hsnSign * absAmount(item.cessAmount ?? item.cess);
           }
-
-          const hsnRow = hsnMap.get(key);
-          hsnRow.qty += hsnSign * absAmount(item.quantity);
-          hsnRow.txval += hsnSign * absAmount(item.taxableAmount ?? item.amount);
-          hsnRow.iamt += hsnSign * absAmount(item.igstAmount ?? item.igst);
-          hsnRow.camt += hsnSign * absAmount(item.cgstAmount ?? item.cgst);
-          hsnRow.samt += hsnSign * absAmount(item.sgstAmount ?? item.sgst);
-          hsnRow.csamt += hsnSign * absAmount(item.cessAmount ?? item.cess);
         }
       }
     }
@@ -1354,7 +1370,7 @@ class Gstr1Service {
       naturalSortStrings(a.nt_num || '', b.nt_num || '')
     );
 
-    const allHsnRows = Array.from(hsnMap.values())
+    const buildHsnRows = (sourceMap) => Array.from(sourceMap.values())
       .map((row) => {
         const qty = round2(row.qty);
         const txval = round2(row.txval);
@@ -1406,6 +1422,10 @@ class Gstr1Service {
         num: idx + 1,
         ...row
       }));
+
+    const allHsnRows = buildHsnRows(hsnMap);
+    const hsnB2bRows = buildHsnRows(hsnB2bMap);
+    const hsnB2cRows = buildHsnRows(hsnB2cMap);
 
     sectionDetails.hsn = allHsnRows;
 
@@ -1625,7 +1645,14 @@ class Gstr1Service {
     if (cdnur.length > 0) payload.cdnur = cdnur;
     if (exp.length > 0) payload.exp = exp;
 
-    if (allHsnRows.length > 0) {
+    if (useBifurcatedHsn) {
+      const hsnObj = {};
+      if (hsnB2bRows.length > 0) hsnObj.hsn_b2b = hsnB2bRows;
+      if (hsnB2cRows.length > 0) hsnObj.hsn_b2c = hsnB2cRows;
+      if (Object.keys(hsnObj).length > 0) {
+        payload.hsn = hsnObj;
+      }
+    } else if (allHsnRows.length > 0) {
       payload.hsn = { data: allHsnRows };
     }
 

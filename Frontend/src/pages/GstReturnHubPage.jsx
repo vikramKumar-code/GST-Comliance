@@ -366,6 +366,8 @@ export default function GstReturnHubPage() {
 
     // Actions
     fetchGstr1Data,
+    fetchGstr2bData,
+    fetchGstr3bData,
     fetchOtherReturns,
 
     // Exclusions
@@ -403,12 +405,10 @@ export default function GstReturnHubPage() {
     });
 
     fetchGstr1Data(period, undefined, gstr1ViewMode === 'taxpro');
-    fetchOtherReturns(period);
   }, [
     period,
     gstr1ViewMode,
     fetchGstr1Data,
-    fetchOtherReturns,
     setIsVerified
   ]);
 
@@ -470,12 +470,8 @@ export default function GstReturnHubPage() {
       setFilingPending(null);
       setActiveSectionKey(null);
       setNotice(null);
-
-      if (isVerified) {
-        fetchOtherReturns(p);
-      }
     },
-    [clearExclusions, setSaveResult, isVerified, fetchOtherReturns]
+    [clearExclusions, setSaveResult]
   );
 
   const handleSelectReturnCard = useCallback(
@@ -505,18 +501,12 @@ export default function GstReturnHubPage() {
         undefined,
         gstr1ViewMode === 'taxpro' && isVerified
       );
-
-      // Refresh GSTR-2B/GSTR-3B if portal session exists or filing was GSTR-3B.
-      if (filingType === 'GSTR3B' || isVerified) {
-        fetchOtherReturns(period);
-      }
     },
     [
       period,
       gstr1ViewMode,
       isVerified,
-      fetchGstr1Data,
-      fetchOtherReturns
+      fetchGstr1Data
     ]
   );
 
@@ -1068,12 +1058,16 @@ export default function GstReturnHubPage() {
         })}
 
       {/* Other returns error */}
-      {renderErrorBanner({
-        title: 'GSTR-2B / GSTR-3B data failed',
-        error: otherReturnsError,
-        retrying: otherReturnsLoading,
-        onRetry: () => fetchOtherReturns(period)
-      })}
+      {(selectedReturn === 'gstr2b' || selectedReturn === 'gstr3b') &&
+        renderErrorBanner({
+          title: selectedReturn === 'gstr2b' ? 'GSTR-2B data failed' : 'GSTR-3B data failed',
+          error: otherReturnsError,
+          retrying: otherReturnsLoading,
+          onRetry: () =>
+            selectedReturn === 'gstr2b'
+              ? fetchGstr2bData(period)
+              : fetchGstr3bData(period)
+        })}
 
       {/* GSTR-1 blocking validation issues */}
       {renderGstr1BlockingIssues()}
@@ -1162,7 +1156,7 @@ export default function GstReturnHubPage() {
           period={period}
           gstr2bData={gstr2bData}
           otherReturnsLoading={otherReturnsLoading}
-          fetchGstr2bData={fetchOtherReturns}
+          fetchGstr2bData={fetchGstr2bData}
           onOpenReconcileModal={() => setIsReconcileModalOpen(true)}
           g2bTotals={g2bTotals}
           g2bTotalTax={g2bTotalTax}
@@ -1177,7 +1171,7 @@ export default function GstReturnHubPage() {
           period={period}
           gstr3bData={gstr3bData}
           otherReturnsLoading={otherReturnsLoading}
-          fetchGstr3bData={fetchOtherReturns}
+          fetchGstr3bData={fetchGstr3bData}
           onOpenNilModal={(type = 'GSTR3B') => openNilModal(type)}
           onOpenEvcModal={(type = 'GSTR3B') => openEvcModal(type)}
           outwardLiability={outwardLiability}

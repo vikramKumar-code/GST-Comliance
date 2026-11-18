@@ -89,61 +89,92 @@ export function Gstr3bView({
         </div>
       </div>
 
-      {/* 4 MetricCards (liability, ITC, utilized, payable) */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <MetricCard
-          title="Table 3.1 Outward Liability"
-          value={outwardLiability == null ? 'Not available' : formatCurrency(outwardLiability)}
-          subtitle="From GSTR-3B rows only"
-          variant="default"
-          icon={TrendingUp}
-        />
-        <MetricCard
-          title="Table 4 ITC reported"
-          value={g3bItcAvailable == null ? 'Not available' : formatCurrency(g3bItcAvailable)}
-          subtitle="Eligibility is not determined by this summary"
-          variant="fintech"
-          icon={CheckCircle2}
-        />
-        <MetricCard
-          title="ITC Utilized"
-          value="Not available"
-          subtitle="GSTR-3B Table 6.1 allocation not returned"
-          variant="default"
-          icon={Scale}
-        />
-        <MetricCard
-          title="Table 6.1 Net Cash Payable"
-          value="Not available"
-          subtitle="Requires actual Table 6.1 data"
-          variant="default"
-          icon={Zap}
-        />
-      </div>
+      {/* On-demand Fetch Prompt (before user clicks Fetch) */}
+      {!gstr3bData ? (
+        <div className="p-8 bg-white rounded-xl border border-dashed border-purple-300 text-center space-y-3 shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center mx-auto">
+            <Scale className="w-6 h-6" />
+          </div>
+          <div className="space-y-1 max-w-md mx-auto">
+            <h4 className="text-sm font-semibold text-slate-800">
+              GSTR-3B Data Not Fetched Yet ({formatPeriod(period)})
+            </h4>
+            <p className="text-xs text-slate-500">
+              To save GST API usage, GSTR-3B is only fetched from the Government Portal when you click the button below.
+            </p>
+          </div>
+          <div className="pt-1">
+            <Button
+              variant="fintech"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={otherReturnsLoading}
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${otherReturnsLoading ? 'animate-spin' : ''}`} />
+              <span>{otherReturnsLoading ? 'Fetching GSTR-3B...' : 'Fetch GSTR-3B from Govt Portal'}</span>
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* 4 MetricCards (liability, ITC, utilized, payable) */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <MetricCard
+              title="Table 3.1 Outward Liability"
+              value={outwardLiability == null ? 'Not available' : formatCurrency(outwardLiability)}
+              subtitle="From GSTR-3B rows only"
+              variant="default"
+              icon={TrendingUp}
+            />
+            <MetricCard
+              title="Table 4 ITC reported"
+              value={g3bItcAvailable == null ? 'Not available' : formatCurrency(g3bItcAvailable)}
+              subtitle="Eligibility is not determined by this summary"
+              variant="fintech"
+              icon={CheckCircle2}
+            />
+            <MetricCard
+              title="ITC Utilized"
+              value="Not available"
+              subtitle="GSTR-3B Table 6.1 allocation not returned"
+              variant="default"
+              icon={Scale}
+            />
+            <MetricCard
+              title="Table 6.1 Net Cash Payable"
+              value="Not available"
+              subtitle="Requires actual Table 6.1 data"
+              variant="default"
+              icon={Zap}
+            />
+          </div>
 
-      {/* Payment ledger table placeholder */}
-      <div className="bg-white rounded-xl border border-surface-border overflow-hidden shadow-xs mt-4">
-        <div className="p-3.5 bg-slate-50 border-b border-surface-border flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-800">Table 6.1 Payment of Tax Settlement Ledger</span>
-          <span className="text-xs text-slate-500 font-mono">Period: {formatPeriod(period)}</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50/50 text-slate-600 font-semibold border-b border-surface-border">
-              <tr>
-                <th className="py-2.5 px-3.5 text-left">Tax settlement data</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-600">
-                  Table 6.1 payment allocation was not included in the returned GSTR-3B data. No ITC utilization or cash payable estimate is shown.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+          {/* Payment ledger table placeholder */}
+          <div className="bg-white rounded-xl border border-surface-border overflow-hidden shadow-xs mt-4">
+            <div className="p-3.5 bg-slate-50 border-b border-surface-border flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800">Table 6.1 Payment of Tax Settlement Ledger</span>
+              <span className="text-xs text-slate-500 font-mono">Period: {formatPeriod(period)}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-50/50 text-slate-600 font-semibold border-b border-surface-border">
+                  <tr>
+                    <th className="py-2.5 px-3.5 text-left">Tax settlement data</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colSpan={5} className="px-4 py-6 text-center text-slate-600">
+                      Table 6.1 payment allocation was not included in the returned GSTR-3B data. No ITC utilization or cash payable estimate is shown.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

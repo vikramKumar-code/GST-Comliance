@@ -331,17 +331,33 @@ async function waitForProcessing(
     try {
       res = await provider.trackStatus(cleanRefId, authCtx);
     } catch (trackErr) {
-      logger.debug(`${label} status tracking poll note`, {
+      const errCode = trackErr?.code || 'PROVIDER_ERROR';
+      const errCd = trackErr?.errorCd || null;
+      const errMsg = safeErrorMessage(trackErr);
+      const statusCode = Number(trackErr?.statusCode || 502);
+
+      logger.warn(`${label} status tracking poll failed`, {
         attempt,
-        error_cd: trackErr?.errorCd,
-        message: safeErrorMessage(trackErr)
+        maxAttempts,
+        code: errCode,
+        error_cd: errCd,
+        statusCode,
+        message: errMsg
       });
 
-      if (attempt >= maxAttempts) {
-        throw ApiError.providerError(
-          `${label}: GST portal processing status could not be confirmed.`,
-          502
-        );
+      const isNonRetryable =
+        errCode === 'SESSION_EXPIRED' ||
+        errCode === 'VALIDATION_ERROR' ||
+        errCode === 'PROVIDER_AUTH' ||
+        statusCode === 400 ||
+        statusCode === 401 ||
+        statusCode === 403;
+
+      if (isNonRetryable || attempt >= maxAttempts) {
+        const detail = `${label}: status tracking failed — ${errMsg}${errCd ? ` [${errCd}]` : ''}`;
+        const surfaced = new ApiError(detail, statusCode >= 400 ? statusCode : 502, errCode);
+        if (errCd) surfaced.errorCd = errCd;
+        throw surfaced;
       }
 
       await sleep(delayMs);
@@ -357,11 +373,33 @@ async function waitForProcessing(
     }
 
     if (status === 'PE' || status === 'ER') {
-      const err = ApiError.validationError(
-        `${label}: GST portal reported processing errors. Please review the error report and correct the data.`
-      );
-      err.errorCd = status === 'PE' ? 'PROCESSED_WITH_ERRORS' : 'PROCESSING_ERROR';
-      err.errorReport = res?.error_report || null;
+      const report = res?.error_report || res?.data?.error_report || null;
+      const reportMsg =
+        report?.error_msg ||
+        report?.message ||
+        res?.data?.error?.message ||
+        res?.data?.message ||
+        (typeof report === 'string' ? report : null);
+      const reportCd =
+        res?.error_cd ||
+        report?.error_cd ||
+        res?.data?.error?.error_cd ||
+        (status === 'PE' ? 'PROCESSED_WITH_ERRORS' : 'PROCESSING_ERROR');
+
+      logger.error(`${label}: GST portal reported ${status}`, {
+        status,
+        error_cd: reportCd,
+        error_msg: reportMsg,
+        error_report: report
+      });
+
+      const detailMsg = reportMsg
+        ? `${label}: GST portal error (${reportCd}): ${reportMsg}`
+        : `${label}: GST portal reported processing errors (${reportCd}). Please review the error report and correct the data.`;
+
+      const err = ApiError.validationError(detailMsg);
+      err.errorCd = reportCd;
+      err.errorReport = report;
       throw err;
     }
 
@@ -1212,7 +1250,10 @@ class NilReturnService {
       gstin: normGstin,
       username: cleanUsername,
       token: cleanToken,
-      gstToken: cleanToken
+      gstToken: cleanToken,
+      period,
+      ret_period: period,
+      returnType: normType
     };
 
     let arn;
@@ -1239,31 +1280,39 @@ class NilReturnService {
         }
 
         /* -------------------------------------------------------------- */
-        /* Step 1: Save minimal nil payload                               */
-        /* Do NOT fabricate isnil. GSTN RETSUM must confirm isnil: "Y".   */
+        /* Step 1: Optional RETSAVE (ONLY when Table 8 nil rows are enabled) */
+        /* Sending empty { gstin, fp } to GSTN RETSAVE causes ER (no data). */
+        /* Official Nil GSTR-1 flow proceeds directly via RETNEWPTF       */
+        /* (isNil: "Y") -> RETSUM -> RETFILE.                             */
         /* -------------------------------------------------------------- */
-        nilSavePayload = buildNilGstr1SavePayload(normGstin, period);
-        validateNilGstr1SavePayload(nilSavePayload);
+        if (NIL_1_INCLUDE_TABLE8) {
+          nilSavePayload = buildNilGstr1SavePayload(normGstin, period);
+          validateNilGstr1SavePayload(nilSavePayload);
 
-        logger.info(`Nil GSTR-1 RETSAVE initiated for [${normGstin} - ${period}]...`);
+          logger.info(`Nil GSTR-1 RETSAVE (Table 8) initiated for [${normGstin} - ${period}]...`);
 
-        const saveRes = await provider.saveGstr1(nilSavePayload, {
-          ...authCtx,
-          period,
-          ret_period: period,
-          idempotencyKey
-        });
+          const saveRes = await provider.saveGstr1(nilSavePayload, {
+            ...authCtx,
+            period,
+            ret_period: period,
+            idempotencyKey
+          });
 
-        saveRef = getReferenceId(saveRes);
+          saveRef = getReferenceId(saveRes);
 
-        if (!saveRef) {
-          throw ApiError.providerError(
-            'Nil GSTR-1 RETSAVE did not return required reference_id. Save was not confirmed.',
-            502
+          if (!saveRef) {
+            throw ApiError.providerError(
+              'Nil GSTR-1 RETSAVE did not return required reference_id. Save was not confirmed.',
+              502
+            );
+          }
+
+          await waitForProcessing(provider, saveRef, authCtx, 'Nil GSTR-1 RETSAVE');
+        } else {
+          logger.info(
+            `Skipping empty Nil GSTR-1 RETSAVE for [${normGstin} - ${period}]; proceeding directly to ProceedToFile (RETNEWPTF isNil=Y) -> RETSUM -> RETFILE.`
           );
         }
-
-        await waitForProcessing(provider, saveRef, authCtx, 'Nil GSTR-1 RETSAVE');
 
         /* -------------------------------------------------------------- */
         /* Step 2: Proceed to file / generate summary                     */
@@ -1288,6 +1337,9 @@ class NilReturnService {
             });
 
             const procRef = getReferenceId(procRes);
+            if (procRef && !saveRef) {
+              saveRef = procRef;
+            }
 
             if (!procRef && procRes?.isSync !== 'Y') {
               throw ApiError.providerError(
@@ -1329,14 +1381,16 @@ class NilReturnService {
 
           const subRef = getReferenceId(submitRes);
 
-          if (!subRef) {
+          if (!subRef && submitRes?.isSync !== 'Y') {
             throw ApiError.providerError(
               'Nil GSTR-1 submit did not return required reference_id. Submit was not confirmed.',
               502
             );
           }
 
-          await waitForProcessing(provider, subRef, authCtx, 'Nil GSTR-1 Submit', 10, 3000);
+          if (subRef && submitRes?.isSync !== 'Y') {
+            await waitForProcessing(provider, subRef, authCtx, 'Nil GSTR-1 Submit', 10, 3000);
+          }
           preFileConfirmed = true;
         }
 
@@ -1377,6 +1431,7 @@ class NilReturnService {
           mode: 'EVC',
           isNil: true,
           portalConfirmed: portalConfirmation.confirmed,
+          ...(portalConfirmation.raw ? { step1Response: portalConfirmation.raw } : {}),
           finalSummaryData: portalConfirmation.data || portalConfirmation.summary,
           finalSummaryRaw: portalConfirmation.raw,
           idempotencyKey

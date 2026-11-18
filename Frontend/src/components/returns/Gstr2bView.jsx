@@ -76,82 +76,113 @@ export function Gstr2bView({
         </div>
       </div>
 
-      {/* 3 MetricCards (ITC reported, eligibility, bills count) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <MetricCard
-          title="ITC reported in GSTR-2B"
-          value={gstr2bData ? formatCurrency(itcDisplayAmount) : 'Not available'}
-          subtitle="Supplier-reported amount; eligibility not determined"
-          variant="fintech"
-          icon={CheckCircle2}
-        />
-        <MetricCard
-          title="ITC eligibility"
-          value="Not assessed"
-          subtitle="Review blocked credits and statutory conditions"
-          variant="default"
-          icon={Lock}
-        />
-        <MetricCard
-          title="Total Inward Supplier Bills"
-          value={gstr2bData ? `${g2bCount} Inward Records` : 'Not available'}
-          subtitle="Verified with vendor filings"
-          variant="default"
-          icon={FileText}
-        />
-      </div>
-
-      {/* ITC breakdown table (if data exists) */}
-      {gstr2bData?.rows && gstr2bData.rows.length > 0 ? (
-        <div className="bg-white rounded-xl border border-surface-border overflow-hidden shadow-xs mt-4">
-          <div className="p-3.5 bg-slate-50 border-b border-surface-border flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-800">GSTR-2B ITC Line Item Breakdown</span>
-            <span className="text-xs text-slate-500 font-mono">Period: {formatPeriod(period)}</span>
+      {/* On-demand Fetch Prompt (before user clicks Fetch) */}
+      {!gstr2bData ? (
+        <div className="p-8 bg-white rounded-xl border border-dashed border-blue-300 text-center space-y-3 shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+            <ArrowDownLeft className="w-6 h-6" />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50/50 text-slate-600 font-semibold border-b border-surface-border">
-                <tr>
-                  <th className="py-2.5 px-3.5">Table / Category</th>
-                  <th className="text-right py-2.5 px-3">Taxable Value (₹)</th>
-                  <th className="text-right py-2.5 px-3">IGST (₹)</th>
-                  <th className="text-right py-2.5 px-3">CGST (₹)</th>
-                  <th className="text-right py-2.5 px-3">SGST (₹)</th>
-                  <th className="text-right py-2.5 px-3.5">Total Tax (₹)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {gstr2bData.rows.map((r, idx) => (
-                  <tr key={idx} className="border-b border-surface-border/50 hover:bg-slate-50/50">
-                    <td className="py-2.5 px-3.5 font-medium text-slate-800">{r.label}</td>
-                    <td className="text-right py-2.5 px-3 font-mono">{formatCurrency(r.taxable || 0)}</td>
-                    <td className="text-right py-2.5 px-3 font-mono text-slate-600">{formatCurrency(r.igst || 0)}</td>
-                    <td className="text-right py-2.5 px-3 font-mono text-slate-600">{formatCurrency(r.cgst || 0)}</td>
-                    <td className="text-right py-2.5 px-3 font-mono text-slate-600">{formatCurrency(r.sgst || 0)}</td>
-                    <td className="text-right py-2.5 px-3.5 font-mono font-bold text-brand-700">
-                      {formatCurrency((r.igst || 0) + (r.cgst || 0) + (r.sgst || 0) + (r.cess || 0))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-slate-50 font-bold border-t-2 border-surface-border">
-                <tr>
-                  <td className="py-2.5 px-3.5 text-slate-900">Total ITC reported in GSTR-2B</td>
-                  <td className="text-right py-2.5 px-3 font-mono text-slate-900">{formatCurrency(g2bTotals.taxable || 0)}</td>
-                  <td className="text-right py-2.5 px-3 font-mono text-slate-900">{formatCurrency(g2bTotals.igst || 0)}</td>
-                  <td className="text-right py-2.5 px-3 font-mono text-slate-900">{formatCurrency(g2bTotals.cgst || 0)}</td>
-                  <td className="text-right py-2.5 px-3 font-mono text-slate-900">{formatCurrency(g2bTotals.sgst || 0)}</td>
-                  <td className="text-right py-2.5 px-3.5 font-mono text-brand-700">{formatCurrency(itcDisplayAmount)}</td>
-                </tr>
-              </tfoot>
-            </table>
+          <div className="space-y-1 max-w-md mx-auto">
+            <h4 className="text-sm font-semibold text-slate-800">
+              GSTR-2B Data Not Fetched Yet ({formatPeriod(period)})
+            </h4>
+            <p className="text-xs text-slate-500">
+              To save GST API usage, GSTR-2B is only fetched when you click the button below.
+            </p>
+          </div>
+          <div className="pt-1">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={otherReturnsLoading}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${otherReturnsLoading ? 'animate-spin' : ''}`} />
+              <span>{otherReturnsLoading ? 'Fetching GSTR-2B...' : 'Fetch GSTR-2B from Govt Portal'}</span>
+            </Button>
           </div>
         </div>
       ) : (
-        /* Empty state (if no data) */
-        <div className="p-6 bg-white rounded-xl border border-surface-border text-center text-xs text-slate-500">
-          No auto-drafted vendor records found in GSTR-2B for {formatPeriod(period)}. Suppliers file GSTR-1 by 11th, and GSTR-2B auto-drafts by 14th.
-        </div>
+        <>
+          {/* 3 MetricCards (ITC reported, eligibility, bills count) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <MetricCard
+              title="ITC reported in GSTR-2B"
+              value={formatCurrency(itcDisplayAmount)}
+              subtitle="Supplier-reported amount; eligibility not determined"
+              variant="fintech"
+              icon={CheckCircle2}
+            />
+            <MetricCard
+              title="ITC eligibility"
+              value="Not assessed"
+              subtitle="Review blocked credits and statutory conditions"
+              variant="default"
+              icon={Lock}
+            />
+            <MetricCard
+              title="Total Inward Supplier Bills"
+              value={`${g2bCount} Inward Records`}
+              subtitle="Verified with vendor filings"
+              variant="default"
+              icon={FileText}
+            />
+          </div>
+
+          {/* ITC breakdown table (if data exists) */}
+          {gstr2bData?.rows && gstr2bData.rows.length > 0 ? (
+            <div className="bg-white rounded-xl border border-surface-border overflow-hidden shadow-xs mt-4">
+              <div className="p-3.5 bg-slate-50 border-b border-surface-border flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800">GSTR-2B ITC Line Item Breakdown</span>
+                <span className="text-xs text-slate-500 font-mono">Period: {formatPeriod(period)}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50/50 text-slate-600 font-semibold border-b border-surface-border">
+                    <tr>
+                      <th className="py-2.5 px-3.5">Table / Category</th>
+                      <th className="text-right py-2.5 px-3">Taxable Value (₹)</th>
+                      <th className="text-right py-2.5 px-3">IGST (₹)</th>
+                      <th className="text-right py-2.5 px-3">CGST (₹)</th>
+                      <th className="text-right py-2.5 px-3">SGST (₹)</th>
+                      <th className="text-right py-2.5 px-3.5">Total Tax (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gstr2bData.rows.map((r, idx) => (
+                      <tr key={idx} className="border-b border-surface-border/50 hover:bg-slate-50/50">
+                        <td className="py-2.5 px-3.5 font-medium text-slate-800">{r.label}</td>
+                        <td className="text-right py-2.5 px-3 font-mono">{formatCurrency(r.taxable || 0)}</td>
+                        <td className="text-right py-2.5 px-3 font-mono text-slate-600">{formatCurrency(r.igst || 0)}</td>
+                        <td className="text-right py-2.5 px-3 font-mono text-slate-600">{formatCurrency(r.cgst || 0)}</td>
+                        <td className="text-right py-2.5 px-3 font-mono text-slate-600">{formatCurrency(r.sgst || 0)}</td>
+                        <td className="text-right py-2.5 px-3.5 font-mono font-bold text-brand-700">
+                          {formatCurrency((r.igst || 0) + (r.cgst || 0) + (r.sgst || 0) + (r.cess || 0))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-50 font-bold border-t-2 border-surface-border">
+                    <tr>
+                      <td className="py-2.5 px-3.5 text-slate-900">Total ITC reported in GSTR-2B</td>
+                      <td className="text-right py-2.5 px-3 font-mono text-slate-900">{formatCurrency(g2bTotals.taxable || 0)}</td>
+                      <td className="text-right py-2.5 px-3 font-mono text-slate-900">{formatCurrency(g2bTotals.igst || 0)}</td>
+                      <td className="text-right py-2.5 px-3 font-mono text-slate-900">{formatCurrency(g2bTotals.cgst || 0)}</td>
+                      <td className="text-right py-2.5 px-3 font-mono text-slate-900">{formatCurrency(g2bTotals.sgst || 0)}</td>
+                      <td className="text-right py-2.5 px-3.5 font-mono text-brand-700">{formatCurrency(itcDisplayAmount)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          ) : (
+            /* Empty state (if fetched and no data) */
+            <div className="p-6 bg-white rounded-xl border border-surface-border text-center text-xs text-slate-500">
+              No auto-drafted vendor records found in GSTR-2B for {formatPeriod(period)}. Suppliers file GSTR-1 by 11th, and GSTR-2B auto-drafts by 14th.
+            </div>
+          )}
+        </>
       )}
     </div>
   );

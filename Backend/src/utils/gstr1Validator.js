@@ -2206,7 +2206,7 @@ function validateHsn(hsn) {
   assertObjectIfPresent(hsn, 'Table 12 HSN');
   assertNonEmptyObject(hsn, 'Table 12 HSN');
 
-  assertOnlyKeys(hsn, ['flag', 'data'], 'Table 12 HSN');
+  assertOnlyKeys(hsn, ['flag', 'data', 'hsn_b2b', 'hsn_b2c'], 'Table 12 HSN');
 
   let isDeletion = false;
   if (hsn.flag !== undefined && hsn.flag !== null) {
@@ -2217,83 +2217,91 @@ function validateHsn(hsn) {
     }
   }
 
-  if (hsn.data === undefined) {
+  const arraysToCheck = [
+    { key: 'data', list: hsn.data },
+    { key: 'hsn_b2b', list: hsn.hsn_b2b },
+    { key: 'hsn_b2c', list: hsn.hsn_b2c }
+  ].filter((entry) => entry.list !== undefined);
+
+  if (arraysToCheck.length === 0) {
     if (!isDeletion) {
-      fail("GSTR-1 Schema Error (Table 12 HSN): regular HSN must contain 'data'.");
+      fail("GSTR-1 Schema Error (Table 12 HSN): regular HSN must contain 'hsn_b2b', 'hsn_b2c', or 'data'.");
     }
     return;
   }
 
-  if (!assertNonEmptyArrayIfPresent(hsn.data, 'Table 12 HSN.data')) return;
+  for (const { key, list } of arraysToCheck) {
+    if (!assertNonEmptyArrayIfPresent(list, `Table 12 HSN.${key}`)) continue;
 
-  for (let i = 0; i < hsn.data.length; i++) {
-    const h = hsn.data[i];
-    const loc = `Table 12 HSN row #${i + 1}`;
+    for (let i = 0; i < list.length; i++) {
+      const h = list[i];
+      const loc = `Table 12 HSN.${key} row #${i + 1}`;
 
-    if (!isPlainObject(h)) {
-      fail(`GSTR-1 Schema Error (${loc}): must be an object.`);
+      if (!isPlainObject(h)) {
+        fail(`GSTR-1 Schema Error (${loc}): must be an object.`);
+      }
+
+      assertOnlyKeys(h, HSN_ROW_KEYS, loc);
+      assertNonEmptyObject(h, loc);
+
+      if (isDeletion) {
+        assertDeletionFlag(h.flag, loc);
+
+        if (h.num !== undefined && h.num !== null) {
+          assertNumber(h.num, 'num', loc, { integer: true, min: 1 });
+        }
+
+        if (h.hsn_sc !== undefined && h.hsn_sc !== null && h.hsn_sc !== '') {
+          if (!HSN_RE.test(String(h.hsn_sc))) {
+            fail(`GSTR-1 Schema Error (${loc}): 'hsn_sc' must be 2-8 digits or empty. Received: "${h.hsn_sc}"`);
+          }
+        }
+
+        if (h.uqc !== undefined && h.uqc !== null) {
+          assertString(h.uqc, 'uqc', loc, { required: false, allowEmpty: false, maxLen: 30 });
+          if (!UQC_RE.test(String(h.uqc))) {
+            fail(`GSTR-1 Schema Error (${loc}): 'uqc' must contain only alphabetic characters. Received: "${h.uqc}"`);
+          }
+        }
+
+        if (h.qty !== undefined && h.qty !== null) {
+          assertNumber(h.qty, 'qty', loc, { min: HSN_QTY_MIN, max: HSN_QTY_MAX });
+        }
+
+        if (h.txval !== undefined && h.txval !== null) {
+          assertNumber(h.txval, 'txval', loc, { min: HSN_AMT_MIN, max: HSN_AMT_MAX });
+        }
+
+        if (h.val !== undefined && h.val !== null) {
+          assertNumber(h.val, 'val', loc, {
+            min: HSN_ALLOW_NEGATIVE ? -HSN_AMT_MAX : 0,
+            max: HSN_AMT_MAX
+          });
+        }
+
+        if (h.rt !== undefined && h.rt !== null) {
+          assertRate(h.rt, 'rt', loc);
+        }
+
+        for (const f of ['iamt', 'camt', 'samt', 'csamt']) {
+          if (h[f] !== undefined && h[f] !== null) {
+            assertNumber(h[f], f, loc, { min: HSN_AMT_MIN, max: HSN_AMT_MAX });
+          }
+        }
+
+        if (h.desc !== undefined && h.desc !== null) {
+          assertString(h.desc, 'desc', loc, {
+            required: false,
+            allowEmpty: false,
+            maxLen: null
+          });
+        }
+
+        continue;
+      }
+
+      validateHsnRegularRow(h, loc);
     }
-
-    assertOnlyKeys(h, HSN_ROW_KEYS, loc);
-    assertNonEmptyObject(h, loc);
-
-    if (isDeletion) {
-      assertDeletionFlag(h.flag, loc);
-
-      if (h.num !== undefined && h.num !== null) {
-        assertNumber(h.num, 'num', loc, { integer: true, min: 1 });
-      }
-
-      if (h.hsn_sc !== undefined && h.hsn_sc !== null && h.hsn_sc !== '') {
-        if (!HSN_RE.test(String(h.hsn_sc))) {
-          fail(`GSTR-1 Schema Error (${loc}): 'hsn_sc' must be 2-8 digits or empty. Received: "${h.hsn_sc}"`);
-        }
-      }
-
-      if (h.uqc !== undefined && h.uqc !== null) {
-        assertString(h.uqc, 'uqc', loc, { required: false, allowEmpty: false, maxLen: 30 });
-        if (!UQC_RE.test(String(h.uqc))) {
-          fail(`GSTR-1 Schema Error (${loc}): 'uqc' must contain only alphabetic characters. Received: "${h.uqc}"`);
-        }
-      }
-
-      if (h.qty !== undefined && h.qty !== null) {
-        assertNumber(h.qty, 'qty', loc, { min: HSN_QTY_MIN, max: HSN_QTY_MAX });
-      }
-
-      if (h.txval !== undefined && h.txval !== null) {
-        assertNumber(h.txval, 'txval', loc, { min: HSN_AMT_MIN, max: HSN_AMT_MAX });
-      }
-
-      if (h.val !== undefined && h.val !== null) {
-        assertNumber(h.val, 'val', loc, {
-          min: HSN_ALLOW_NEGATIVE ? -HSN_AMT_MAX : 0,
-          max: HSN_AMT_MAX
-        });
-      }
-
-      if (h.rt !== undefined && h.rt !== null) {
-        assertRate(h.rt, 'rt', loc);
-      }
-
-      for (const f of ['iamt', 'camt', 'samt', 'csamt']) {
-        if (h[f] !== undefined && h[f] !== null) {
-          assertNumber(h[f], f, loc, { min: HSN_AMT_MIN, max: HSN_AMT_MAX });
-        }
-      }
-
-      if (h.desc !== undefined && h.desc !== null) {
-        assertString(h.desc, 'desc', loc, {
-          required: false,
-          allowEmpty: false,
-          maxLen: null
-        });
-      }
-
-      continue;
-    }
-
-    validateHsnRegularRow(h, loc);
   }
 }
 
@@ -2597,32 +2605,23 @@ function normalizeGstr1Payload(payload, {
     }
   }
 
-  // hsn_b2b / hsn_b2c → data array and delete legacy keys
+  // Preserve post-May-2025 bifurcated hsn_b2b / hsn_b2c arrays (and pre-May-2025 hsn.data)
   if (isPlainObject(p.hsn)) {
-    const legacy = [
-      ...(Array.isArray(p.hsn.hsn_b2b) ? p.hsn.hsn_b2b : []),
-      ...(Array.isArray(p.hsn.hsn_b2c) ? p.hsn.hsn_b2c : [])
-    ];
-
-    if (legacy.length) {
-      const existing = Array.isArray(p.hsn.data) ? p.hsn.data : [];
-      const merged = [...existing, ...legacy];
-
-      p.hsn.data = merged.map((row, idx) => {
-        const r = isPlainObject(row) ? { ...row } : row;
-        if (isPlainObject(r)) {
-          r.num = idx + 1;
-          if (r.user_desc !== undefined && !r.desc) {
-            r.desc = r.user_desc;
+    for (const hsnKey of ['hsn_b2b', 'hsn_b2c', 'data']) {
+      if (Array.isArray(p.hsn[hsnKey])) {
+        p.hsn[hsnKey] = p.hsn[hsnKey].map((row, idx) => {
+          const r = isPlainObject(row) ? { ...row } : row;
+          if (isPlainObject(r)) {
+            r.num = idx + 1;
+            if (r.user_desc !== undefined && !r.desc) {
+              r.desc = r.user_desc;
+            }
+            delete r.user_desc;
           }
-          delete r.user_desc;
-        }
-        return r;
-      });
+          return r;
+        });
+      }
     }
-
-    delete p.hsn.hsn_b2b;
-    delete p.hsn.hsn_b2c;
   }
 
   // Final prune after structural normalization.

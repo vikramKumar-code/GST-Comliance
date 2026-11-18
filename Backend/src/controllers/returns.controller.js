@@ -275,7 +275,13 @@ async function writeAudit(entry) {
     const payload = { ...entry };
 
     if (paths.details && !payload.details && payload.metadata) {
-      payload.details = payload.metadata;
+      payload.details = typeof payload.metadata === 'string'
+        ? payload.metadata
+        : JSON.stringify(payload.metadata);
+    }
+
+    if (payload.details && typeof payload.details !== 'string') {
+      payload.details = JSON.stringify(payload.details);
     }
 
     if (paths.metadata && !payload.metadata && payload.details) {
@@ -407,7 +413,10 @@ async function waitForProcessed(provider, refId, ctx, label, { req } = {}) {
       gstin: ctx.gstin,
       username: ctx.username,
       token: ctx.gstToken,
-      gstToken: ctx.gstToken
+      gstToken: ctx.gstToken,
+      period: ctx.period,
+      ret_period: ctx.period,
+      returnType: label.toUpperCase().includes('3B') ? 'GSTR3B' : 'GSTR1'
     });
 
     const st = String(res?.status_cd || '').toUpperCase();
@@ -444,12 +453,34 @@ async function waitForProcessed(provider, refId, ctx, label, { req } = {}) {
     if (st === 'P') return res;
 
     if (st === 'PE' || st === 'ER') {
-      const err = ApiError.validationError(
-        `${label}: the GST portal reported processing errors. Please review the error report and correct the data.`
-      );
+      const report = res?.error_report || res?.data?.error_report || null;
+      const reportMsg =
+        report?.error_msg ||
+        report?.message ||
+        res?.data?.error?.message ||
+        res?.data?.message ||
+        (typeof report === 'string' ? report : null);
+      const reportCd =
+        res?.error_cd ||
+        report?.error_cd ||
+        res?.data?.error?.error_cd ||
+        (st === 'PE' ? 'PROCESSED_WITH_ERRORS' : 'PROCESSING_ERROR');
 
-      err.errorCd = st === 'PE' ? 'PROCESSED_WITH_ERRORS' : 'PROCESSING_ERROR';
-      err.errorReport = res?.error_report || null;
+      logger.error(`${label}: GST portal reported ${st}`, {
+        status: st,
+        error_cd: reportCd,
+        error_msg: reportMsg,
+        error_report: report
+      });
+
+      const detailMsg = reportMsg
+        ? `${label}: GST portal error (${reportCd}): ${reportMsg}`
+        : `${label}: the GST portal reported processing errors (${reportCd}). Please review the error report and correct the data.`;
+
+      const err = ApiError.validationError(detailMsg);
+
+      err.errorCd = reportCd;
+      err.errorReport = report;
 
       throw err;
     }

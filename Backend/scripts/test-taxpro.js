@@ -1003,8 +1003,8 @@ async function main() {
       gstToken: testToken
     });
     const proceedCall = fakeClient.calls[0];
-    assert.equal(proceedCall.url, '/taxpayerapi/dec/v1.0/returns/gstr');
-    assert.equal(proceedCall.config.params.action, 'PROCEEDFILE');
+    assert.equal(proceedCall.url, '/taxpayerapi/dec/v1.1/returns/gstrptf');
+    assert.equal(proceedCall.config.params.action, 'RETNEWPTF');
     assert.deepEqual(proceedCall.body, {
       gstin: '27AAAAA0000A1Z5',
       ret_period: '022022'
@@ -1020,7 +1020,7 @@ async function main() {
     assert.deepEqual(fakeClient.calls[0].body, {
       gstin: '27AAAAA0000A1Z5',
       ret_period: '022022',
-      isNil: 'Y'
+      isnil: 'Y'
     });
 
     fakeClient.setHandler(() => ({
@@ -1193,10 +1193,10 @@ async function main() {
     assert.equal(fakeClient.calls[0].config.params.action, 'RETSAVE');
     assert.equal(fakeClient.calls[0].config.headers.api_version, '4.1');
     assert.equal(fakeClient.calls[1].config.params.action, 'EVCOTP');
-    assert.equal(fakeClient.calls[1].config.params.ret_periode, period);
+    assert.equal(fakeClient.calls[1].config.params.ret_period, period);
     assert.equal(fakeClient.calls[1].config.params.form_type, 'R1');
     assert.deepEqual(Object.keys(fakeClient.calls[1].config.params).sort(), [
-      'action', 'aspid', 'form_type', 'gstin', 'authtoken', 'pan', 'ret_periode', 'username'
+      'action', 'aspid', 'form_type', 'gstin', 'authtoken', 'pan', 'ret_period', 'username'
     ].sort());
     assert.deepEqual(fakeClient.calls[1].config.headers, { password: testPassword });
     assert.equal(fakeClient.calls[2].config.params.action, 'RETSUM');
@@ -1612,9 +1612,9 @@ async function main() {
         }
       }, 'test-RET2B1023'),
       (err) => err.code === 'DATA_NOT_AVAILABLE' &&
-               err.statusCode === 404 &&
-               err.message === 'Data for this period is not available yet. Try another month.' &&
-               !err.message.includes('GSTN Error')
+        err.statusCode === 404 &&
+        err.message === 'Data for this period is not available yet. Try another month.' &&
+        !err.message.includes('GSTN Error')
     );
   });
 
@@ -2249,10 +2249,12 @@ async function main() {
         assert.equal(config.params.action, 'TP');
         assert.equal(config.params.gstin, '27AAAAA0000A1Z5');
         assert.equal(config.params.searchgstin, '27AAAAA0000A1Z5');
-        return { status: 200, data: {
-          status_cd: '1', gstin: '27AAAAA0000A1Z5', lgnm: 'Example Legal Name',
-          ctb: 'Private Limited Company', sts: 'Active', rgdt: '01/07/2017', nba: ['Wholesale Business']
-        } };
+        return {
+          status: 200, data: {
+            status_cd: '1', gstin: '27AAAAA0000A1Z5', lgnm: 'Example Legal Name',
+            ctb: 'Private Limited Company', sts: 'Active', rgdt: '01/07/2017', nba: ['Wholesale Business']
+          }
+        };
       }
     };
 

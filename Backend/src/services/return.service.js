@@ -56,6 +56,14 @@ const ZERO_TOTALS = Object.freeze({
 const ALLOW_LOCAL_SYNTHESIS =
   String(process.env.GST_ENABLE_LOCAL_RETURN_SYNTHESIS || 'true').toLowerCase() === 'true';
 
+// Credit-saving caches & in-flight deduplication (bypassed when forceSync=true or NODE_ENV=test).
+const SUMMARY_CACHE_TTL_MS = Number(process.env.GST_SUMMARY_CACHE_TTL_MS || 5 * 60 * 1000);
+const NEGATIVE_RETURN_TTL_MS = Number(process.env.GST_NEGATIVE_RETURN_TTL_MS || 10 * 60 * 1000);
+const IN_FLIGHT_RETURNS = new Map();
+const NEGATIVE_RETURN_CACHE = new Map();
+const SUMMARY_CACHE = new Map();
+const IN_FLIGHT_SUMMARY = new Map();
+
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -1449,6 +1457,68 @@ class ReturnService {
       }
     }
 
+    // Honor cachedOnly flag: never fire a live paid GSP/TaxPro API call when caller asked for cache-only.
+    if (options.cachedOnly && !options.forceSync) {
+      return {
+        type: normType,
+        period,
+        rows: [],
+        totals: { ...ZERO_TOTALS },
+        source: 'cache_miss',
+        authoritative: false,
+        stale: true,
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    const isTestEnv = process.env.NODE_ENV === 'test';
+    const dedupKey = `${normType}:${normGstin}:${period}:${options.workspaceId || ''}`;
+
+    // Skip repeated live calls for periods recently confirmed DATA_NOT_AVAILABLE unless forceSync=true.
+    if (!options.forceSync && !isTestEnv) {
+      const negEntry = NEGATIVE_RETURN_CACHE.get(dedupKey);
+      if (negEntry && Date.now() - negEntry.ts < NEGATIVE_RETURN_TTL_MS) {
+        return negEntry.fallback;
+      }
+    }
+
+    // Deduplicate simultaneous identical live fetches (e.g., React StrictMode / parallel Dashboard + Hub).
+    if (!isTestEnv && IN_FLIGHT_RETURNS.has(dedupKey)) {
+      return IN_FLIGHT_RETURNS.get(dedupKey);
+    }
+
+    const livePromise = ReturnService._fetchLiveReturn(
+      normType,
+      normGstin,
+      period,
+      gstToken,
+      options,
+      readScope,
+      writeFilter,
+      dedupKey,
+      isTestEnv
+    );
+
+    if (!isTestEnv) IN_FLIGHT_RETURNS.set(dedupKey, livePromise);
+
+    try {
+      return await livePromise;
+    } finally {
+      if (!isTestEnv) IN_FLIGHT_RETURNS.delete(dedupKey);
+    }
+  }
+
+  static async _fetchLiveReturn(
+    normType,
+    normGstin,
+    period,
+    gstToken,
+    options,
+    readScope,
+    writeFilter,
+    dedupKey,
+    isTestEnv
+  ) {
     try {
       const providerName = FinaggService.getProviderName();
 
@@ -1478,6 +1548,8 @@ class ReturnService {
           502
         );
       }
+
+      NEGATIVE_RETURN_CACHE.delete(dedupKey);
 
       try {
         const dataEnc = encrypt(mapped);
@@ -1796,7 +1868,7 @@ class ReturnService {
         }
       }
 
-      return {
+      const emptyFallback = {
         type: normType,
         period,
         rows: [],
@@ -1805,6 +1877,12 @@ class ReturnService {
         authoritative: false,
         fetchedAt: new Date().toISOString()
       };
+
+      if (!isTestEnv && error?.code === 'DATA_NOT_AVAILABLE') {
+        NEGATIVE_RETURN_CACHE.set(dedupKey, { ts: Date.now(), fallback: emptyFallback });
+      }
+
+      return emptyFallback;
     }
   }
 
@@ -1839,13 +1917,39 @@ class ReturnService {
     };
 
     try {
-      const upstream = await FinaggService.getReturnsSummary(
-        normGstin,
-        period,
-        gstToken,
-        options.username,
-        options
-      );
+      const isTestEnv = process.env.NODE_ENV === 'test';
+      const summaryCacheKey = `${normGstin}:${period || ''}`;
+      let upstream = null;
+
+      if (!options.forceSync && !isTestEnv) {
+        const cachedSummary = SUMMARY_CACHE.get(summaryCacheKey);
+        if (cachedSummary && Date.now() - cachedSummary.ts < SUMMARY_CACHE_TTL_MS) {
+          upstream = cachedSummary.data;
+        }
+      }
+
+      if (!upstream) {
+        if (!isTestEnv && IN_FLIGHT_SUMMARY.has(summaryCacheKey)) {
+          upstream = await IN_FLIGHT_SUMMARY.get(summaryCacheKey);
+        } else {
+          const fetchPromise = FinaggService.getReturnsSummary(
+            normGstin,
+            period,
+            gstToken,
+            options.username,
+            options
+          );
+          if (!isTestEnv) IN_FLIGHT_SUMMARY.set(summaryCacheKey, fetchPromise);
+          try {
+            upstream = await fetchPromise;
+            if (!isTestEnv && upstream && typeof upstream === 'object') {
+              SUMMARY_CACHE.set(summaryCacheKey, { ts: Date.now(), data: upstream });
+            }
+          } finally {
+            IN_FLIGHT_SUMMARY.delete(summaryCacheKey);
+          }
+        }
+      }
 
       if (upstream && typeof upstream === 'object') {
         summary = {

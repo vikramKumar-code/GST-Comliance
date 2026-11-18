@@ -1217,7 +1217,7 @@ class TaxProProvider {
           gstin: cleanGstin,
           username: cleanUser,
           authtoken: cleanToken,
-          ret_periode: cleanPeriod,
+          ret_period: cleanPeriod,
           form_type: formType.trim().toUpperCase()
         };
 
@@ -1563,6 +1563,18 @@ class TaxProProvider {
       Object.assign(headers, {
         txn: safeTxn
       });
+
+      if (normType === 'GSTR3B') {
+        const stateCd = typeof gstin === 'string' && gstin.length >= 2 ? gstin.slice(0, 2) : '';
+        Object.assign(headers, {
+          'state-cd': stateCd,
+          gstin,
+          ret_period: period,
+          api_version: '0.3',
+          userrole: 'GSTR3B',
+          rtn_typ: 'GSTR3B'
+        });
+      }
     }
 
     try {
@@ -1754,6 +1766,8 @@ class TaxProProvider {
     }
 
     const path = '/taxpayerapi/dec/v1.1/returns';
+    const cleanPeriod = String(options.ret_period || options.period || '').trim();
+    const rtnTyp = String(options.returnType || options.rtn_typ || 'GSTR1').trim().toUpperCase();
 
     const params = {
       action: 'RETSTATUS',
@@ -1761,6 +1775,7 @@ class TaxProProvider {
       username,
       ref_id: effectiveRefId,
       reference_id: effectiveRefId,
+      ...(cleanPeriod ? { ret_period: cleanPeriod } : {}),
       ...(options.isSync ? { isSync: options.isSync } : {})
     };
 
@@ -1780,6 +1795,10 @@ class TaxProProvider {
       authtoken: token,
       'state-cd': stateCd,
       gstin: cleanGstin,
+      ...(cleanPeriod ? { ret_period: cleanPeriod } : {}),
+      api_version: this.apiProfile === 'current' ? '1.1' : '0.3',
+      userrole: rtnTyp,
+      rtn_typ: rtnTyp,
       txn: safeTxn
     };
 
@@ -1843,37 +1862,48 @@ class TaxProProvider {
     const cleanToken = token.trim();
     const stateCd = cleanGstin.slice(0, 2);
 
+    const baseBody = {
+      gstin: cleanGstin,
+      ret_period: cleanPeriod,
+      ...(options.form_no ? { form_no: options.form_no, FormNo: options.form_no } : {}),
+      ...(options.payload ? { jGSTR: options.payload } : {})
+    };
+
     const candidateConfigs = [
-      {
-        path: '/taxpayerapi/dec/v1.0/returns/gstr',
-        action: 'PROCEEDFILE',
-        apiVersion: '1.0'
-      },
       {
         path: '/taxpayerapi/dec/v1.1/returns/gstrptf',
         action: 'RETNEWPTF',
-        apiVersion: '1.1'
+        apiVersion: '1.1',
+        body: options.isNil === true ? { ...baseBody, isnil: 'Y' } : baseBody
+      },
+      ...(options.isNil === true
+        ? [{
+          path: '/taxpayerapi/dec/v1.1/returns/gstrptf',
+          action: 'RETNEWPTF',
+          apiVersion: '1.1',
+          body: baseBody
+        }]
+        : []),
+      {
+        path: '/taxpayerapi/dec/v1.0/returns/gstr',
+        action: 'PROCEEDFILE',
+        apiVersion: '1.0',
+        body: options.isNil === true ? { ...baseBody, isNil: 'Y' } : baseBody
       },
       {
         path: '/taxpayerapi/dec/v1.1/returns/gstr',
         action: 'PROCEEDFILE',
-        apiVersion: '1.1'
+        apiVersion: '1.1',
+        body: options.isNil === true ? { ...baseBody, isnil: 'Y' } : baseBody
       }
     ];
-
-    const body = {
-      gstin: cleanGstin,
-      ret_period: cleanPeriod,
-      ...(options.form_no ? { form_no: options.form_no, FormNo: options.form_no } : {}),
-      ...(options.isNil === true ? { isNil: 'Y' } : {}),
-      ...(options.payload ? { jGSTR: options.payload } : {})
-    };
 
     let lastError = null;
 
     for (const config of candidateConfigs) {
       const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
       const path = config.path;
+      const body = config.body;
 
       const params = {
         action: config.action,
@@ -1888,6 +1918,8 @@ class TaxProProvider {
         params.authtoken = cleanToken;
       }
 
+      const ipUsr = this.getIpUsr();
+
       const headers = {
         aspid: this.getAspid(),
         password: this.getPassword(),
@@ -1900,6 +1932,7 @@ class TaxProProvider {
         api_version: config.apiVersion,
         'state-cd': stateCd,
         txn: safeTxn,
+        ...(ipUsr ? { 'ip-usr': ipUsr } : {}),
         'Content-Type': 'application/json'
       };
 
@@ -1923,10 +1956,17 @@ class TaxProProvider {
         };
       } catch (error) {
         lastError = error;
+        const errCd = getErrCd(error);
 
-        logger.debug(`proceedToFile via ${path} (${config.action}) note: ${safeErrorMessage(error)}`);
+        logger.warn(`proceedToFile via ${path} (${config.action}) failed`, {
+          error_cd: errCd,
+          bodyKeys: Object.keys(body),
+          message: safeErrorMessage(error)
+        });
 
-        if (!isSafeConfigRetryError(error)) break;
+        // RET000083 is a pre-execution JSON schema validation rejection (no mutation occurred),
+        // so trying the alternate payload shape / route candidate is safe.
+        if (!isSafeConfigRetryError(error) && errCd !== 'RET000083') break;
       }
     }
 
@@ -2586,6 +2626,8 @@ class TaxProProvider {
 
     const apiVersion = this.apiProfile === 'current' ? '7.1' : '0.3';
 
+    const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
+
     const headers = this.apiProfile === 'current'
       ? this.getCurrentGstr3bHeaders(gstin, username, token)
       : {
@@ -2598,13 +2640,24 @@ class TaxProProvider {
         userrole: 'GSTR3B',
         api_version: apiVersion,
         'state-cd': gstin.slice(0, 2),
+        txn: safeTxn,
         'Content-Type': 'application/json'
       };
 
     try {
       logger.debug(`TaxPro GSTR-3B RETSAVE dispatched for period ${period}`);
 
-      const response = await this.httpClient.post(path, payload, { params, headers });
+      let response;
+      try {
+        response = await this.httpClient.put(path, payload, { params, headers });
+      } catch (putErr) {
+        if (putErr?.response?.status === 405) {
+          logger.warn('TaxPro GSTR-3B RETSAVE PUT returned 405; retrying with POST');
+          response = await this.httpClient.post(path, payload, { params, headers });
+        } else {
+          throw putErr;
+        }
+      }
       const data = checkTaxProResponse(response.data, 'saveGstr3b');
       const refId = requireReferenceId(data, 'TaxPro GSTR-3B RETSAVE');
 
@@ -2738,6 +2791,7 @@ class TaxProProvider {
       };
 
     const apiVersion = this.apiProfile === 'current' ? '7.1' : '0.3';
+    const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
 
     const headers = this.apiProfile === 'current'
       ? this.getCurrentGstr3bHeaders(gstin, username, token)
@@ -2751,6 +2805,7 @@ class TaxProProvider {
         userrole: 'GSTR3B',
         api_version: apiVersion,
         'state-cd': gstin.slice(0, 2),
+        txn: safeTxn,
         'Content-Type': 'application/json'
       };
 
@@ -2842,6 +2897,7 @@ class TaxProProvider {
     params.sid = `${cleanPan}|${cleanOtp}`;
 
     const apiVersion = this.apiProfile === 'current' ? '7.1' : '0.3';
+    const safeTxn = crypto.randomUUID().replace(/-/g, '').toLowerCase();
 
     const headers = this.apiProfile === 'current'
       ? this.getCurrentGstr3bHeaders(gstin, username, token)
@@ -2855,6 +2911,7 @@ class TaxProProvider {
         userrole: 'GSTR3B',
         api_version: apiVersion,
         'state-cd': gstin.slice(0, 2),
+        txn: safeTxn,
         'Content-Type': 'application/json'
       };
 

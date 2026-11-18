@@ -522,23 +522,85 @@ export function useReturnData(period, externalExcludedIds) {
     }
   }, []);
 
-  // Compatibility wrappers. These intentionally refresh both 2B and 3B
-  // to avoid loading-state races from parallel independent fetches.
-  const fetchGstr2bData = useCallback(
-    async (p) => {
-      await fetchOtherReturns(p);
-      return gstr2bData;
-    },
-    [fetchOtherReturns, gstr2bData]
-  );
+  // Individual on-demand fetchers so clicking GSTR-2B only hits GSTR-2B
+  // and clicking GSTR-3B only hits GSTR-3B (saves paid GST API credits).
+  const fetchGstr2bData = useCallback(async (p) => {
+    const targetPeriod = p || periodRef.current;
+    if (!targetPeriod) return null;
 
-  const fetchGstr3bData = useCallback(
-    async (p) => {
-      await fetchOtherReturns(p);
-      return gstr3bData;
-    },
-    [fetchOtherReturns, gstr3bData]
-  );
+    const requestId = ++otherReturnsRequestId.current;
+    setOtherReturnsLoading(true);
+    setOtherReturnsError(null);
+
+    try {
+      const data = await getGstr2b(targetPeriod);
+
+      if (!mountedRef.current || requestId !== otherReturnsRequestId.current) {
+        return null;
+      }
+
+      setGstr2bData(data || null);
+      setOtherReturnsError(null);
+      return data || null;
+    } catch (err) {
+      if (!mountedRef.current || requestId !== otherReturnsRequestId.current) {
+        return null;
+      }
+
+      const normalized = makeApiError(err);
+      setGstr2bData(null);
+
+      if (!isNotFound(normalized)) {
+        setOtherReturnsError(normalized);
+      } else {
+        setOtherReturnsError(null);
+      }
+      return null;
+    } finally {
+      if (mountedRef.current && requestId === otherReturnsRequestId.current) {
+        setOtherReturnsLoading(false);
+      }
+    }
+  }, []);
+
+  const fetchGstr3bData = useCallback(async (p) => {
+    const targetPeriod = p || periodRef.current;
+    if (!targetPeriod) return null;
+
+    const requestId = ++otherReturnsRequestId.current;
+    setOtherReturnsLoading(true);
+    setOtherReturnsError(null);
+
+    try {
+      const data = await getGstr3b(targetPeriod);
+
+      if (!mountedRef.current || requestId !== otherReturnsRequestId.current) {
+        return null;
+      }
+
+      setGstr3bData(data || null);
+      setOtherReturnsError(null);
+      return data || null;
+    } catch (err) {
+      if (!mountedRef.current || requestId !== otherReturnsRequestId.current) {
+        return null;
+      }
+
+      const normalized = makeApiError(err);
+      setGstr3bData(null);
+
+      if (!isNotFound(normalized)) {
+        setOtherReturnsError(normalized);
+      } else {
+        setOtherReturnsError(null);
+      }
+      return null;
+    } finally {
+      if (mountedRef.current && requestId === otherReturnsRequestId.current) {
+        setOtherReturnsLoading(false);
+      }
+    }
+  }, []);
 
   /* ------------------------------------------------------------------------ */
   /* Refresh helpers                                                          */
@@ -599,17 +661,13 @@ export function useReturnData(period, externalExcludedIds) {
         viewModeRef.current === 'taxpro' && portalSessionRef.current;
 
       await fetchGstr1Data(periodRef.current, undefined, shouldFetchLive);
-
-      if (portalSessionRef.current) {
-        await fetchOtherReturns(periodRef.current);
-      }
     } catch (err) {
       const normalized = makeApiError(err, 'Failed to generate sample invoices.');
       setSeedSuccessMsg(normalized?.message || 'Failed to generate sample invoices.');
     } finally {
       setSeeding(false);
     }
-  }, [fetchGstr1Data, fetchOtherReturns]);
+  }, [fetchGstr1Data]);
 
   /* ------------------------------------------------------------------------ */
   /* Exclusion handlers                                                       */
@@ -708,18 +766,14 @@ export function useReturnData(period, externalExcludedIds) {
     fetchGstr1Data
   ]);
 
-  // GSTR-2B / GSTR-3B fetch only when portal session exists.
+  // Reset GSTR-2B / GSTR-3B data on period or portal session change.
+  // Do NOT auto-fetch from Govt Portal — user must explicitly click the Fetch button to save API credits.
   useEffect(() => {
-    if (!period || !user?.hasPortalSession) {
-      setOtherReturnsLoading(false);
-      setOtherReturnsError(null);
-      return;
-    }
-
-    fetchOtherReturns(period).catch(() => {
-      // Error state is handled inside fetchOtherReturns.
-    });
-  }, [period, user?.hasPortalSession, fetchOtherReturns]);
+    setGstr2bData(null);
+    setGstr3bData(null);
+    setOtherReturnsLoading(false);
+    setOtherReturnsError(null);
+  }, [period, user?.hasPortalSession]);
 
   /* ------------------------------------------------------------------------ */
   /* Derived GSTR-1 local prepare data                                        */

@@ -492,9 +492,35 @@ function normalizeUpdate(update) {
   normalizeSetTarget(update);
 }
 
-function normalizeQueryUpdate(next) {
+function normalizeQueryUpdate() {
   normalizeUpdate(this.getUpdate());
-  next();
+}
+
+function getValidatorField(ctx, field) {
+  if (!ctx) return undefined;
+
+  if (typeof ctx.getUpdate === 'function') {
+    const update = ctx.getUpdate() || {};
+
+    if (Array.isArray(update)) {
+      for (const stage of update) {
+        if (stage?.$set && stage.$set[field] !== undefined) return stage.$set[field];
+        if (stage?.$setOnInsert && stage.$setOnInsert[field] !== undefined) return stage.$setOnInsert[field];
+      }
+      return undefined;
+    }
+
+    if (update.$set && update.$set[field] !== undefined) return update.$set[field];
+    if (update.$setOnInsert && update.$setOnInsert[field] !== undefined) return update.$setOnInsert[field];
+    if (update[field] !== undefined) return update[field];
+
+    const queryFilter = typeof ctx.getQuery === 'function' ? ctx.getQuery() : null;
+    if (queryFilter && queryFilter[field] !== undefined) return queryFilter[field];
+
+    return undefined;
+  }
+
+  return ctx[field];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -546,7 +572,7 @@ const filingSchema = new mongoose.Schema(
       set: normalizeOptionalString,
       validate: {
         validator: function validateArnForFiled(value) {
-          if (this.status !== 'Filed') return true;
+          if (getValidatorField(this, 'status') !== 'Filed') return true;
           return typeof value === 'string' && value.trim().length > 0;
         },
         message: 'ARN is required when filing status is Filed.'
@@ -575,10 +601,19 @@ const filingSchema = new mongoose.Schema(
         validator: function validateReferenceForIntermediateStates(value) {
           if (!REFERENCE_REQUIRED_STATUSES.has(value)) return true;
 
+          const referenceId = getValidatorField(this, 'referenceId');
+          const providerRefs = getValidatorField(this, 'providerRefs');
+          const saveRef =
+            providerRefs?.saveReferenceId ||
+            getValidatorField(this, 'providerRefs.saveReferenceId');
+          const submitRef =
+            providerRefs?.submitReferenceId ||
+            getValidatorField(this, 'providerRefs.submitReferenceId');
+
           return Boolean(
-            this.referenceId ||
-            this.providerRefs?.saveReferenceId ||
-            (value === 'Submitted' && this.providerRefs?.submitReferenceId)
+            referenceId ||
+            saveRef ||
+            (value === 'Submitted' && submitRef)
           );
         },
         message:
@@ -623,7 +658,7 @@ const filingSchema = new mongoose.Schema(
       default: false,
       validate: {
         validator: function validateDeclarationForFiled(value) {
-          if (this.status !== 'Filed') return true;
+          if (getValidatorField(this, 'status') !== 'Filed') return true;
           return value === true;
         },
         message:
@@ -779,7 +814,7 @@ const filingSchema = new mongoose.Schema(
         },
         {
           validator: function validatePayloadHashForReadyToEVC(v) {
-            if (this.status !== 'ReadyToEVC') return true;
+            if (getValidatorField(this, 'status') !== 'ReadyToEVC') return true;
             return Boolean(v);
           },
           message:
@@ -871,7 +906,7 @@ const filingSchema = new mongoose.Schema(
 /* Pre-validation normalization for save()                                    */
 /* -------------------------------------------------------------------------- */
 
-filingSchema.pre('validate', function normalizeBeforeValidate(next) {
+filingSchema.pre('validate', function normalizeBeforeValidate() {
   this.gstin = normalizeUpperString(this.gstin);
   this.type = normalizeUpperString(this.type);
   this.period = normalizeOptionalString(this.period) ?? this.period;
@@ -928,8 +963,6 @@ filingSchema.pre('validate', function normalizeBeforeValidate(next) {
       this.referenceId = this.providerRefs.submitReferenceId;
     }
   }
-
-  next();
 });
 
 /* -------------------------------------------------------------------------- */

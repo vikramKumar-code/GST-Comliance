@@ -88,7 +88,7 @@ For the **legacy** GSTR-1 profile, RETSAVE, RETSUM, and RETFILE use
 `/taxpayerapi/dec/v2.0/returns/gstr1` with `api_version: 2.1`, matching the
 selected catalogue. For the **current** GSTR-1 profile, the adapter uses the TaxPro-confirmed
 `/taxpayerapi/dec/v4.1/returns/gstr1` route for RETSUM, EVCOTP, and RETFILE,
-along with the collection's EVCOTP `ret_periode` and `form_type` query fields.
+along with the collection's EVCOTP `ret_period` and `form_type` query fields.
 Current-profile EVCOTP does not retry alternate paths/parameter spellings,
 avoiding duplicate OTP dispatches if a request succeeds but its response is
 lost. The current profile is not selected by this legacy alignment.
