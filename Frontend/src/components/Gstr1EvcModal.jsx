@@ -1240,10 +1240,10 @@ export default function Gstr1EvcModal({
                     required
                     maxLength={8}
                     value={otpInput}
-                    onChange={(e) => setOtpInput(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
+                    onChange={(e) => setOtpInput(e.target.value.replace(/[^A-Za-z0-9]/g, ''))}
                     inputMode="text"
                     autoComplete="one-time-code"
-                    autoCapitalize="characters"
+                    autoCapitalize="off"
                     spellCheck={false}
                     pattern="[A-Za-z0-9]{4,8}"
                     title="Enter 4 to 8 letters or digits"

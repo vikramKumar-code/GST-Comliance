@@ -434,11 +434,18 @@ function shortHash(value) {
 const SEC_NM_ENUM = new Set([
   'AT', 'ATA', 'CDNUR', 'B2BA_4A', 'CDNURA', 'B2BA_4B', 'EXP', 'B2BA_6C', 'EXPA',
   'B2BA_SEZWOP', 'B2BA_SEZWP', 'B2B_4A', 'B2B_4B', 'B2B_6C', 'B2B_SEZWOP', 'B2B_SEZWP',
-  'B2CL', 'B2CLA', 'B2CS', 'B2CSA', 'HSN', 'NIL', 'TTL_LIAB', 'TXPD', 'TXPDA',
-  'DOC_ISSUE', 'CDNR', 'CDNRA', 'B2B', 'B2BA', 'SUPECOM', 'SUPECOMA', 'ECOM', 'ECOMA',
+  'B2B_DE', 'B2BA_DE',
+  'B2CL', 'B2CLA', 'B2CS', 'B2CSA',
+  'HSN', 'HSN_B2B', 'HSN_B2C', 'HSN_B2BA', 'HSN_B2CA',
+  'NIL', 'TTL_LIAB', 'TXPD', 'TXPDA',
+  'DOC_ISSUE', 'CDNR', 'CDNRA', 'B2B', 'B2BA',
+  'SUPECOM', 'SUPECOMA', 'SUPECOM_52', 'SUPECOM_95', 'SUPECOMA_52', 'SUPECOMA_95',
+  'ECOM', 'ECOMA',
   'ECOM_REG', 'ECOM_DE', 'ECOM_SEZWOP', 'ECOM_SEZWP', 'ECOM_UNREG',
   'ECOMA_REG', 'ECOMA_DE', 'ECOMA_SEZWOP', 'ECOMA_SEZWP', 'ECOMA_UNREG'
 ]);
+
+const SEC_NM_PATTERN = /^[A-Z][A-Z0-9_]{0,31}$/;
 
 function isMultipleOf01(val) {
   if (typeof val !== 'number' || !Number.isFinite(val)) return false;
@@ -469,7 +476,11 @@ function validateGstr1SummarySection(section, loc) {
   }
 
   if (section.sec_nm && !SEC_NM_ENUM.has(section.sec_nm)) {
-    throw ApiError.providerError(`Summary ${loc}: invalid sec_nm '${section.sec_nm}'.`, 502);
+    if (typeof section.sec_nm === 'string' && SEC_NM_PATTERN.test(section.sec_nm)) {
+      logger.warn(`Summary ${loc}: unrecognized GSTN sec_nm '${section.sec_nm}', allowing.`);
+    } else {
+      throw ApiError.providerError(`Summary ${loc}: invalid sec_nm '${section.sec_nm}'.`, 502);
+    }
   }
 
   if (section.chksum !== undefined && typeof section.chksum !== 'string') {
